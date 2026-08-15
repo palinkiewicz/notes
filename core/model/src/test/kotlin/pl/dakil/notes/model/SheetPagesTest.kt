@@ -236,19 +236,17 @@ class SheetPagesTest {
     }
 
     @Test
-    fun `pages the text flows through cannot be reordered`() {
+    fun `only the ends of the note lock a reorder arrow`() {
+        // Unlike duplicate and remove, a swap changes no page's existence, so the only page that
+        // cannot move up is the first and the only one that cannot move down is the last.
         val sheet = Sheet(contentHeight = pageHeight * 2.5f).withPages(5)
-        assertFalse(sheet.canMovePageUp(3))  // page 2 is text
-        assertTrue(sheet.canMovePageUp(4))
-        assertTrue(sheet.canMovePageDown(3))
-        assertFalse(sheet.canMovePageDown(4)) // nothing after it
-    }
+        val last = sheet.pageCount() - 1
 
-    @Test
-    fun `the first page can never move up and the last can never move down`() {
-        val sheet = drawingSheet()
         assertFalse(sheet.canMovePageUp(0))
-        assertFalse(sheet.canMovePageDown(sheet.pageCount() - 1))
+        for (i in 1..last) assertTrue("page $i should move up", sheet.canMovePageUp(i))
+
+        assertFalse(sheet.canMovePageDown(last))
+        for (i in 0 until last) assertTrue("page $i should move down", sheet.canMovePageDown(i))
     }
 
     @Test

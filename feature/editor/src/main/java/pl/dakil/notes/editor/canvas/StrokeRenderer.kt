@@ -52,8 +52,11 @@ class StrokeRenderer {
         docBottom: Float = Float.MAX_VALUE,
     ) {
         for (stroke in strokes) {
-            val bounds = stroke.bounds
-            if (bounds.bottom < docTop || bounds.top > docBottom) continue
+            // Assigned to pages by the centreline, not the inked extent. A stroke cut at a page
+            // boundary ends exactly on it, and judging by the inked extent would place it on both
+            // pages — painting the lower half of its end cap as a dot at the top of the page below.
+            val core = stroke.coreBounds
+            if (core.bottom <= docTop || core.top >= docBottom) continue
             drawStroke(stroke, ptToPx, toStripPx, opacity)
         }
     }

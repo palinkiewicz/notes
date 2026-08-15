@@ -177,11 +177,18 @@ data class Sheet(
     /** Whether removing page [index] would leave at least one page standing. */
     fun canRemovePage(index: Int): Boolean = canEditPage(index) && pageCount() > 1
 
-    /** Whether page [index] can trade places with the one before it. */
-    fun canMovePageUp(index: Int): Boolean = canEditPage(index) && canEditPage(index - 1)
+    /**
+     * Whether page [index] can trade places with the one before it — that is, unless it is first.
+     *
+     * Reordering is not held to [canEditPage] the way duplicate and remove are. Swapping exchanges
+     * what is *on* two pages without changing how many there are, so nothing slides out from under
+     * anything: the only page you cannot move up is the one with nothing above it. The Markdown
+     * flow does not move with a swap, since it is one continuous flow rather than a per-page thing.
+     */
+    fun canMovePageUp(index: Int): Boolean = index in 1 until pageCount()
 
-    /** Whether page [index] can trade places with the one after it. */
-    fun canMovePageDown(index: Int): Boolean = canEditPage(index) && canEditPage(index + 1)
+    /** Whether page [index] can trade places with the one after it — that is, unless it is last. */
+    fun canMovePageDown(index: Int): Boolean = index in 0 until pageCount() - 1
 
     /**
      * Inserts a copy of page [index] directly after it, sliding everything below down one page.
@@ -232,7 +239,8 @@ data class Sheet(
      * rest.
      */
     fun withPagesSwapped(a: Int, b: Int): Sheet {
-        if (a == b || !canEditPage(a) || !canEditPage(b)) return this
+        val range = 0 until pageCount()
+        if (a == b || a !in range || b !in range) return this
         val height = format.height
         val first = minOf(a, b)
         val second = maxOf(a, b)

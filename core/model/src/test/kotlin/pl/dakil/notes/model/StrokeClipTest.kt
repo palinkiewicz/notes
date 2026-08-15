@@ -106,6 +106,33 @@ class StrokeClipTest {
     }
 
     @Test
+    fun `a stroke grazing the boundary leaves no offcut behind`() {
+        // The residue that made a removed page look half-deleted: a segment that barely crosses
+        // leaves a piece of no length on the far side, which renders as a dot.
+        val pieces = stroke(99.999f, 500f).clippedToBand(0f, 100f)
+        assertTrue("a sub-quantisation offcut is not a mark", pieces.isEmpty())
+    }
+
+    @Test
+    fun `a deliberate dot inside the band is never mistaken for an offcut`() {
+        // A tap is two coincident points and has no extent either, so it has to be recognised by
+        // the fact that nothing was cut rather than by its size.
+        val dot = stroke(50f, 50f)
+        assertEquals(listOf(dot), dot.clippedToBand(0f, 100f))
+    }
+
+    @Test
+    fun `a cut stroke does not belong to the page it only touches`() {
+        // What actually put dots on the page below: bounds are inflated by half the stroke width,
+        // so a stroke ending exactly on the boundary overlapped the next page and painted the lower
+        // half of its end cap there.
+        val cut = stroke(50f, 150f).clippedToBand(0f, 100f).single()
+
+        assertTrue("the inked extent does reach past the boundary", cut.bounds.bottom > 100f)
+        assertEquals("but the stroke itself stops at it", 100f, cut.coreBounds.bottom, 0.01f)
+    }
+
+    @Test
     fun `style is carried onto every piece`() {
         val s = Stroke(
             ToolId.HIGHLIGHTER, 0x66FFE14D, 16f, BlendId.MULTIPLY,

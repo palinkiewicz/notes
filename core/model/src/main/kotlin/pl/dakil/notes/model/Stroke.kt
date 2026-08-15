@@ -93,6 +93,22 @@ class Stroke(
         Rect(minX, minY, maxX, maxY).inflate(width * 0.5f + 0.5f)
     }
 
+    /**
+     * The bounding box of the centreline alone, with no allowance for drawn width.
+     *
+     * Distinct from [bounds] because they answer different questions. [bounds] asks "where might
+     * this stroke put ink", which is what hit-testing and invalidation need. This asks "where is
+     * this stroke", which is what deciding *which page it is on* needs — and the difference is
+     * exactly half a stroke width, which is the size of an end cap. Using the inflated box to
+     * assign a stroke to a page draws the cap of a stroke that merely ends at the page boundary as
+     * a disc on the page below.
+     */
+    val coreBounds: Rect by lazy(LazyThreadSafetyMode.NONE) {
+        if (xs.isEmpty()) return@lazy Rect.ZERO
+        val pad = width * 0.5f + 0.5f
+        bounds.inflate(-pad)
+    }
+
     /** Drawn width at point [i], in points. */
     fun widthAt(i: Int): Float = width * (widthFactors?.get(i) ?: 1f)
 
@@ -134,11 +150,17 @@ class Stroke(
         if (n == 0) return emptyList()
         if (n == 1) return if (ys[0] in top..bottom) listOf(this) else emptyList()
 
+        // Nothing to cut: hand back the original untouched, so a deliberate dot — two coincident
+        // points — is never mistaken for the degenerate offcut filtered out below.
+        if (ys.all { it in top..bottom }) return listOf(this)
+
         val out = ArrayList<Stroke>(1)
         var run: Run? = null
 
         fun flush() {
-            run?.let { if (it.size >= 2) out += it.toStroke(this) }
+            // A segment grazing the boundary produces a piece of no length, which would render as
+            // a dot on an otherwise empty page. It is an artefact of the cut, not part of the mark.
+            run?.let { if (it.size >= 2 && it.extent() > MIN_PIECE) out += it.toStroke(this) }
             run = null
         }
 
@@ -214,6 +236,24 @@ class Stroke(
             times = if (source.times != null) times.copyOf(size) else null,
         )
 
+        /** Longest side of the piece's bounding box, in points. */
+        fun extent(): Float {
+            var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
+            var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+            for (i in 0 until size) {
+                if (xs[i] < minX) minX = xs[i]
+                if (xs[i] > maxX) maxX = xs[i]
+                if (ys[i] < minY) minY = ys[i]
+                if (ys[i] > maxY) maxY = ys[i]
+            }
+            return maxOf(maxX - minX, maxY - minY)
+        }
+
         private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+    }
+
+    private companion object {
+        /** Below this a cut offcut is not a mark, in points. Coordinates quantise to 1/32 pt. */
+        const val MIN_PIECE = 0.05f
     }
 }
