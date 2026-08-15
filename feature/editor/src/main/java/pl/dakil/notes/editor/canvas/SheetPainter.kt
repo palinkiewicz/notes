@@ -30,8 +30,14 @@ object SheetPainter {
     /** Rule thickness in pixels, held constant so zooming does not fatten the paper. */
     private const val LINE_PX = 1f
 
-    /** Gap between pages in paged view, in points. */
-    const val PAGE_GAP_PT = 24f
+    /**
+     * Gap between pages in paged view, in points.
+     *
+     * Sized so the page header has somewhere to sit. It is presentation only — [stripPxToDocumentY]
+     * subtracts it back out — so widening it moves nothing in the document and changes nothing
+     * about what prints.
+     */
+    const val PAGE_GAP_PT = 40f
 
     /**
      * @param zoom the scale the sheet will be placed at. The paper is drawn in unzoomed document
@@ -44,13 +50,12 @@ object SheetPainter {
         format: PageFormat,
         pageCount: Int,
         ptToPx: Float,
-        darkTheme: Boolean,
         paged: Boolean,
         zoom: Float = 1f,
         visibleTopPx: Float = 0f,
         visibleBottomPx: Float = size.height,
     ) {
-        val paper = Color(if (darkTheme) format.background.darkColor else format.background.color)
+        val paper = Color(format.background.color)
         val pageHeightPx = format.height * ptToPx
         val gapPx = if (paged) PAGE_GAP_PT * ptToPx else 0f
         val hairline = LINE_PX / zoom
@@ -65,12 +70,12 @@ object SheetPainter {
             // The pattern is clipped to its own page so rules never run through the gap between
             // sheets — which is what makes paged view look like paper rather than a striped wall.
             clipRect(top = top, bottom = bottom) {
-                drawPattern(format, ptToPx, top, pageHeightPx, darkTheme, zoom, hairline)
+                drawPattern(format, ptToPx, top, pageHeightPx, zoom, hairline)
             }
 
             if (paged) {
                 drawRect(
-                    color = if (darkTheme) Color(0x33FFFFFF) else Color(0x22000000),
+                    color = Color(0x22000000),
                     topLeft = Offset(0f, top),
                     size = Size(size.width, pageHeightPx),
                     style = Stroke(width = hairline),
@@ -122,7 +127,6 @@ object SheetPainter {
         ptToPx: Float,
         pageTopPx: Float,
         pageHeightPx: Float,
-        darkTheme: Boolean,
         zoom: Float,
         hairline: Float,
     ) {
@@ -134,10 +138,9 @@ object SheetPainter {
         // read as rules once the sheet is scaled, and below a few pixels apart they read as a wash.
         if (spacingPx * zoom < MIN_VISIBLE_SPACING_PX) return
 
-        val adapt = darkTheme && format.background.adaptPatternToDark
         val alpha = pattern.opacity.coerceIn(0f, 1f)
-        val color = adaptedColor(pattern.color, adapt).copy(alpha = alpha)
-        val marginColor = adaptedColor(pattern.marginColor, adapt).copy(alpha = alpha)
+        val color = Color(pattern.color).copy(alpha = alpha)
+        val marginColor = Color(pattern.marginColor).copy(alpha = alpha)
 
         val width = size.width
         when (pattern.type) {
@@ -220,16 +223,4 @@ object SheetPainter {
     }
 
     private const val MAX_LINES = 4_000
-
-    /** Pulls a light-paper rule colour toward white so it reads correctly on dark paper. */
-    private fun adaptedColor(argb: Int, adapt: Boolean): Color {
-        val base = Color(argb)
-        if (!adapt) return base
-        return Color(
-            red = base.red + (1f - base.red) * 0.35f,
-            green = base.green + (1f - base.green) * 0.35f,
-            blue = base.blue + (1f - base.blue) * 0.35f,
-            alpha = 1f,
-        )
-    }
 }

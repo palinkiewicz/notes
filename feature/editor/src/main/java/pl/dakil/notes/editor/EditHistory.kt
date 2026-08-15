@@ -3,6 +3,7 @@ package pl.dakil.notes.editor
 import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
+import pl.dakil.notes.model.Sheet
 
 /**
  * A reversible document edit.
@@ -48,6 +49,18 @@ sealed interface Edit {
 
         override fun mergeWith(next: Edit): Edit? =
             if (next is SetText) SetText(before, next.after) else null
+    }
+
+    /**
+     * A whole-sheet swap, for edits that move many blocks at once.
+     *
+     * Duplicating or removing a page shifts every stroke below it, so there is no smaller unit to
+     * record. Holding both sheets costs the stroke *lists* twice, not the strokes: they are shared
+     * immutable objects, and only the ones that actually moved are new.
+     */
+    data class ReplaceSheet(val before: Sheet, val after: Sheet) : Edit {
+        override fun apply(note: Note): Note = note.withSheet(after)
+        override fun invert(): Edit = ReplaceSheet(after, before)
     }
 
     /** Adding or removing blank pages at the end of the sheet. */

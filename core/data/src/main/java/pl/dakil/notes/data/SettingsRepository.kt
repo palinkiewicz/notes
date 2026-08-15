@@ -175,7 +175,6 @@ class SettingsRepository(context: Context) {
         val defaults = PageBackground.DEFAULT
         return PageBackground(
             color = prefs.getInt(KEY_BG_LIGHT, defaults.color),
-            darkColor = prefs.getInt(KEY_BG_DARK, defaults.darkColor),
             pattern = PagePattern(
                 type = PatternType.fromKey(prefs.getString(KEY_PATTERN_TYPE, "none") ?: "none"),
                 spacing = prefs.getFloat(KEY_PATTERN_SPACING, 24f),

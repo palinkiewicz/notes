@@ -458,8 +458,6 @@ class DakNoteRoundTripTest {
             format = note.sheet.format.copy(
                 background = PageBackground(
                     color = 0xFFEDE7D9.toInt(),
-                    darkColor = 0xFF0B0F14.toInt(),
-                    adaptPatternToDark = false,
                     pattern = PagePattern(
                         type = PatternType.RULED,
                         spacing = 19f,
@@ -474,8 +472,6 @@ class DakNoteRoundTripTest {
         val bg = roundTrip(note.withSheet(customised)).sheet.format.background
 
         assertEquals(0xFFEDE7D9.toInt(), bg.color)
-        assertEquals(0xFF0B0F14.toInt(), bg.darkColor)
-        assertFalse(bg.adaptPatternToDark)
         assertEquals(0x99A3C77E.toInt(), bg.pattern.color)
         assertEquals(0xFF2E86C1.toInt(), bg.pattern.marginColor)
         assertEquals(0.62f, bg.pattern.opacity, 1e-3f)

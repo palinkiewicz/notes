@@ -38,13 +38,22 @@ class StrokeRenderer {
      * Culling by the stroke's cached bounds is what makes a zoomed-in view of a dense page cost the
      * same as an empty one.
      */
+    /**
+     * @param docTop,docBottom the band of document y this pass is allowed to draw, in points. A
+     *   stroke outside it is skipped entirely rather than clipped, which is what keeps a page's
+     *   worth of drawing costing one page's worth of path building however long the note is.
+     */
     fun DrawScope.drawStrokes(
         strokes: List<Stroke>,
         ptToPx: Float,
         toStripPx: (Float) -> Float,
         opacity: Float = 1f,
+        docTop: Float = -Float.MAX_VALUE,
+        docBottom: Float = Float.MAX_VALUE,
     ) {
         for (stroke in strokes) {
+            val bounds = stroke.bounds
+            if (bounds.bottom < docTop || bounds.top > docBottom) continue
             drawStroke(stroke, ptToPx, toStripPx, opacity)
         }
     }

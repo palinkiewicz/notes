@@ -67,9 +67,8 @@ fun EditorScreen(
                 editingPageColor = target
             },
             pageCount = sheet.pageCount(),
-            contentPageCount = sheet.contentPageCount(),
-            onAddPage = viewModel::addPage,
-            onRemovePage = viewModel::removeLastPage,
+            view = state.view,
+            onViewChange = viewModel::setView,
             onDismiss = { pageSetupOpen = false },
         )
     }
@@ -94,15 +93,13 @@ fun EditorScreen(
         val background = sheet?.format?.background ?: return@let
         val lines = target == PageColorTarget.LINES || target == PageColorTarget.MARGIN
         val current = when (target) {
-            PageColorTarget.PAPER_LIGHT -> background.color
-            PageColorTarget.PAPER_DARK -> background.darkColor
+            PageColorTarget.PAPER -> background.color
             PageColorTarget.LINES -> background.pattern.color
             PageColorTarget.MARGIN -> background.pattern.marginColor
         }
         ColorPickerSheet(
             title = when (target) {
-                PageColorTarget.PAPER_LIGHT -> "Paper colour (light)"
-                PageColorTarget.PAPER_DARK -> "Paper colour (dark)"
+                PageColorTarget.PAPER -> "Paper colour"
                 PageColorTarget.LINES -> "Line colour"
                 PageColorTarget.MARGIN -> "Margin colour"
             },
@@ -114,8 +111,7 @@ fun EditorScreen(
             onColorChange = { picked ->
                 viewModel.setPageBackground(
                     when (target) {
-                        PageColorTarget.PAPER_LIGHT -> background.copy(color = picked)
-                        PageColorTarget.PAPER_DARK -> background.copy(darkColor = picked)
+                        PageColorTarget.PAPER -> background.copy(color = picked)
                         PageColorTarget.LINES ->
                             background.copy(pattern = background.pattern.copy(color = picked))
                         PageColorTarget.MARGIN ->
@@ -144,7 +140,6 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    ViewSwitch(view = state.view, onViewChange = viewModel::setView)
                     IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
                         Icon(NotesIcons.Undo, contentDescription = "Undo")
                     }
@@ -166,7 +161,6 @@ fun EditorScreen(
                     onUpdateTool = viewModel::updateTool,
                     onToggleFingerDrawing = viewModel::setFingerDrawing,
                     onOpenColorPicker = { editingPen = it },
-                    onAddPage = viewModel::addPage,
                 )
             }
         },
@@ -196,7 +190,6 @@ fun EditorScreen(
                             onUpdateTool = viewModel::updateTool,
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
                             onOpenColorPicker = { editingPen = it },
-                            onAddPage = viewModel::addPage,
                         )
                     }
                     SheetEditor(
@@ -208,30 +201,5 @@ fun EditorScreen(
                 }
             }
         }
-    }
-}
-
-/**
- * Pages or continuous scroll.
- *
- * Presentation only — the note keeps its paper size and its page breaks either way, so switching
- * to continuous does not turn the note into something that cannot be printed.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ViewSwitch(view: ViewMode, onViewChange: (ViewMode) -> Unit) {
-    SingleChoiceSegmentedButtonRow(Modifier.padding(end = 8.dp)) {
-        SegmentedButton(
-            selected = view == ViewMode.PAGED,
-            onClick = { onViewChange(ViewMode.PAGED) },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-            icon = {},
-        ) { Text("Pages") }
-        SegmentedButton(
-            selected = view == ViewMode.CONTINUOUS,
-            onClick = { onViewChange(ViewMode.CONTINUOUS) },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-            icon = {},
-        ) { Text("Scroll") }
     }
 }

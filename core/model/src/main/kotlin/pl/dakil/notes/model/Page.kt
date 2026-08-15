@@ -70,20 +70,19 @@ data class PagePattern(
     }
 }
 
+/**
+ * The paper itself.
+ *
+ * One colour, not one per theme. Paper colour is document content: it is chosen to go with the ink
+ * on it, it should print as what you see, and it should be the same colour on someone else's device
+ * as on yours. A sheet that changes colour with a system setting is a sheet whose appearance the
+ * author does not actually control — and the rule colours that were picked against it then have to
+ * be second-guessed too. Anyone who wants dark paper picks a dark colour.
+ */
 data class PageBackground(
-    /** Packed ARGB used in light mode. */
+    /** Packed ARGB of the paper. */
     val color: Int = 0xFFFFFDF8.toInt(),
-    /** Packed ARGB used in dark mode. */
-    val darkColor: Int = 0xFF12161A.toInt(),
     val pattern: PagePattern = PagePattern.NONE,
-    /**
-     * When true, rule colours are lightened automatically against dark paper.
-     *
-     * On by default so a blue-ruled page stays legible in dark mode without the user configuring
-     * anything — but it has to be defeatable, because someone who deliberately picks a rule colour
-     * for a dark page does not want it silently adjusted.
-     */
-    val adaptPatternToDark: Boolean = true,
 ) {
     companion object {
         val DEFAULT = PageBackground()

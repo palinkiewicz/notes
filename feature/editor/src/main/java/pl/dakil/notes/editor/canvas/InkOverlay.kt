@@ -11,6 +11,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.RequestDisallowInterceptTouchEvent
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import pl.dakil.notes.ink.InputIntent
@@ -92,6 +93,7 @@ fun InkOverlay(
     val currentCallbacks by rememberUpdatedState(callbacks)
     val currentTool by rememberUpdatedState(tool)
     val format = sheet.format
+    val pageCount = sheet.pageCount()
 
     router.config = inputConfig
 
@@ -122,14 +124,36 @@ fun InkOverlay(
         inkVersion.intValue
 
         val toStripPx = { y: Float -> SheetPainter.documentYToStripPx(y, format, ptToPx, paged) }
+        val wet = !builder.isEmpty && currentTool.tool.isDrawing
 
         with(renderer) {
-            for (block in paintOrder) {
-                if (block !is InkBlock || !block.visible) continue
-                drawStrokes(block.strokes, ptToPx, toStripPx)
-            }
-            if (!builder.isEmpty && currentTool.tool.isDrawing) {
-                drawWetStroke(builder, ptToPx, toStripPx)
+            if (!paged) {
+                // Continuous view has no gaps, so the pages are one uninterrupted surface and a
+                // single pass is both correct and cheapest.
+                for (block in paintOrder) {
+                    if (block !is InkBlock || !block.visible) continue
+                    drawStrokes(block.strokes, ptToPx, toStripPx)
+                }
+                if (wet) drawWetStroke(builder, ptToPx, toStripPx)
+            } else {
+                // One clipped pass per page. A stroke drawn across a page break is a single
+                // continuous stroke in the document — that is the right model, since the break is
+                // presentation — but it must not be *painted* across the join, or the ink appears
+                // to run down the desk between two sheets of paper.
+                val pageHeightPx = format.height * ptToPx
+                val gapPx = SheetPainter.PAGE_GAP_PT * ptToPx
+                for (page in 0 until pageCount) {
+                    val top = page * (pageHeightPx + gapPx)
+                    val docTop = page * format.height
+                    val docBottom = docTop + format.height
+                    clipRect(top = top, bottom = top + pageHeightPx) {
+                        for (block in paintOrder) {
+                            if (block !is InkBlock || !block.visible) continue
+                            drawStrokes(block.strokes, ptToPx, toStripPx, 1f, docTop, docBottom)
+                        }
+                        if (wet) drawWetStroke(builder, ptToPx, toStripPx)
+                    }
+                }
             }
         }
 

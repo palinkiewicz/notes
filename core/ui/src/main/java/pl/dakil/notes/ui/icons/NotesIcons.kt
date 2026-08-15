@@ -145,6 +145,14 @@ object NotesIcons {
         )
     }
 
+    /** Two stacked sheets: copy this page and its ink onto a new one after it. */
+    val DuplicatePage: ImageVector by lazy {
+        strokedIcon(
+            "DuplicatePage",
+            "M8.5 3.5 h11 v13 h-11 Z M15.5 20.5 h-11 v-13",
+        )
+    }
+
     /** The same sheet with a minus: give back a blank page from the end. */
     val RemovePage: ImageVector by lazy {
         strokedIcon(

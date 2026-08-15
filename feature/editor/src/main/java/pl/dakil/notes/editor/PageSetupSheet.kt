@@ -4,31 +4,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import pl.dakil.notes.ui.icons.NotesIcons
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.ui.graphics.Color
 import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorSettingRow
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageMargins
@@ -37,56 +31,43 @@ import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PatternType
 
 /** Which page colour a picker launched from [PageSetupSheet] is editing. */
-enum class PageColorTarget { PAPER_LIGHT, PAPER_DARK, LINES, MARGIN }
+enum class PageColorTarget { PAPER, LINES, MARGIN }
 
 /**
- * How many pages the note has, and the controls to change it.
+ * How the sheet is presented, and how many pages it currently has.
  *
- * Removing is offered but refused rather than hidden when the last page holds something. A control
- * that silently disappears leaves the user hunting for it; one that is visibly disabled *and says
- * why* answers the question on the spot. And the refusal itself matters: decrementing a counter is
- * not a gesture that means "throw that work away", so it must never be able to.
+ * Pages and Scroll are the same document with the same page breaks and the same printed output —
+ * only the furniture differs — so this belongs with the other page properties rather than in the
+ * app bar competing with undo. Adding, duplicating and removing pages happens on the pages
+ * themselves, where you can see which one you are acting on.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PagesSection(
+private fun PresentationSection(
     pageCount: Int,
-    contentPageCount: Int,
-    onAddPage: () -> Unit,
-    onRemovePage: () -> Unit,
+    view: ViewMode,
+    onViewChange: (ViewMode) -> Unit,
 ) {
-    val canRemove = pageCount > 1 && pageCount > contentPageCount
-
     Column(Modifier.padding(bottom = 8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Pages", style = MaterialTheme.typography.labelLarge)
-                Text(
-                    text = if (pageCount == 1) "1 page" else "$pageCount pages",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedIconButton(onClick = onRemovePage, enabled = canRemove) {
-                    Icon(NotesIcons.RemovePage, contentDescription = "Remove last page")
-                }
-                FilledIconButton(onClick = onAddPage) {
-                    Icon(NotesIcons.AddPage, contentDescription = "Add page")
-                }
-            }
+        Text("View", style = MaterialTheme.typography.labelLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.padding(top = 4.dp)) {
+            SegmentedButton(
+                selected = view == ViewMode.PAGED,
+                onClick = { onViewChange(ViewMode.PAGED) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("Pages") }
+            SegmentedButton(
+                selected = view == ViewMode.CONTINUOUS,
+                onClick = { onViewChange(ViewMode.CONTINUOUS) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("Scroll") }
         }
-        if (!canRemove && pageCount > 1) {
-            Text(
-                text = "The last page has something on it. Clear it to remove the page.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
+        Text(
+            text = if (pageCount == 1) "1 page" else "$pageCount pages",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 
@@ -107,9 +88,8 @@ fun PageSetupSheet(
     onMarginsChange: (PageMargins) -> Unit,
     onEditColor: (PageColorTarget) -> Unit,
     pageCount: Int,
-    contentPageCount: Int,
-    onAddPage: () -> Unit,
-    onRemovePage: () -> Unit,
+    view: ViewMode,
+    onViewChange: (ViewMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -125,12 +105,7 @@ fun PageSetupSheet(
         ) {
             Text("Page", style = MaterialTheme.typography.titleLarge)
 
-            PagesSection(
-                pageCount = pageCount,
-                contentPageCount = contentPageCount,
-                onAddPage = onAddPage,
-                onRemovePage = onRemovePage,
-            )
+            PresentationSection(pageCount = pageCount, view = view, onViewChange = onViewChange)
 
             Text("Size", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,20 +166,11 @@ fun PageSetupSheet(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(top = 12.dp),
             )
-            // Both are exposed rather than "the current one": a note carries its own paper colour
-            // for each theme, and hiding one means the user cannot fix a page that looks wrong in
-            // the mode they are not currently in.
             ColorSettingRow(
-                label = "Light mode",
+                label = "Paper",
                 color = background.color,
                 supporting = ColorCodec.toHex(background.color, includeAlpha = false),
-                onClick = { onEditColor(PageColorTarget.PAPER_LIGHT) },
-            )
-            ColorSettingRow(
-                label = "Dark mode",
-                color = background.darkColor,
-                supporting = ColorCodec.toHex(background.darkColor, includeAlpha = false),
-                onClick = { onEditColor(PageColorTarget.PAPER_DARK) },
+                onClick = { onEditColor(PageColorTarget.PAPER) },
             )
 
             if (background.pattern.type != PatternType.NONE) {
@@ -235,18 +201,6 @@ fun PageSetupSheet(
                     color = background.pattern.color,
                     supporting = ColorCodec.toHex(background.pattern.color, includeAlpha = false),
                     onClick = { onEditColor(PageColorTarget.LINES) },
-                )
-
-                ListItem(
-                    headlineContent = { Text("Lighten lines on dark paper") },
-                    supportingContent = { Text("Turn off to use your chosen colour exactly as picked.") },
-                    trailingContent = {
-                        Switch(
-                            checked = background.adaptPatternToDark,
-                            onCheckedChange = { onBackgroundChange(background.copy(adaptPatternToDark = it)) },
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
 
                 if (background.pattern.type == PatternType.RULED) {

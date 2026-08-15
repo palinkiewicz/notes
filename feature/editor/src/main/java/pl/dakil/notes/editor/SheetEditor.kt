@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.canvas.InkOverlay
+import pl.dakil.notes.editor.canvas.PageChrome
 import pl.dakil.notes.editor.canvas.SheetPainter
 import pl.dakil.notes.editor.canvas.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
@@ -80,6 +81,11 @@ fun SheetEditor(
         transform.animateToContentY(tops.getOrNull(request.page) ?: return@LaunchedEffect)
     }
 
+    // Room above the first page for its header, and below the last for the add button.
+    val insetTop = with(density) { CHROME_TOP.toPx() }
+    val insetBottom = with(density) { CHROME_BOTTOM.toPx() }
+    transform.setContentInsets(insetTop, insetBottom)
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -130,8 +136,26 @@ fun SheetEditor(
                 }
             }
         }
+
+        // Above the sheet and outside its transform, so it stays legible and tappable at any zoom.
+        PageChrome(
+            format = format,
+            pageCount = pageCount,
+            paged = paged,
+            ptToPx = ptToPx,
+            transform = transform,
+            canEditPage = sheet::canEditPage,
+            onDuplicatePage = viewModel::duplicatePage,
+            onRemovePage = viewModel::removePage,
+            onAddPage = viewModel::addPage,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
+
+/** Tall enough for the header's 48dp touch targets plus the gap above the paper. */
+private val CHROME_TOP = 60.dp
+private val CHROME_BOTTOM = 72.dp
 
 /**
  * Paper, text and ink, stacked in that order and all in the same coordinate space.
@@ -162,7 +186,6 @@ private fun SheetLayers(
                 format = format,
                 pageCount = pageCount,
                 ptToPx = ptToPx,
-                darkTheme = darkTheme,
                 paged = paged,
                 zoom = transform.zoom,
                 // Only the band under the window is emitted, so a fifty-page note costs what a

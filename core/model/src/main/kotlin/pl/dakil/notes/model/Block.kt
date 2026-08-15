@@ -39,7 +39,22 @@ data class InkBlock(
     val name: String = "Layer",
     val visible: Boolean = true,
     val locked: Boolean = false,
-) : Block
+) : Block {
+
+    /**
+     * Re-derives [rect] from the strokes actually in the layer.
+     *
+     * Needed after any operation that moves or deletes strokes wholesale — duplicating a page, say.
+     * A stale rect is not cosmetic: it feeds culling and [Sheet.inkBottom], so a layer claiming to
+     * extend further than it does silently holds pages open that nothing is drawn on.
+     */
+    fun withRecomputedBounds(): InkBlock {
+        if (strokes.isEmpty()) return copy(rect = Rect.ZERO)
+        var bounds = Rect.EMPTY
+        for (stroke in strokes) bounds = bounds.union(stroke.bounds)
+        return copy(rect = bounds)
+    }
+}
 
 /**
  * A floating Markdown text box, positioned on the sheet rather than in the main flow.

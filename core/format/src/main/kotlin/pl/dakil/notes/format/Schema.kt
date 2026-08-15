@@ -104,21 +104,25 @@ internal object Schema {
         )
     }
 
+    /**
+     * Paper is one colour now, so `darkColor` and `adaptPatternToDark` are gone.
+     *
+     * Unlike unknown *sheet* keys these are genuinely dropped on the next save, because the whole
+     * `background` object is rewritten and it carries no remainder of its own. That is deliberate
+     * rather than an oversight: they described a behaviour that no longer exists, and an existing
+     * note keeps the colour under `color`, which is the one a reader was actually looking at.
+     */
     fun readBackground(json: JsonObject?): PageBackground {
         if (json == null) return PageBackground.DEFAULT
         val d = PageBackground.DEFAULT
         return PageBackground(
             color = hexToColor(json.string("color"), d.color),
-            darkColor = hexToColor(json.string("darkColor"), d.darkColor),
             pattern = readPattern(json.obj("pattern")),
-            adaptPatternToDark = json.bool("adaptPatternToDark", d.adaptPatternToDark),
         )
     }
 
     fun writeBackground(bg: PageBackground): JsonObject = JsonObject.of(
         "color" to JsonString(colorToHex(bg.color)),
-        "darkColor" to JsonString(colorToHex(bg.darkColor)),
-        "adaptPatternToDark" to pl.dakil.notes.model.json.JsonBool(bg.adaptPatternToDark),
         "pattern" to writePattern(bg.pattern),
     )
 

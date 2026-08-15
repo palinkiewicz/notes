@@ -148,6 +148,97 @@ data class Sheet(
 
     fun withPages(count: Int): Sheet = copy(pages = count.coerceAtLeast(1))
 
+    // ---- Page operations -------------------------------------------------------------------------
+
+    /**
+     * How many pages the Markdown flow reaches onto.
+     *
+     * Text is a continuous flow, not a per-page thing, so it is the one part of the sheet that
+     * cannot be addressed a page at a time. That makes it the boundary for [canEditPage].
+     */
+    fun textPageCount(): Int {
+        val height = format.height
+        if (height <= 0f) return 1
+        return maxOf(1, ceil(contentHeight / height - 1e-4f).toInt())
+    }
+
+    /**
+     * Whether page [index] can be duplicated or removed.
+     *
+     * Only pages the text flow does not reach. Inserting or deleting paper under flowing text would
+     * slide the ink out from under the words it was written against, since ink is anchored to the
+     * paper and text is not — and there is no answer to "which paragraph did you mean to delete"
+     * that a page number can give. So the operation is offered where it is exact and refused, with
+     * a reason, where it is not.
+     */
+    fun canEditPage(index: Int): Boolean =
+        index in 0 until pageCount() && index >= textPageCount()
+
+    /** Whether removing page [index] would leave at least one page standing. */
+    fun canRemovePage(index: Int): Boolean = canEditPage(index) && pageCount() > 1
+
+    /**
+     * Inserts a copy of page [index] directly after it, sliding everything below down one page.
+     */
+    fun withPageDuplicated(index: Int): Sheet {
+        if (!canEditPage(index)) return this
+        val height = format.height
+        val top = index * height
+        val bottom = top + height
+
+        val moved = blocks.map { block ->
+            when {
+                block !is InkBlock -> block
+                else -> {
+                    val kept = ArrayList<Stroke>(block.strokes.size)
+                    for (stroke in block.strokes) {
+                        val onPage = stroke.bounds.top < bottom && stroke.bounds.bottom >= top
+                        val below = stroke.bounds.top >= bottom
+                        when {
+                            // The copy lands on the new page; the original stays where it was.
+                            onPage -> {
+                                kept += stroke
+                                kept += stroke.transformed(Affine.translate(0f, height))
+                            }
+                            below -> kept += stroke.transformed(Affine.translate(0f, height))
+                            else -> kept += stroke
+                        }
+                    }
+                    block.copy(strokes = kept).withRecomputedBounds()
+                }
+            }
+        }
+        return copy(blocks = moved, pages = pageCount() + 1)
+    }
+
+    /** Removes page [index] along with the ink on it, sliding everything below up one page. */
+    fun withPageRemoved(index: Int): Sheet {
+        if (!canRemovePage(index)) return this
+        val height = format.height
+        val top = index * height
+        val bottom = top + height
+
+        val moved = blocks.map { block ->
+            when {
+                block !is InkBlock -> block
+                else -> {
+                    val kept = ArrayList<Stroke>(block.strokes.size)
+                    for (stroke in block.strokes) {
+                        val onPage = stroke.bounds.top < bottom && stroke.bounds.bottom >= top
+                        if (onPage) continue
+                        kept += if (stroke.bounds.top >= bottom) {
+                            stroke.transformed(Affine.translate(0f, -height))
+                        } else {
+                            stroke
+                        }
+                    }
+                    block.copy(strokes = kept).withRecomputedBounds()
+                }
+            }
+        }
+        return copy(blocks = moved, pages = (pageCount() - 1).coerceAtLeast(1))
+    }
+
     /** Total strip height including the trailing part-page, in points. */
     fun stripHeight(): Float = pageCount() * format.height
 

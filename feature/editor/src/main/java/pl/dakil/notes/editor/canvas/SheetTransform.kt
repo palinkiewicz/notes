@@ -42,6 +42,9 @@ class SheetTransform {
     /** True once the view has a scale the user (or [fitWidthIfUnset]) chose. */
     private var settled = false
 
+    private var insetTop = 0f
+    private var insetBottom = 0f
+
     val zoom: Float get() = rawZoom
 
     /**
@@ -62,6 +65,18 @@ class SheetTransform {
     }
 
     /**
+     * Extra room to scroll beyond the paper, in window pixels.
+     *
+     * The page chrome lives outside the sheet — a header above each page, an add button below the
+     * last one — so the scrollable region has to be slightly larger than the document, or the first
+     * header and the add button sit in space the view can never reach.
+     */
+    fun setContentInsets(top: Float, bottom: Float) {
+        insetTop = top
+        insetBottom = bottom
+    }
+
+    /**
      * Opens the note showing the full width of the page.
      *
      * A point is a real 1/72", so an A4 sheet at 1:1 is about 8.3 inches across — roughly three and
@@ -74,7 +89,7 @@ class SheetTransform {
         settled = true
         rawZoom = ((viewportWidth - EDGE_PAD * 2f) / contentWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
         rawOffsetX = Float.NaN
-        rawOffsetY = EDGE_PAD
+        rawOffsetY = EDGE_PAD + insetTop
     }
 
     /** Scales by [factor] about the screen point ([focusX], [focusY]), which stays put. */
@@ -159,8 +174,10 @@ class SheetTransform {
 
     private fun clampY(value: Float): Float {
         val scaled = contentHeight * rawZoom
-        if (scaled + EDGE_PAD * 2f <= viewportHeight) return EDGE_PAD
-        return value.coerceIn(viewportHeight - scaled - EDGE_PAD, EDGE_PAD)
+        val top = EDGE_PAD + insetTop
+        val bottom = viewportHeight - scaled - EDGE_PAD - insetBottom
+        if (bottom >= top) return top
+        return value.coerceIn(bottom, top)
     }
 
     companion object {

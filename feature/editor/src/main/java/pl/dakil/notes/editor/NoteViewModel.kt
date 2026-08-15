@@ -48,12 +48,6 @@ data class Selection(
 }
 
 /**
- * Everything the editor UI renders.
- *
- * Deliberately coarse: this is read during composition, so it changes at user pace. Anything that
- * changes at input pace — the wet stroke, the scroll offset — lives outside it.
- */
-/**
  * A one-shot request to bring a page into view.
  *
  * [token] is what makes it one-shot: the editor keys an effect on the whole request, so asking for
@@ -63,6 +57,12 @@ data class Selection(
 @Immutable
 data class ScrollRequest(val page: Int, val token: Int)
 
+/**
+ * Everything the editor UI renders.
+ *
+ * Deliberately coarse: this is read during composition, so it changes at user pace. Anything that
+ * changes at input pace — the wet stroke, the scroll offset — lives outside it.
+ */
 @Immutable
 data class EditorUiState(
     val note: Note? = null,
@@ -258,17 +258,19 @@ class NoteViewModel(
         _state.update { it.copy(scrollRequest = ScrollRequest(added, it.documentVersion)) }
     }
 
-    /**
-     * Drops the last page, if it is blank.
-     *
-     * Refused rather than confirmed when the page holds something: a counter is not a gesture that
-     * says "discard this work", so there is no reading of it under which deleting content is what
-     * the user meant.
-     */
-    fun removeLastPage() {
+    /** Copies page [index] and its ink onto a new page directly after it. */
+    fun duplicatePage(index: Int) {
         val sheet = _state.value.sheet ?: return
-        if (_state.value.isReadOnly || !sheet.canRemoveLastPage()) return
-        commitEdit(Edit.SetPages(sheet.pages, sheet.pageCount() - 1))
+        if (_state.value.isReadOnly || !sheet.canEditPage(index)) return
+        commitEdit(Edit.ReplaceSheet(sheet, sheet.withPageDuplicated(index)))
+        _state.update { it.copy(scrollRequest = ScrollRequest(index + 1, it.documentVersion)) }
+    }
+
+    /** Removes page [index] along with the ink on it. */
+    fun removePage(index: Int) {
+        val sheet = _state.value.sheet ?: return
+        if (_state.value.isReadOnly || !sheet.canRemovePage(index)) return
+        commitEdit(Edit.ReplaceSheet(sheet, sheet.withPageRemoved(index)))
     }
 
     /** Reported by the text layout once it knows how tall the flow turned out. */
