@@ -201,6 +201,15 @@ class SheetPagesTest {
     }
 
     @Test
+    fun `removing a page a drawing spills onto actually removes it`() {
+        // The page was held open by the end cap of the stroke cut at its top edge: half a stroke
+        // width of inked extent hanging over the boundary read as "there is ink on this page".
+        val result = spanningSheet().withPageRemoved(2)
+        assertEquals(2, result.pageCount())
+        assertEquals(2, result.contentPageCount())
+    }
+
+    @Test
     fun `removing a page keeps the part of a drawing that was not on it`() {
         val result = spanningSheet().withPageRemoved(2)
         val spans = result.inkLayers().single().strokes.map { it.ys.first() to it.ys.last() }

@@ -239,6 +239,16 @@ private fun handleEvent(
 
     when (event.actionMasked) {
         MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+            // ACTION_DOWN means no other pointer is on the glass, so the router starts clean.
+            //
+            // This is not belt-and-braces. Declining a gesture at ACTION_DOWN puts the interop
+            // filter into NotDispatching for the rest of the stream, so the matching ACTION_UP
+            // never arrives and that pointer would stay live forever. The next touch then sees a
+            // finger that is not there, reads as multi-touch, and is sent to pan — which is to say
+            // one pan with finger-drawing off would disable finger-drawing until the note was
+            // reopened.
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) router.cancel()
+
             val index = event.actionIndex
             val screen = MotionEventBridge.sampleOf(event, index)
             val stylus = screen.toolType == pl.dakil.notes.model.ToolType.STYLUS ||

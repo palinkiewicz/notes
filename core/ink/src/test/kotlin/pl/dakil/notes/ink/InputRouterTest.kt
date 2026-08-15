@@ -210,4 +210,37 @@ class InputRouterTest {
             router.begin(sample(ToolType.FINGER, id = 2, t = 1000, touchMajor = 500f)).intent,
         )
     }
+
+    // ---- Stream hygiene ----------------------------------------------------------------------
+
+    @Test
+    fun `a pointer that never lifts poisons every gesture after it`() {
+        // Not a defect in the router but a contract on its caller, and worth pinning down because
+        // the symptom is so far from the cause: a gesture declined at ACTION_DOWN never receives
+        // its ACTION_UP, so unless the caller clears the router at the start of the next stream,
+        // this finger stays live forever and every later touch reads as multi-touch.
+        val router = InputRouter(InputConfig(fingerDrawingEnabled = true))
+        router.begin(sample(ToolType.FINGER, id = 0))
+
+        assertEquals(
+            "a phantom finger turns drawing into panning",
+            InputIntent.Navigate,
+            router.begin(sample(ToolType.FINGER, id = 1)).intent,
+        )
+
+        router.cancel()
+        assertEquals(
+            InputIntent.Draw,
+            router.begin(sample(ToolType.FINGER, id = 2)).intent,
+        )
+    }
+
+    @Test
+    fun `cancel leaves no pointers behind`() {
+        val router = InputRouter()
+        router.begin(sample(ToolType.STYLUS, id = 0))
+        router.begin(sample(ToolType.FINGER, id = 1))
+        router.cancel()
+        assertEquals(0, router.activePointerCount)
+    }
 }

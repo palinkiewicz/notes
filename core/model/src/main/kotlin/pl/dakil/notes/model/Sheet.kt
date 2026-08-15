@@ -116,11 +116,28 @@ data class Sheet(
     fun defaultInkLayer(): InkBlock? =
         inkLayers().filter { it.visible && !it.locked }.maxByOrNull { it.z }
 
-    /** Bottom-most extent of anything drawn, ignoring the text. */
+    /**
+     * Bottom-most extent of anything drawn, ignoring the text.
+     *
+     * Measured along the centreline of the ink rather than its inked extent, because this decides
+     * *how many pages there are*. A stroke cut at a page boundary ends exactly on it; judged by the
+     * inked extent it reaches half a stroke width onto the page below, and that page can then never
+     * be deleted — it is being held open by the end cap of a stroke on the page before it.
+     */
     fun inkBottom(): Float {
         var bottom = 0f
         for (block in blocks) {
-            val b = block.worldBounds().bottom
+            val b = when (block) {
+                is InkBlock -> {
+                    var deepest = 0f
+                    for (stroke in block.strokes) {
+                        val y = block.transform.mapBounds(stroke.coreBounds).bottom
+                        if (y > deepest) deepest = y
+                    }
+                    deepest
+                }
+                else -> block.worldBounds().bottom
+            }
             if (b > bottom) bottom = b
         }
         return bottom
