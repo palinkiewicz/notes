@@ -114,4 +114,106 @@ class Stroke(
         val scale = kotlin.math.sqrt(kotlin.math.abs(m.a * m.d - m.b * m.c))
         return Stroke(tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times)
     }
+
+    /**
+     * Splits this stroke into the pieces lying between [top] and [bottom], cut exactly at the
+     * boundary.
+     *
+     * The primitive behind every page operation. A stroke that runs across a page break is one
+     * stroke — the break is presentation, not structure — but duplicating, deleting or reordering a
+     * page has to act on *the part of the drawing that is on that page* and nothing else. Selecting
+     * whole strokes by overlap would copy the half that belongs to the neighbouring page along with
+     * it, and leave the other page's content behind when it moved.
+     *
+     * Crossings are interpolated, so a cut edge lands on the page boundary rather than at the
+     * nearest sample: pressure, tilt and timing are carried across the new endpoint too, and a
+     * tapering stroke keeps its taper through the cut.
+     */
+    fun clippedToBand(top: Float, bottom: Float): List<Stroke> {
+        val n = xs.size
+        if (n == 0) return emptyList()
+        if (n == 1) return if (ys[0] in top..bottom) listOf(this) else emptyList()
+
+        val out = ArrayList<Stroke>(1)
+        var run: Run? = null
+
+        fun flush() {
+            run?.let { if (it.size >= 2) out += it.toStroke(this) }
+            run = null
+        }
+
+        for (i in 0 until n - 1) {
+            val y0 = ys[i]
+            val y1 = ys[i + 1]
+            var t0 = 0f
+            var t1 = 1f
+
+            if (y1 == y0) {
+                if (y0 < top || y0 > bottom) {
+                    flush()
+                    continue
+                }
+            } else {
+                val dy = y1 - y0
+                val ta = (top - y0) / dy
+                val tb = (bottom - y0) / dy
+                t0 = maxOf(0f, minOf(ta, tb))
+                t1 = minOf(1f, maxOf(ta, tb))
+                if (t0 > t1) {
+                    flush()
+                    continue
+                }
+            }
+
+            // A run continues only if the previous segment ended exactly at this point; any gap
+            // means the stroke left the band and came back, which is two separate marks.
+            if (run == null || t0 > 0f) {
+                flush()
+                run = Run(n).also { it.add(this, i, t0) }
+            }
+            if (t1 < 1f) {
+                run!!.add(this, i, t1)
+                flush()
+            } else {
+                run!!.add(this, i, 1f)
+            }
+        }
+        flush()
+        return out
+    }
+
+    /** Accumulates one contiguous in-band piece. */
+    private class Run(capacity: Int) {
+        val xs = FloatArray(capacity + 2)
+        val ys = FloatArray(capacity + 2)
+        val factors = FloatArray(capacity + 2)
+        val tilts = FloatArray(capacity + 2)
+        val times = IntArray(capacity + 2)
+        var size = 0
+
+        /** Adds the point [t] of the way from sample [i] to sample [i]+1. */
+        fun add(source: Stroke, i: Int, t: Float) {
+            val j = i + 1
+            xs[size] = lerp(source.xs[i], source.xs[j], t)
+            ys[size] = lerp(source.ys[i], source.ys[j], t)
+            source.widthFactors?.let { factors[size] = lerp(it[i], it[j], t) }
+            source.tilts?.let { tilts[size] = lerp(it[i], it[j], t) }
+            source.times?.let { times[size] = lerp(it[i].toFloat(), it[j].toFloat(), t).toInt() }
+            size++
+        }
+
+        fun toStroke(source: Stroke): Stroke = Stroke(
+            tool = source.tool,
+            color = source.color,
+            width = source.width,
+            blend = source.blend,
+            xs = xs.copyOf(size),
+            ys = ys.copyOf(size),
+            widthFactors = if (source.widthFactors != null) factors.copyOf(size) else null,
+            tilts = if (source.tilts != null) tilts.copyOf(size) else null,
+            times = if (source.times != null) times.copyOf(size) else null,
+        )
+
+        private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+    }
 }

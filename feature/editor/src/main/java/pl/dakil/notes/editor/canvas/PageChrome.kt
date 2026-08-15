@@ -48,8 +48,11 @@ fun PageChrome(
     ptToPx: Float,
     transform: SheetTransform,
     canEditPage: (Int) -> Boolean,
+    canMoveUp: (Int) -> Boolean,
+    canMoveDown: (Int) -> Boolean,
     onDuplicatePage: (Int) -> Unit,
     onRemovePage: (Int) -> Unit,
+    onMovePage: (Int, Int) -> Unit,
     onAddPage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -60,8 +63,12 @@ fun PageChrome(
                 PageHeader(
                     number = page + 1,
                     editable = canEditPage(page),
+                    canMoveUp = canMoveUp(page),
+                    canMoveDown = canMoveDown(page),
                     onDuplicate = { onDuplicatePage(page) },
                     onRemove = { onRemovePage(page) },
+                    onMoveUp = { onMovePage(page, page - 1) },
+                    onMoveDown = { onMovePage(page, page + 1) },
                     modifier = Modifier.layoutId(page),
                 )
             }
@@ -106,8 +113,12 @@ fun PageChrome(
 private fun PageHeader(
     number: Int,
     editable: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onDuplicate: () -> Unit,
     onRemove: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -119,31 +130,32 @@ private fun PageHeader(
         Row(
             modifier = Modifier.padding(start = 12.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = "Page $number",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 4.dp),
             )
             // Shown disabled rather than hidden on a page the text flows through: controls that
-            // come and go as you type are harder to trust than ones that stay put and explain
-            // themselves when tapped.
-            IconButton(onClick = onDuplicate, enabled = editable, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    imageVector = NotesIcons.DuplicatePage,
-                    contentDescription = "Duplicate page $number",
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            IconButton(onClick = onRemove, enabled = editable, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    imageVector = NotesIcons.RemovePage,
-                    contentDescription = "Remove page $number",
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+            // come and go as you type are harder to trust than ones that stay put.
+            HeaderAction(NotesIcons.MoveUp, "Move page $number up", canMoveUp, onMoveUp)
+            HeaderAction(NotesIcons.MoveDown, "Move page $number down", canMoveDown, onMoveDown)
+            HeaderAction(NotesIcons.DuplicatePage, "Duplicate page $number", editable, onDuplicate)
+            HeaderAction(NotesIcons.Delete, "Delete page $number", editable, onRemove)
         }
+    }
+}
+
+@Composable
+private fun HeaderAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(34.dp)) {
+        Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(17.dp))
     }
 }
 

@@ -145,8 +145,20 @@ fun SheetEditor(
             ptToPx = ptToPx,
             transform = transform,
             canEditPage = sheet::canEditPage,
+            canMoveUp = sheet::canMovePageUp,
+            canMoveDown = sheet::canMovePageDown,
             onDuplicatePage = viewModel::duplicatePage,
             onRemovePage = viewModel::removePage,
+            onMovePage = { from, to ->
+                // Scroll with the page, in the same frame the swap is committed, so the page the
+                // user is moving stays exactly where they are looking and its neighbours are what
+                // appear to move. Without this, walking a page up through a long note means
+                // chasing it down the screen between every tap.
+                if (viewModel.movePage(from, to)) {
+                    val stride = SheetPainter.pageStridePx(format, ptToPx, paged)
+                    transform.scrollByContent((to - from) * stride)
+                }
+            },
             onAddPage = viewModel::addPage,
             modifier = Modifier.fillMaxSize(),
         )

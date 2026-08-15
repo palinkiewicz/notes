@@ -273,6 +273,23 @@ class NoteViewModel(
         commitEdit(Edit.ReplaceSheet(sheet, sheet.withPageRemoved(index)))
     }
 
+    /**
+     * Exchanges page [index] with its neighbour [target].
+     *
+     * Returns true when the swap happened, so the caller can keep the moved page under the reader's
+     * eye. That has to be the caller's job: the scroll lives in the view's transform, and doing it
+     * here would mean a round trip through state and a frame where the page has moved but the view
+     * has not — visible as a jump precisely when the user is looking straight at it.
+     */
+    fun movePage(index: Int, target: Int): Boolean {
+        val sheet = _state.value.sheet ?: return false
+        if (_state.value.isReadOnly) return false
+        val moved = sheet.withPagesSwapped(index, target)
+        if (moved === sheet) return false
+        commitEdit(Edit.ReplaceSheet(sheet, moved))
+        return true
+    }
+
     /** Reported by the text layout once it knows how tall the flow turned out. */
     fun reportContentHeight(heightPt: Float) {
         val note = _state.value.note ?: return

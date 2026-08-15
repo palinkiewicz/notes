@@ -84,6 +84,10 @@ object SheetPainter {
         }
     }
 
+    /** Distance from one page's top to the next, in pixels — the page plus its gap. */
+    fun pageStridePx(format: PageFormat, ptToPx: Float, paged: Boolean): Float =
+        format.height * ptToPx + if (paged) PAGE_GAP_PT * ptToPx else 0f
+
     /** Where each page starts, in pixels down the strip. Used to place page-number labels. */
     fun pageTops(format: PageFormat, pageCount: Int, ptToPx: Float, paged: Boolean): FloatArray {
         val pageHeightPx = format.height * ptToPx

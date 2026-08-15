@@ -153,13 +153,14 @@ object NotesIcons {
         )
     }
 
-    /** The same sheet with a minus: give back a blank page from the end. */
-    val RemovePage: ImageVector by lazy {
-        strokedIcon(
-            "RemovePage",
-            "M4.5 3.5 h10 v13 h-10 Z M7.5 7.5 h4 M7.5 11 h4 " +
-                "M14.5 18 h6",
-        )
+    /** Move this page one position towards the front of the note. */
+    val MoveUp: ImageVector by lazy {
+        strokedIcon("MoveUp", "M12 20 v-15 M5.5 11.5 L12 5 L18.5 11.5")
+    }
+
+    /** Move this page one position towards the back of the note. */
+    val MoveDown: ImageVector by lazy {
+        strokedIcon("MoveDown", "M12 4 v15 M5.5 12.5 L12 19 L18.5 12.5")
     }
 
     val PageSetup: ImageVector by lazy {

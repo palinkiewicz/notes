@@ -164,6 +164,93 @@ class SheetPagesTest {
         assertEquals(sheet, sheet.withPageRemoved(1))
     }
 
+    /** One stroke running from the middle of page 1 to the middle of page 2. */
+    private fun spanningSheet(): Sheet = Sheet(
+        contentHeight = pageHeight * 0.5f,
+        blocks = listOf(
+            InkBlock(
+                id = BlockId("b0"), z = 0, rect = Rect.ZERO,
+                strokes = listOf(
+                    Stroke(
+                        ToolId.PEN, -1, 2f, BlendId.NORMAL,
+                        floatArrayOf(50f, 50f),
+                        floatArrayOf(pageHeight * 1.5f, pageHeight * 2.5f),
+                    )
+                ),
+            ).withRecomputedBounds()
+        ),
+    ).withPages(3)
+
+    @Test
+    fun `duplicating a page copies only the part of a drawing that is on it`() {
+        val result = spanningSheet().withPageDuplicated(1)
+        val spans = result.inkLayers().single().strokes.map { it.ys.first() to it.ys.last() }
+
+        assertEquals(4, result.pageCount())
+        assertEquals(
+            listOf(
+                // The original page-1 half, still where it was.
+                pageHeight * 1.5f to pageHeight * 2f,
+                // Its copy on the new page 2 — and nothing of what was on page 2.
+                pageHeight * 2.5f to pageHeight * 3f,
+                // What was on page 2 has moved down to page 3 with it.
+                pageHeight * 3f to pageHeight * 3.5f,
+            ),
+            spans.sortedBy { it.first },
+        )
+    }
+
+    @Test
+    fun `removing a page keeps the part of a drawing that was not on it`() {
+        val result = spanningSheet().withPageRemoved(2)
+        val spans = result.inkLayers().single().strokes.map { it.ys.first() to it.ys.last() }
+
+        // Page 2's half is gone; page 1's half stays exactly where it was.
+        assertEquals(listOf(pageHeight * 1.5f to pageHeight * 2f), spans)
+    }
+
+    @Test
+    fun `moving a page down exchanges it with the one after`() {
+        val result = drawingSheet().withPagesSwapped(1, 2)
+        assertEquals(
+            listOf(pageHeight + 100f, pageHeight * 2 + 100f),
+            result.strokeYs().sorted(),
+        )
+        // Same positions, opposite order: what was on page 1 is now on page 2.
+        val first = result.inkLayers().single().strokes.first { it.ys[0] < pageHeight * 2 }
+        assertEquals(pageHeight + 100f, first.ys[0], 0.01f)
+    }
+
+    @Test
+    fun `a swap leaves the page count alone`() {
+        val sheet = drawingSheet()
+        assertEquals(sheet.pageCount(), sheet.withPagesSwapped(1, 3).pageCount())
+    }
+
+    @Test
+    fun `a swap is its own inverse`() {
+        val sheet = drawingSheet()
+        val there = sheet.withPagesSwapped(1, 2)
+        val back = there.withPagesSwapped(1, 2)
+        assertEquals(sheet.strokeYs().sorted(), back.strokeYs().sorted())
+    }
+
+    @Test
+    fun `pages the text flows through cannot be reordered`() {
+        val sheet = Sheet(contentHeight = pageHeight * 2.5f).withPages(5)
+        assertFalse(sheet.canMovePageUp(3))  // page 2 is text
+        assertTrue(sheet.canMovePageUp(4))
+        assertTrue(sheet.canMovePageDown(3))
+        assertFalse(sheet.canMovePageDown(4)) // nothing after it
+    }
+
+    @Test
+    fun `the first page can never move up and the last can never move down`() {
+        val sheet = drawingSheet()
+        assertFalse(sheet.canMovePageUp(0))
+        assertFalse(sheet.canMovePageDown(sheet.pageCount() - 1))
+    }
+
     @Test
     fun `layer bounds are re-derived after a page operation`() {
         // A stale rect is not cosmetic: inkBottom feeds the page count, so a layer still claiming

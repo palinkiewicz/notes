@@ -177,35 +177,31 @@ data class Sheet(
     /** Whether removing page [index] would leave at least one page standing. */
     fun canRemovePage(index: Int): Boolean = canEditPage(index) && pageCount() > 1
 
+    /** Whether page [index] can trade places with the one before it. */
+    fun canMovePageUp(index: Int): Boolean = canEditPage(index) && canEditPage(index - 1)
+
+    /** Whether page [index] can trade places with the one after it. */
+    fun canMovePageDown(index: Int): Boolean = canEditPage(index) && canEditPage(index + 1)
+
     /**
      * Inserts a copy of page [index] directly after it, sliding everything below down one page.
+     *
+     * Only the ink actually *on* the page is copied. A stroke running across the page break is cut
+     * at the boundary: the part on this page is what gets duplicated, and the part on the next page
+     * travels down with the page it belongs to rather than being left overlapping the new sheet.
      */
     fun withPageDuplicated(index: Int): Sheet {
         if (!canEditPage(index)) return this
         val height = format.height
         val top = index * height
         val bottom = top + height
+        val down = Affine.translate(0f, height)
 
-        val moved = blocks.map { block ->
-            when {
-                block !is InkBlock -> block
-                else -> {
-                    val kept = ArrayList<Stroke>(block.strokes.size)
-                    for (stroke in block.strokes) {
-                        val onPage = stroke.bounds.top < bottom && stroke.bounds.bottom >= top
-                        val below = stroke.bounds.top >= bottom
-                        when {
-                            // The copy lands on the new page; the original stays where it was.
-                            onPage -> {
-                                kept += stroke
-                                kept += stroke.transformed(Affine.translate(0f, height))
-                            }
-                            below -> kept += stroke.transformed(Affine.translate(0f, height))
-                            else -> kept += stroke
-                        }
-                    }
-                    block.copy(strokes = kept).withRecomputedBounds()
-                }
+        val moved = mapInk { stroke ->
+            buildList {
+                addAll(stroke.clippedToBand(ABOVE_ALL, bottom))
+                for (piece in stroke.clippedToBand(top, bottom)) add(piece.transformed(down))
+                for (piece in stroke.clippedToBand(bottom, BELOW_ALL)) add(piece.transformed(down))
             }
         }
         return copy(blocks = moved, pages = pageCount() + 1)
@@ -217,26 +213,55 @@ data class Sheet(
         val height = format.height
         val top = index * height
         val bottom = top + height
+        val up = Affine.translate(0f, -height)
 
-        val moved = blocks.map { block ->
-            when {
-                block !is InkBlock -> block
-                else -> {
-                    val kept = ArrayList<Stroke>(block.strokes.size)
-                    for (stroke in block.strokes) {
-                        val onPage = stroke.bounds.top < bottom && stroke.bounds.bottom >= top
-                        if (onPage) continue
-                        kept += if (stroke.bounds.top >= bottom) {
-                            stroke.transformed(Affine.translate(0f, -height))
-                        } else {
-                            stroke
-                        }
-                    }
-                    block.copy(strokes = kept).withRecomputedBounds()
-                }
+        val moved = mapInk { stroke ->
+            buildList {
+                addAll(stroke.clippedToBand(ABOVE_ALL, top))
+                for (piece in stroke.clippedToBand(bottom, BELOW_ALL)) add(piece.transformed(up))
             }
         }
         return copy(blocks = moved, pages = (pageCount() - 1).coerceAtLeast(1))
+    }
+
+    /**
+     * Exchanges the contents of two pages.
+     *
+     * Everything between them, and everything outside them, stays exactly where it was — so moving
+     * a page up repeatedly walks it through the note one position at a time without disturbing the
+     * rest.
+     */
+    fun withPagesSwapped(a: Int, b: Int): Sheet {
+        if (a == b || !canEditPage(a) || !canEditPage(b)) return this
+        val height = format.height
+        val first = minOf(a, b)
+        val second = maxOf(a, b)
+        val firstTop = first * height
+        val secondTop = second * height
+        val shift = secondTop - firstTop
+
+        val moved = mapInk { stroke ->
+            buildList {
+                addAll(stroke.clippedToBand(ABOVE_ALL, firstTop))
+                for (piece in stroke.clippedToBand(firstTop, firstTop + height)) {
+                    add(piece.transformed(Affine.translate(0f, shift)))
+                }
+                addAll(stroke.clippedToBand(firstTop + height, secondTop))
+                for (piece in stroke.clippedToBand(secondTop, secondTop + height)) {
+                    add(piece.transformed(Affine.translate(0f, -shift)))
+                }
+                addAll(stroke.clippedToBand(secondTop + height, BELOW_ALL))
+            }
+        }
+        return copy(blocks = moved)
+    }
+
+    /** Rebuilds every ink layer by replacing each stroke with zero or more successors. */
+    private fun mapInk(transform: (Stroke) -> List<Stroke>): List<Block> = blocks.map { block ->
+        if (block !is InkBlock) return@map block
+        val out = ArrayList<Stroke>(block.strokes.size)
+        for (stroke in block.strokes) out += transform(stroke)
+        block.copy(strokes = out).withRecomputedBounds()
     }
 
     /** Total strip height including the trailing part-page, in points. */
@@ -260,5 +285,11 @@ data class Sheet(
         val taken = blocks.mapTo(HashSet()) { it.id.raw }
         while ("b$n" in taken) n++
         return BlockId("b$n")
+    }
+
+    private companion object {
+        /** Open-ended band edges: everything above the first page, everything below the last. */
+        const val ABOVE_ALL = -Float.MAX_VALUE
+        const val BELOW_ALL = Float.MAX_VALUE
     }
 }

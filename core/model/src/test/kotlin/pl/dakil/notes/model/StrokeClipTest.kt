@@ -1,0 +1,121 @@
+package pl.dakil.notes.model
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Cutting a stroke at a page boundary.
+ *
+ * The primitive every page operation is built on, and the one place where "close enough" is
+ * visible: a cut that lands on the nearest sample instead of the boundary leaves a stub hanging
+ * over the edge of the paper, or a gap before it.
+ */
+class StrokeClipTest {
+
+    private fun stroke(vararg ys: Float, factors: FloatArray? = null) = Stroke(
+        ToolId.PEN, -1, 2f, BlendId.NORMAL,
+        xs = FloatArray(ys.size) { 10f },
+        ys = ys.toList().toFloatArray(),
+        widthFactors = factors,
+    )
+
+    @Test
+    fun `a stroke entirely inside the band is kept whole`() {
+        val s = stroke(10f, 20f, 30f)
+        val pieces = s.clippedToBand(0f, 100f)
+        assertEquals(1, pieces.size)
+        assertEquals(listOf(10f, 20f, 30f), pieces[0].ys.toList())
+    }
+
+    @Test
+    fun `a stroke entirely outside the band is dropped`() {
+        assertTrue(stroke(200f, 210f).clippedToBand(0f, 100f).isEmpty())
+    }
+
+    @Test
+    fun `a stroke crossing the boundary is cut exactly at it`() {
+        // The half that belongs to the next page must not come along.
+        val pieces = stroke(50f, 150f).clippedToBand(0f, 100f)
+        assertEquals(1, pieces.size)
+        assertEquals(listOf(50f, 100f), pieces[0].ys.toList())
+    }
+
+    @Test
+    fun `a stroke entering the band is cut at the entry`() {
+        val pieces = stroke(-50f, 50f).clippedToBand(0f, 100f)
+        assertEquals(listOf(0f, 50f), pieces.single().ys.toList())
+    }
+
+    @Test
+    fun `a stroke passing straight through yields only the crossing`() {
+        val pieces = stroke(-40f, 140f).clippedToBand(0f, 100f)
+        assertEquals(listOf(0f, 100f), pieces.single().ys.toList())
+    }
+
+    @Test
+    fun `a stroke that leaves and returns yields two separate pieces`() {
+        // One mark on the page becomes two, because that is what is actually on the page.
+        val pieces = stroke(50f, 150f, 60f).clippedToBand(0f, 100f)
+        assertEquals(2, pieces.size)
+        assertEquals(listOf(50f, 100f), pieces[0].ys.toList())
+        assertEquals(listOf(100f, 60f), pieces[1].ys.toList())
+    }
+
+    @Test
+    fun `the two halves of a cut stroke reassemble into the original span`() {
+        val s = stroke(50f, 150f)
+        val above = s.clippedToBand(-Float.MAX_VALUE, 100f).single()
+        val below = s.clippedToBand(100f, Float.MAX_VALUE).single()
+
+        assertEquals(50f, above.ys.first(), 0.01f)
+        assertEquals(100f, above.ys.last(), 0.01f)
+        assertEquals(100f, below.ys.first(), 0.01f)
+        assertEquals(150f, below.ys.last(), 0.01f)
+    }
+
+    @Test
+    fun `pressure is interpolated at the cut, not snapped to a sample`() {
+        // A tapering stroke must keep its taper through the boundary; taking the neighbouring
+        // sample's width would put a visible step exactly on the page edge.
+        val s = stroke(0f, 100f, factors = floatArrayOf(1f, 0f))
+        val piece = s.clippedToBand(0f, 25f).single()
+        assertEquals(0.75f, piece.widthFactors!!.last(), 0.001f)
+    }
+
+    @Test
+    fun `x is interpolated along the cut segment`() {
+        val s = Stroke(
+            ToolId.PEN, -1, 2f, BlendId.NORMAL,
+            xs = floatArrayOf(0f, 100f), ys = floatArrayOf(0f, 100f),
+        )
+        assertEquals(40f, s.clippedToBand(0f, 40f).single().xs.last(), 0.01f)
+    }
+
+    @Test
+    fun `a stroke running along the boundary is not lost`() {
+        val pieces = stroke(100f, 100f).clippedToBand(0f, 100f)
+        assertEquals(listOf(100f, 100f), pieces.single().ys.toList())
+    }
+
+    @Test
+    fun `channels absent from the source stay absent in the pieces`() {
+        val piece = stroke(50f, 150f).clippedToBand(0f, 100f).single()
+        assertEquals(null, piece.widthFactors)
+        assertEquals(null, piece.tilts)
+    }
+
+    @Test
+    fun `style is carried onto every piece`() {
+        val s = Stroke(
+            ToolId.HIGHLIGHTER, 0x66FFE14D, 16f, BlendId.MULTIPLY,
+            xs = floatArrayOf(0f, 0f, 0f), ys = floatArrayOf(50f, 150f, 60f),
+        )
+        for (piece in s.clippedToBand(0f, 100f)) {
+            assertEquals(ToolId.HIGHLIGHTER, piece.tool)
+            assertEquals(0x66FFE14D, piece.color)
+            assertEquals(16f, piece.width, 0.01f)
+            assertEquals(BlendId.MULTIPLY, piece.blend)
+        }
+    }
+}

@@ -125,6 +125,17 @@ class SheetTransform {
     }
 
     /**
+     * Shifts the view by [dy] content pixels, immediately and without animation.
+     *
+     * Used to keep a page under the reader's eye while it changes position in the note. It must not
+     * animate: the page itself jumps to its new index in one frame, and a scroll that eased into
+     * place behind it would show exactly the movement it exists to hide.
+     */
+    fun scrollByContent(dy: Float) {
+        rawOffsetY = clampY(offsetY - dy * rawZoom)
+    }
+
+    /**
      * Brings content pixel [y] to the top of the window.
      *
      * Animated rather than snapped on purpose. Jumping the view is indistinguishable from the page
