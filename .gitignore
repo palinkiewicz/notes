@@ -17,3 +17,7 @@ local.properties
 # Per-module build output — the stock template only ignores the root /build.
 build/
 .kotlin/
+
+# Local agent config and notes.
+CLAUDE.md
+.claude/

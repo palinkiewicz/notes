@@ -1,5 +1,6 @@
 package pl.dakil.notes
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -59,6 +60,20 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
 
     androidx.compose.runtime.LaunchedEffect(Unit) { libraryViewModel.start() }
 
+    fun closeEditor() {
+        noteViewModel.flush()
+        openNote = null
+        libraryViewModel.refresh()
+    }
+
+    // Without these the system back gesture falls through to the activity and finishes it, so
+    // backing out of a note drops the user onto whatever app was behind this one. A destination you
+    // can only leave by finding the right button on screen is not a navigated screen.
+    BackHandler(enabled = openNote != null) { closeEditor() }
+    BackHandler(enabled = openNote == null && destination != Destination.LIBRARY) {
+        destination = Destination.LIBRARY
+    }
+
     val currentNote = openNote
     if (currentNote != null) {
         // The editor takes the whole window: on a phone the navigation bar would eat scarce page
@@ -68,11 +83,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
         }
         EditorScreen(
             viewModel = noteViewModel,
-            onNavigateBack = {
-                noteViewModel.flush()
-                openNote = null
-                libraryViewModel.refresh()
-            },
+            onNavigateBack = ::closeEditor,
             darkTheme = darkTheme,
             expanded = expanded,
             modifier = Modifier.fillMaxSize(),
