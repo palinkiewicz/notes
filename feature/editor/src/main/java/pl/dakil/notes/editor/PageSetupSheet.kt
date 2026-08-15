@@ -4,20 +4,26 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.ui.icons.NotesIcons
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Switch
@@ -32,6 +38,57 @@ import pl.dakil.notes.model.PatternType
 
 /** Which page colour a picker launched from [PageSetupSheet] is editing. */
 enum class PageColorTarget { PAPER_LIGHT, PAPER_DARK, LINES, MARGIN }
+
+/**
+ * How many pages the note has, and the controls to change it.
+ *
+ * Removing is offered but refused rather than hidden when the last page holds something. A control
+ * that silently disappears leaves the user hunting for it; one that is visibly disabled *and says
+ * why* answers the question on the spot. And the refusal itself matters: decrementing a counter is
+ * not a gesture that means "throw that work away", so it must never be able to.
+ */
+@Composable
+private fun PagesSection(
+    pageCount: Int,
+    contentPageCount: Int,
+    onAddPage: () -> Unit,
+    onRemovePage: () -> Unit,
+) {
+    val canRemove = pageCount > 1 && pageCount > contentPageCount
+
+    Column(Modifier.padding(bottom = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text("Pages", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = if (pageCount == 1) "1 page" else "$pageCount pages",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedIconButton(onClick = onRemovePage, enabled = canRemove) {
+                    Icon(NotesIcons.RemovePage, contentDescription = "Remove last page")
+                }
+                FilledIconButton(onClick = onAddPage) {
+                    Icon(NotesIcons.AddPage, contentDescription = "Add page")
+                }
+            }
+        }
+        if (!canRemove && pageCount > 1) {
+            Text(
+                text = "The last page has something on it. Clear it to remove the page.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
 
 /**
  * Page setup: paper size, rule pattern and every colour on the sheet.
@@ -49,6 +106,10 @@ fun PageSetupSheet(
     margins: PageMargins,
     onMarginsChange: (PageMargins) -> Unit,
     onEditColor: (PageColorTarget) -> Unit,
+    pageCount: Int,
+    contentPageCount: Int,
+    onAddPage: () -> Unit,
+    onRemovePage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -63,6 +124,13 @@ fun PageSetupSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("Page", style = MaterialTheme.typography.titleLarge)
+
+            PagesSection(
+                pageCount = pageCount,
+                contentPageCount = contentPageCount,
+                onAddPage = onAddPage,
+                onRemovePage = onRemovePage,
+            )
 
             Text("Size", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

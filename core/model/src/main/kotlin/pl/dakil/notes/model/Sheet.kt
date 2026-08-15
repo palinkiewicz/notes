@@ -94,6 +94,16 @@ data class Sheet(
      * before its text has been measured.
      */
     val contentHeight: Float = 0f,
+    /**
+     * How many pages this sheet has.
+     *
+     * A floor, not a total: writing past the bottom of the last page still adds another, exactly
+     * as it did before this field existed, and saving absorbs that growth so pages are never
+     * silently lost. What the field adds is the other direction — a page can now exist because the
+     * author asked for it, before there is anything on it to imply its existence. Without that,
+     * there is no way to start drawing on a second page.
+     */
+    val pages: Int = 1,
     val unknown: JsonObject = JsonObject.EMPTY,
 ) {
     fun block(id: BlockId): Block? = blocks.firstOrNull { it.id == id }
@@ -117,12 +127,26 @@ data class Sheet(
     }
 
     /** How many pages this sheet occupies. Always at least one. */
-    fun pageCount(): Int {
+    fun pageCount(): Int = maxOf(pages, contentPageCount())
+
+    /**
+     * How many pages the content alone reaches onto.
+     *
+     * The floor for removing a page: a page holding text or ink is not one the user can delete by
+     * decrementing a counter, because nothing about that gesture says the work on it is to be
+     * thrown away.
+     */
+    fun contentPageCount(): Int {
         val height = format.height
         if (height <= 0f) return 1
         val extent = maxOf(contentHeight, inkBottom(), 1f)
         return maxOf(1, ceil(extent / height - 1e-4f).toInt())
     }
+
+    /** True when the last page is the author's rather than the content's, so it can be given back. */
+    fun canRemoveLastPage(): Boolean = pageCount() > 1 && pageCount() > contentPageCount()
+
+    fun withPages(count: Int): Sheet = copy(pages = count.coerceAtLeast(1))
 
     /** Total strip height including the trailing part-page, in points. */
     fun stripHeight(): Float = pageCount() * format.height

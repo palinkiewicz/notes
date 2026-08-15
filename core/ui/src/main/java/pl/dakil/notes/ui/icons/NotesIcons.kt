@@ -136,6 +136,24 @@ object NotesIcons {
         )
     }
 
+    /** A sheet with a plus: append a blank page to the end of the note. */
+    val AddPage: ImageVector by lazy {
+        strokedIcon(
+            "AddPage",
+            "M4.5 3.5 h10 v13 h-10 Z M7.5 7.5 h4 M7.5 11 h4 " +
+                "M17.5 15 v6 M14.5 18 h6",
+        )
+    }
+
+    /** The same sheet with a minus: give back a blank page from the end. */
+    val RemovePage: ImageVector by lazy {
+        strokedIcon(
+            "RemovePage",
+            "M4.5 3.5 h10 v13 h-10 Z M7.5 7.5 h4 M7.5 11 h4 " +
+                "M14.5 18 h6",
+        )
+    }
+
     val PageSetup: ImageVector by lazy {
         strokedIcon(
             "PageSetup",

@@ -86,6 +86,7 @@ object DakNoteWriter {
             "margins" to Schema.writeMargins(sheet.format.margins),
             "background" to Schema.writeBackground(sheet.format.background),
             "contentHeight" to pl.dakil.notes.model.json.JsonNumber.of(sheet.contentHeight),
+            "pages" to pl.dakil.notes.model.json.JsonNumber.of(sheet.pageCount()),
             "blocks" to JsonArray(blocks),
         ).withDefaults(sheet.unknown)
     }

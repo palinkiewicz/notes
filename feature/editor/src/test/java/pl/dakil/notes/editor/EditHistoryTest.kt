@@ -152,6 +152,37 @@ class EditHistoryTest {
     }
 
     @Test
+    fun `adding a page undoes back to the previous count`() {
+        val history = EditHistory()
+        var current = note()
+
+        val edit = Edit.SetPages(current.sheet.pages, current.sheet.pageCount() + 1)
+        current = edit.apply(current)
+        history.push(edit, nowMs = 0)
+
+        assertEquals(2, current.sheet.pageCount())
+        assertEquals(1, history.undo(current)!!.sheet.pageCount())
+    }
+
+    @Test
+    fun `a run of page additions collapses into one undo`() {
+        // Four taps on "add page" is one thought, and stepping back through it one page at a time
+        // would be tedious rather than precise.
+        val history = EditHistory()
+        var current = note()
+
+        repeat(4) { i ->
+            val edit = Edit.SetPages(current.sheet.pages, current.sheet.pageCount() + 1)
+            current = edit.apply(current)
+            history.push(edit, nowMs = i * 100L)
+        }
+
+        assertEquals(5, current.sheet.pageCount())
+        assertEquals(1, history.depth)
+        assertEquals(1, history.undo(current)!!.sheet.pageCount())
+    }
+
+    @Test
     fun `adding and removing an ink layer invert cleanly`() {
         val current = note()
         val layer = InkBlock(id = current.sheet.nextBlockId(), z = 5, rect = pl.dakil.notes.model.Rect.ZERO)

@@ -50,6 +50,16 @@ sealed interface Edit {
             if (next is SetText) SetText(before, next.after) else null
     }
 
+    /** Adding or removing blank pages at the end of the sheet. */
+    data class SetPages(val before: Int, val after: Int) : Edit {
+        override fun apply(note: Note): Note = note.withSheet(note.sheet.withPages(after))
+        override fun invert(): Edit = SetPages(after, before)
+
+        // Tapping "add page" four times is one thought, and should be one undo.
+        override fun mergeWith(next: Edit): Edit? =
+            if (next is SetPages) SetPages(before, next.after) else null
+    }
+
     /** Several edits that must undo together — a lasso delete spanning multiple layers. */
     data class Batch(val edits: List<Edit>) : Edit {
         override fun apply(note: Note): Note = edits.fold(note) { acc, edit -> edit.apply(acc) }

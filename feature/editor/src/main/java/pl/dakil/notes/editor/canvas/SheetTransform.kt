@@ -1,5 +1,7 @@
 package pl.dakil.notes.editor.canvas
 
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -107,6 +109,20 @@ class SheetTransform {
         return cx == x || cy == y
     }
 
+    /**
+     * Brings content pixel [y] to the top of the window.
+     *
+     * Animated rather than snapped on purpose. Jumping the view is indistinguishable from the page
+     * having been there all along, whereas a short travel says "a page was added, and it is down
+     * here" without a toast or a dialog to dismiss.
+     */
+    suspend fun animateToContentY(y: Float) {
+        val from = offsetY
+        val to = clampY(EDGE_PAD - y * rawZoom)
+        if (from == to) return
+        animate(from, to, animationSpec = tween(SCROLL_MS)) { value, _ -> rawOffsetY = clampY(value) }
+    }
+
     /** Back to a full page width, as if the note had just been opened. */
     fun resetZoom() {
         settled = false
@@ -157,6 +173,9 @@ class SheetTransform {
 
         /** A little air around the sheet, so it never sits flush against the app bar. */
         const val EDGE_PAD = 24f
+
+        /** Long enough to read as travel, short enough not to be a wait. */
+        private const val SCROLL_MS = 320
 
         val Saver: Saver<SheetTransform, List<Float>> = Saver(
             save = { listOf(it.rawZoom, it.rawOffsetX, it.rawOffsetY) },

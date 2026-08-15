@@ -95,6 +95,8 @@ object DakNoteReader {
             markdown = readMarkdown(entries, consumed),
             blocks = blocks,
             contentHeight = json.float("contentHeight", 0f),
+            // Absent in files written before explicit pages existed; one is the old behaviour.
+            pages = json.int("pages", 1).coerceAtLeast(1),
             unknown = Schema.sheetRemainder(json),
         )
     }

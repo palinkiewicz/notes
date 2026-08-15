@@ -66,6 +66,10 @@ fun EditorScreen(
                 pageSetupOpen = false
                 editingPageColor = target
             },
+            pageCount = sheet.pageCount(),
+            contentPageCount = sheet.contentPageCount(),
+            onAddPage = viewModel::addPage,
+            onRemovePage = viewModel::removeLastPage,
             onDismiss = { pageSetupOpen = false },
         )
     }
@@ -162,6 +166,7 @@ fun EditorScreen(
                     onUpdateTool = viewModel::updateTool,
                     onToggleFingerDrawing = viewModel::setFingerDrawing,
                     onOpenColorPicker = { editingPen = it },
+                    onAddPage = viewModel::addPage,
                 )
             }
         },
@@ -191,6 +196,7 @@ fun EditorScreen(
                             onUpdateTool = viewModel::updateTool,
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
                             onOpenColorPicker = { editingPen = it },
+                            onAddPage = viewModel::addPage,
                         )
                     }
                     SheetEditor(

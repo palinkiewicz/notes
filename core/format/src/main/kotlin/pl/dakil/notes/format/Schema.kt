@@ -150,7 +150,16 @@ internal object Schema {
 
     // ---- Sheet -------------------------------------------------------------------------------
 
-    private val SHEET_KEYS = setOf("size", "margins", "background", "markdown", "blocks", "contentHeight")
+    /**
+     * `pages` is an explicit page count, added after v2 shipped.
+     *
+     * No version bump: it is an optional key that defaults to the previous behaviour, so an older
+     * build reads such a file correctly (deriving the count from the content, as it always did)
+     * and carries the key through its remainder untouched. This is the forward-compatibility rule
+     * doing the job it was designed for, instead of a migration.
+     */
+    private val SHEET_KEYS =
+        setOf("size", "margins", "background", "markdown", "blocks", "contentHeight", "pages")
 
     fun readMargins(json: JsonObject?): PageMargins {
         if (json == null) return PageMargins.DEFAULT

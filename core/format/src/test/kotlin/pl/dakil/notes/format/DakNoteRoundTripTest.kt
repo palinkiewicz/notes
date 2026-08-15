@@ -302,6 +302,34 @@ class DakNoteRoundTripTest {
         assertEquals(PageSize.A4, note.sheet.format.size)
     }
 
+    // ---- Pages ------------------------------------------------------------------------------------
+
+    @Test
+    fun `explicitly added blank pages survive a save`() {
+        // The whole point of storing this: blank pages have nothing on them to imply they exist,
+        // so if the number is not written down they are gone on reopen.
+        val note = sampleNote().let { it.withSheet(it.sheet.withPages(5)) }
+        assertEquals(5, roundTrip(note).sheet.pageCount())
+    }
+
+    @Test
+    fun `a note written before pages existed opens with the count its content implies`() {
+        val entries = entriesOf(DakNoteWriter.toByteArray(sampleNote()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        entries["sheet.json"] = JsonWriter.write(sheet.without("pages")).toByteArray()
+
+        val note = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+        assertEquals(note.sheet.contentPageCount(), note.sheet.pageCount())
+    }
+
+    @Test
+    fun `pages grown by content are not lost on the next save`() {
+        val note = sampleNote().let {
+            it.withSheet(it.sheet.copy(contentHeight = it.sheet.format.height * 2.5f))
+        }
+        assertEquals(3, roundTrip(note).sheet.pageCount())
+    }
+
     // ---- Forward compatibility -------------------------------------------------------------------
 
     private fun futureNote(minReaderVersion: Int = 2): ByteArray {

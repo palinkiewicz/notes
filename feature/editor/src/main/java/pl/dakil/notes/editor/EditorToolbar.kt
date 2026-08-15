@@ -63,6 +63,7 @@ fun EditorToolbar(
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
+    onAddPage: () -> Unit,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
 
@@ -87,6 +88,13 @@ fun EditorToolbar(
             }
         }
         Box(Modifier.width(8.dp))
+        // Adding a page is a one-tap action here rather than two taps into page setup: you reach
+        // for it at the bottom of a page, mid-thought, and that is not a moment to go looking
+        // through a settings sheet. Removing one stays in page setup — it is rarer, and it is the
+        // direction that wants a moment's deliberation.
+        IconButton(onClick = onAddPage) {
+            Icon(NotesIcons.AddPage, contentDescription = "Add page")
+        }
         FilledIconToggleButton(
             checked = state.inputConfig.fingerDrawingEnabled,
             onCheckedChange = onToggleFingerDrawing,
@@ -123,6 +131,7 @@ fun EditorToolRail(
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
+    onAddPage: () -> Unit,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
 
@@ -143,6 +152,9 @@ fun EditorToolRail(
         }
         IconButton(onClick = { optionsFor = state.tool.tool }) {
             Icon(NotesIcons.More, contentDescription = "Tool options")
+        }
+        IconButton(onClick = onAddPage) {
+            Icon(NotesIcons.AddPage, contentDescription = "Add page")
         }
         FilledIconToggleButton(
             checked = state.inputConfig.fingerDrawingEnabled,

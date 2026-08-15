@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -63,6 +64,21 @@ fun SheetEditor(
     val format = sheet.format
     val paged = state.view == ViewMode.PAGED
     val stripWidthPx = (format.width * ptToPx).toInt()
+    val pageCount = sheet.pageCount()
+
+    // Bring a newly added page into view. The strip's size is worked out arithmetically rather than
+    // read from the last layout: the page was added in the composition this effect belongs to, so a
+    // measured height would still be one page short and the scroll would stop just above the thing
+    // it was asked to reveal.
+    LaunchedEffect(state.scrollRequest) {
+        val request = state.scrollRequest ?: return@LaunchedEffect
+        transform.setContent(
+            stripWidthPx.toFloat(),
+            SheetPainter.stripHeightPx(format, pageCount, ptToPx, paged),
+        )
+        val tops = SheetPainter.pageTops(format, pageCount, ptToPx, paged)
+        transform.animateToContentY(tops.getOrNull(request.page) ?: return@LaunchedEffect)
+    }
 
     Box(
         modifier = modifier

@@ -53,6 +53,16 @@ data class Selection(
  * Deliberately coarse: this is read during composition, so it changes at user pace. Anything that
  * changes at input pace — the wet stroke, the scroll offset — lives outside it.
  */
+/**
+ * A one-shot request to bring a page into view.
+ *
+ * [token] is what makes it one-shot: the editor keys an effect on the whole request, so asking for
+ * the same page twice in a row still fires. Without it, adding a page, scrolling away, and adding
+ * another would leave the second request looking identical to the first and quietly do nothing.
+ */
+@Immutable
+data class ScrollRequest(val page: Int, val token: Int)
+
 @Immutable
 data class EditorUiState(
     val note: Note? = null,
@@ -72,6 +82,7 @@ data class EditorUiState(
     val canRedo: Boolean = false,
     /** Bumped on every document mutation, so the ink overlay can invalidate without deep diffing. */
     val documentVersion: Int = 0,
+    val scrollRequest: ScrollRequest? = null,
     val isLoading: Boolean = true,
     val error: String? = null,
 ) {
@@ -230,6 +241,34 @@ class NoteViewModel(
     fun setMargins(margins: PageMargins) {
         val sheet = _state.value.sheet ?: return
         setPageFormat(sheet.format.copy(margins = margins))
+    }
+
+    // ---- Pages ---------------------------------------------------------------------------------
+
+    /** Appends a blank page to the end of the sheet and scrolls to it. */
+    fun addPage() {
+        val sheet = _state.value.sheet ?: return
+        if (_state.value.isReadOnly) return
+        // From the *effective* count, so adding a page after the text has already spilled onto a
+        // third one gives a fourth, rather than silently doing nothing.
+        val added = sheet.pageCount()
+        commitEdit(Edit.SetPages(sheet.pages, added + 1))
+        // A page added below the fold, with the view left where it was, is indistinguishable from
+        // a button that does nothing.
+        _state.update { it.copy(scrollRequest = ScrollRequest(added, it.documentVersion)) }
+    }
+
+    /**
+     * Drops the last page, if it is blank.
+     *
+     * Refused rather than confirmed when the page holds something: a counter is not a gesture that
+     * says "discard this work", so there is no reading of it under which deleting content is what
+     * the user meant.
+     */
+    fun removeLastPage() {
+        val sheet = _state.value.sheet ?: return
+        if (_state.value.isReadOnly || !sheet.canRemoveLastPage()) return
+        commitEdit(Edit.SetPages(sheet.pages, sheet.pageCount() - 1))
     }
 
     /** Reported by the text layout once it knows how tall the flow turned out. */
