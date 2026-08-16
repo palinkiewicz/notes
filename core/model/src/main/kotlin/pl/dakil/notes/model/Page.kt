@@ -55,9 +55,14 @@ data class PagePattern(
     val type: PatternType = PatternType.NONE,
     /** Line/dot spacing in points. */
     val spacing: Float = 24f,
-    /** Packed ARGB of the pattern lines; alpha here is multiplied by [opacity]. */
+    /**
+     * Packed ARGB of the pattern lines.
+     *
+     * Its alpha is the only thing that makes a rule faint. There was a separate strength
+     * multiplier; two controls over one visual result only ever disagree, and the colour is the
+     * one of the two a user can see while they set it.
+     */
     val color: Int = 0xFF5B7FD4.toInt(),
-    val opacity: Float = 0.35f,
     /** Left margin rule offset in points; 0 disables the margin line. */
     val margin: Float = 0f,
     /** Packed ARGB of the margin rule, kept separate so it can stay red on blue-ruled paper. */

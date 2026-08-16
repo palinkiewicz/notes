@@ -462,7 +462,6 @@ class DakNoteRoundTripTest {
                         type = PatternType.RULED,
                         spacing = 19f,
                         color = 0x99A3C77E.toInt(),
-                        opacity = 0.62f,
                         margin = 72f,
                         marginColor = 0xFF2E86C1.toInt(),
                     ),
@@ -474,7 +473,6 @@ class DakNoteRoundTripTest {
         assertEquals(0xFFEDE7D9.toInt(), bg.color)
         assertEquals(0x99A3C77E.toInt(), bg.pattern.color)
         assertEquals(0xFF2E86C1.toInt(), bg.pattern.marginColor)
-        assertEquals(0.62f, bg.pattern.opacity, 1e-3f)
     }
 
     @Test

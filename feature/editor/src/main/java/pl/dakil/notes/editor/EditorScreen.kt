@@ -1,5 +1,6 @@
 package pl.dakil.notes.editor
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,8 +52,13 @@ fun EditorScreen(
     var pageSetupOpen by remember { mutableStateOf(false) }
     var editingPen by remember { mutableStateOf<ToolId?>(null) }
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
+    // Held here rather than in the toolbar: the sheet and the app bar close it too.
+    var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
 
     val sheet = state.sheet
+
+    // The selectors do not take focus, so back would otherwise leave the editor with one open.
+    BackHandler(enabled = toolPopup != null) { toolPopup = null }
 
     if (pageSetupOpen && sheet != null) {
         PageSetupSheet(
@@ -128,6 +134,7 @@ fun EditorScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
+                modifier = Modifier.dismissToolPopupOnPress { toolPopup = null },
                 title = {
                     Text(
                         text = state.note?.meta?.title?.takeIf { it.isNotBlank() } ?: "Untitled",
@@ -156,6 +163,8 @@ fun EditorScreen(
             if (!expanded) {
                 EditorToolbar(
                     state = state,
+                    openPopup = toolPopup,
+                    onPopupChange = { toolPopup = it },
                     onSelectTool = viewModel::selectTool,
                     onSelectTextTool = viewModel::selectTextTool,
                     onUpdateTool = viewModel::updateTool,
@@ -165,7 +174,12 @@ fun EditorScreen(
             }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .dismissToolPopupOnPress { toolPopup = null }
+        ) {
             when {
                 state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator()
@@ -185,6 +199,8 @@ fun EditorScreen(
                     if (expanded) {
                         EditorToolRail(
                             state = state,
+                            openPopup = toolPopup,
+                            onPopupChange = { toolPopup = it },
                             onSelectTool = viewModel::selectTool,
                             onSelectTextTool = viewModel::selectTextTool,
                             onUpdateTool = viewModel::updateTool,

@@ -187,15 +187,8 @@ fun PageSetupSheet(
                     valueRange = 6f..64f,
                 )
 
-                Text("Line strength", style = MaterialTheme.typography.labelLarge)
-                Slider(
-                    value = background.pattern.opacity,
-                    onValueChange = {
-                        onBackgroundChange(background.copy(pattern = background.pattern.copy(opacity = it)))
-                    },
-                    valueRange = 0.05f..1f,
-                )
-
+                // No separate strength slider: the line colour carries its own alpha, and two
+                // controls over one visual result only ever disagree.
                 ColorSettingRow(
                     label = "Line colour",
                     color = background.pattern.color,

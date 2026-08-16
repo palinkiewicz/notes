@@ -155,7 +155,6 @@ class SettingsRepository(context: Context) {
         .putString(KEY_PATTERN_TYPE, pattern.type.key)
         .putFloat(KEY_PATTERN_SPACING, pattern.spacing)
         .putInt(KEY_PATTERN_COLOR, pattern.color)
-        .putFloat(KEY_PATTERN_OPACITY, pattern.opacity)
         .putFloat(KEY_PATTERN_MARGIN, pattern.margin)
         .apply()
 
@@ -179,7 +178,6 @@ class SettingsRepository(context: Context) {
                 type = PatternType.fromKey(prefs.getString(KEY_PATTERN_TYPE, "none") ?: "none"),
                 spacing = prefs.getFloat(KEY_PATTERN_SPACING, 24f),
                 color = prefs.getInt(KEY_PATTERN_COLOR, PagePattern.NONE.color),
-                opacity = prefs.getFloat(KEY_PATTERN_OPACITY, 0.35f),
                 margin = prefs.getFloat(KEY_PATTERN_MARGIN, 0f),
             ),
         )
@@ -215,7 +213,6 @@ class SettingsRepository(context: Context) {
         const val KEY_PATTERN_TYPE = "page.patternType"
         const val KEY_PATTERN_SPACING = "page.patternSpacing"
         const val KEY_PATTERN_COLOR = "page.patternColor"
-        const val KEY_PATTERN_OPACITY = "page.patternOpacity"
         const val KEY_PATTERN_MARGIN = "page.patternMargin"
     }
 }

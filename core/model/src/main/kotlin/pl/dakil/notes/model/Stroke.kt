@@ -15,6 +15,8 @@ enum class ToolId {
 
     val isDrawing: Boolean get() = this == PEN || this == FOUNTAIN_PEN || this == PENCIL || this == HIGHLIGHTER
 
+    val isEraser: Boolean get() = this == ERASER_STROKE || this == ERASER_POINT
+
     companion object {
         private val VALUES = entries.toTypedArray()
         /** Unknown ids from a newer file degrade to a plain pen rather than failing the load. */

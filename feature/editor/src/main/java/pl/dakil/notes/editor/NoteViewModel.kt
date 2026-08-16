@@ -70,6 +70,14 @@ data class EditorUiState(
     val view: ViewMode = ViewMode.PAGED,
     val tool: ToolSpec = ToolSpec.PEN,
     val toolPresets: List<ToolSpec> = ToolSpec.DEFAULTS,
+    /**
+     * What the toolbar's pen and eraser buttons go back to.
+     *
+     * Selecting the lasso or the text tool replaces [tool], so without these the bar would forget
+     * which pen you were holding the moment you selected something over the page.
+     */
+    val lastDrawingTool: ToolId = ToolId.PEN,
+    val lastEraser: ToolId = ToolId.ERASER_STROKE,
     /** True when the text tool is chosen: a finger tap edits text rather than drawing. */
     val textToolActive: Boolean = false,
     val editingText: Boolean = false,
@@ -174,6 +182,8 @@ class NoteViewModel(
             current.copy(
                 tool = spec,
                 textToolActive = false,
+                lastDrawingTool = if (tool.isDrawing) tool else current.lastDrawingTool,
+                lastEraser = if (tool.isEraser) tool else current.lastEraser,
                 // Leaving the lasso must drop the selection, or its handles linger over the sheet.
                 selection = if (tool == ToolId.LASSO) current.selection else null,
             )

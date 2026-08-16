@@ -175,9 +175,12 @@ object SheetPainter {
         if (spacingPx * zoom < MIN_VISIBLE_SPACING_PX) return
 
         val hairline = ruleWidthPx(ptToPx, zoom)
-        val alpha = pattern.opacity.coerceIn(0f, 1f) * ruleCoverage(ptToPx, zoom)
-        val color = Color(pattern.color).copy(alpha = alpha)
-        val marginColor = Color(pattern.marginColor).copy(alpha = alpha)
+        // Rules draw at full strength, scaled only by sub-pixel coverage. How faint a rule is, is
+        // its own colour's alpha — multiplied, not replaced, or the alpha the user picked in the
+        // colour sheet would never reach the paper.
+        val coverage = ruleCoverage(ptToPx, zoom)
+        val color = Color(pattern.color).let { it.copy(alpha = it.alpha * coverage) }
+        val marginColor = Color(pattern.marginColor).let { it.copy(alpha = it.alpha * coverage) }
 
         val width = size.width
         when (pattern.type) {

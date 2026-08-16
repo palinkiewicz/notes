@@ -133,7 +133,8 @@ internal object Schema {
             type = PatternType.fromKey(json.string("type", "none")),
             spacing = json.float("spacing", d.spacing),
             color = hexToColor(json.string("color"), d.color),
-            opacity = json.float("opacity", d.opacity),
+            // "opacity" is read past deliberately: rules now draw at full strength whatever a file
+            // asks for, so honouring it would make an old note render unlike a new one.
             margin = json.float("margin", d.margin),
             marginColor = hexToColor(json.string("marginColor"), d.marginColor),
             groupSpacing = json.float("groupSpacing", d.groupSpacing),
@@ -144,7 +145,10 @@ internal object Schema {
         "type" to JsonString(p.type.key),
         "spacing" to JsonNumber.of(p.spacing),
         "color" to JsonString(colorToHex(p.color)),
-        "opacity" to JsonNumber.of(p.opacity),
+        // Still written, always as 1: `background` is rewritten wholesale and keeps no remainder,
+        // so dropping the key would leave an older reader multiplying by its own 0.35 default and
+        // drawing the paper fainter than the file was saved looking.
+        "opacity" to JsonNumber.of(1f),
         "margin" to JsonNumber.of(p.margin),
         "marginColor" to JsonString(colorToHex(p.marginColor)),
         "groupSpacing" to JsonNumber.of(p.groupSpacing),

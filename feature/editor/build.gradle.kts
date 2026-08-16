@@ -30,6 +30,7 @@ dependencies {
     implementation(project(":core:ink"))
     testImplementation(project(":core:format"))
     implementation(project(":core:ui"))
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
