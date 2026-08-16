@@ -27,8 +27,18 @@ object SheetPainter {
     /** Below this on-screen spacing the rules alias into a grey wash, so they are skipped. */
     private const val MIN_VISIBLE_SPACING_PX = 4f
 
-    /** Rule thickness in pixels, held constant so zooming does not fatten the paper. */
-    private const val LINE_PX = 1f
+    /** Page-edge thickness in pixels, held constant on the glass so the edge never fades away. */
+    private const val EDGE_PX = 1f
+
+    /**
+     * Rule thickness in points — a width on the paper, not on the glass.
+     *
+     * The rules have to thin out at the same rate their spacing closes up, or zooming out packs
+     * constant-width lines tighter and tighter until they meet and the sheet reads as grey card.
+     * Half a point is about the width of a real ruled line, and lands near the one pixel these
+     * rules have always been at the fit-to-width zoom a note opens at.
+     */
+    private const val LINE_PT = 0.5f
 
     /**
      * Gap between pages in paged view, in points.
@@ -58,7 +68,7 @@ object SheetPainter {
         val paper = Color(format.background.color)
         val pageHeightPx = format.height * ptToPx
         val gapPx = if (paged) PAGE_GAP_PT * ptToPx else 0f
-        val hairline = LINE_PX / zoom
+        val edge = EDGE_PX / zoom
 
         for (page in 0 until pageCount) {
             val top = page * (pageHeightPx + gapPx)
@@ -70,7 +80,7 @@ object SheetPainter {
             // The pattern is clipped to its own page so rules never run through the gap between
             // sheets — which is what makes paged view look like paper rather than a striped wall.
             clipRect(top = top, bottom = bottom) {
-                drawPattern(format, ptToPx, top, pageHeightPx, zoom, hairline)
+                drawPattern(format, ptToPx, top, pageHeightPx, zoom)
             }
 
             if (paged) {
@@ -78,7 +88,7 @@ object SheetPainter {
                     color = Color(0x22000000),
                     topLeft = Offset(0f, top),
                     size = Size(size.width, pageHeightPx),
-                    style = Stroke(width = hairline),
+                    style = Stroke(width = edge),
                 )
             }
         }
@@ -126,13 +136,35 @@ object SheetPainter {
 
     // ---- Patterns --------------------------------------------------------------------------------
 
+    /**
+     * Width to stroke the rules at, in unzoomed document pixels.
+     *
+     * [LINE_PT] measured on the paper, floored at one device pixel — the thinnest mark there is.
+     * The floor is why [ruleCoverage] exists: everything the rule was supposed to lose below it has
+     * to come off somewhere, or a zoomed-out pattern draws full-strength pixels between rules that
+     * are converging and floods the paper grey.
+     */
+    internal fun ruleWidthPx(ptToPx: Float, zoom: Float): Float {
+        val paperWidth = LINE_PT * ptToPx
+        return if (paperWidth * zoom < 1f) 1f / zoom else paperWidth
+    }
+
+    /**
+     * The fraction of its intended width a rule kept, as an alpha multiplier.
+     *
+     * 1 wherever the rule is at least a pixel wide, and the sub-pixel width itself below that: a
+     * rule that wanted to be a third of a pixel is drawn as a whole pixel at a third the strength,
+     * so the ink-to-paper ratio holds at every zoom and the sheet just gets smaller.
+     */
+    internal fun ruleCoverage(ptToPx: Float, zoom: Float): Float =
+        (LINE_PT * ptToPx * zoom).coerceIn(0f, 1f)
+
     private fun DrawScope.drawPattern(
         format: PageFormat,
         ptToPx: Float,
         pageTopPx: Float,
         pageHeightPx: Float,
         zoom: Float,
-        hairline: Float,
     ) {
         val pattern = format.background.pattern
         if (pattern.type == PatternType.NONE || pattern.spacing <= 0f) return
@@ -142,7 +174,8 @@ object SheetPainter {
         // read as rules once the sheet is scaled, and below a few pixels apart they read as a wash.
         if (spacingPx * zoom < MIN_VISIBLE_SPACING_PX) return
 
-        val alpha = pattern.opacity.coerceIn(0f, 1f)
+        val hairline = ruleWidthPx(ptToPx, zoom)
+        val alpha = pattern.opacity.coerceIn(0f, 1f) * ruleCoverage(ptToPx, zoom)
         val color = Color(pattern.color).copy(alpha = alpha)
         val marginColor = Color(pattern.marginColor).copy(alpha = alpha)
 

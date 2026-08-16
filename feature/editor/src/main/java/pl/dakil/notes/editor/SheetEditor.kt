@@ -81,8 +81,10 @@ fun SheetEditor(
         transform.animateToContentY(tops.getOrNull(request.page) ?: return@LaunchedEffect)
     }
 
-    // Room above the first page for its header, and below the last for the add button.
-    val insetTop = with(density) { CHROME_TOP.toPx() }
+    // Room above the first page for its header, and below the last for the add button. Continuous
+    // view draws no headers, so it asks for no room above the paper — reserving it there would
+    // leave a band of empty background the view can scroll to and nothing ever occupies.
+    val insetTop = with(density) { if (paged) CHROME_TOP.toPx() else 0f }
     val insetBottom = with(density) { CHROME_BOTTOM.toPx() }
     transform.setContentInsets(insetTop, insetBottom)
 

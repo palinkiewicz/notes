@@ -20,11 +20,20 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.ui.icons.NotesIcons
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
  * The controls that belong to a page rather than to the document: its number, and the two things
  * you can do to it.
+ *
+ * ### Why the headers are paged-only
+ *
+ * A header names a boundary, and in continuous view there is no boundary to name — the pages run
+ * into one another with no gap, so a header would have to sit on top of the previous page's text
+ * and label a break the reader has deliberately asked not to see. The add button stays: the
+ * document can still grow in either view. Page duplicate, delete and reorder are reached by
+ * switching to paged view, where there is a page to point at.
  *
  * ### Why this is not inside the sheet
  *
@@ -59,7 +68,7 @@ fun PageChrome(
     Layout(
         modifier = modifier,
         content = {
-            for (page in 0 until pageCount) {
+            for (page in 0 until if (paged) pageCount else 0) {
                 PageHeader(
                     number = page + 1,
                     editable = canEditPage(page),
@@ -79,6 +88,7 @@ fun PageChrome(
         val placeables = measurables.map { it.layoutId to it.measure(loose) }
 
         layout(constraints.maxWidth, constraints.maxHeight) {
+            val viewportWidth = constraints.maxWidth.toFloat()
             val zoom = transform.zoom
             val originX = transform.offsetX
             val originY = transform.offsetY
@@ -97,10 +107,15 @@ fun PageChrome(
                     )
                 } else {
                     val page = id as Int
-                    // Sat just above its page, right-aligned with the paper's edge.
+                    // Sat just above its page, right-aligned with the paper's edge — or with the
+                    // window's, whichever comes first. Zoomed in past the width of the screen the
+                    // paper's right edge is somewhere off to the side, and a header pinned to it
+                    // goes with it: the controls for the page you are looking at end up parked
+                    // where you would have to zoom out to reach them.
                     val top = originY + tops[page] * zoom
+                    val right = min(originX + pageWidthPx, viewportWidth)
                     placeable.place(
-                        x = (originX + pageWidthPx - placeable.width).roundToInt(),
+                        x = (right - placeable.width).roundToInt(),
                         y = (top - placeable.height - GAP_PX).roundToInt(),
                     )
                 }
