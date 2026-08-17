@@ -20,6 +20,14 @@ class LanguageSpec(
     val quotes: String,
     /** Whether a tripled quote runs until the matching triple, as in Python or Kotlin. */
     val tripleQuoted: Boolean,
+    /**
+     * Whether the language's own words may be written in any case.
+     *
+     * SQL is the reason this exists: its keywords are conventionally shouted — `SELECT`, `FROM` —
+     * and the keyword lists are all lowercase, so without this every word in a perfectly ordinary
+     * query goes uncoloured.
+     */
+    val caseInsensitive: Boolean = false,
 ) {
     /**
      * Built on first use and then held.
@@ -30,6 +38,15 @@ class LanguageSpec(
     val words: Set<String> by lazy(LazyThreadSafetyMode.NONE) {
         keywords.split(' ').filterTo(HashSet()) { it.isNotEmpty() }
     }
+
+    /**
+     * Whether [word] is one of the language's own.
+     *
+     * The case-folded lookup is second and only for the languages that need it, so the usual case
+     * costs one hash and no allocation.
+     */
+    fun knows(word: String): Boolean =
+        word in words || (caseInsensitive && word.lowercase() in words)
 }
 
 /**
@@ -97,7 +114,7 @@ object CodeHighlighter {
                 while (j < to && isIdentPart(code[j])) j++
                 val word = code.substring(i, j)
                 when {
-                    word in spec.words -> emit(i, j, CodeToken.KEYWORD)
+                    spec.knows(word) -> emit(i, j, CodeToken.KEYWORD)
                     // A name with a bracket after it is being called or declared. Crude, but it is
                     // true across every C-shaped language and most others, and it is the single
                     // cheapest signal that a word is a function.

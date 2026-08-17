@@ -27,6 +27,16 @@ class CodeHighlighterTest {
     }
 
     @Test
+    fun `SQL keywords are recognised however they are shouted`() {
+        // Nobody writes `select` in a note. The keyword lists are lowercase, so a language whose
+        // convention is upper case needs the case-folded lookup or it colours nothing at all.
+        assertEquals(listOf("SELECT", "FROM"), tokens("SELECT x FROM t", "sql").texts(CodeToken.KEYWORD))
+        assertEquals(listOf("select"), tokens("select x", "sql").texts(CodeToken.KEYWORD))
+        // And it stays off where it does not belong: `VAL` is not Kotlin's `val`.
+        assertEquals(emptyList<String>(), tokens("VAL x", "kotlin").texts(CodeToken.KEYWORD))
+    }
+
+    @Test
     fun `comments follow the language's own convention`() {
         assertEquals(listOf("// gone"), tokens("a // gone", "kotlin").texts(CodeToken.COMMENT))
         assertEquals(listOf("# gone"), tokens("a # gone", "python").texts(CodeToken.COMMENT))

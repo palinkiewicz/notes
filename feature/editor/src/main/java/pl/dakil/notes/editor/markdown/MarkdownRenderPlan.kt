@@ -18,7 +18,7 @@ enum class MdStyle {
     LINK, IMAGE,
     QUOTE,
 
-    /** The body of a fenced block: monospace, on the block's own background. */
+    /** The body of a fenced block: monospace, on the block's own drawn background. */
     FENCE,
 
     /** The language name standing at the top of a fenced block. */
@@ -32,11 +32,24 @@ enum class MdStyle {
     /** A table's header row. */
     TABLE_HEADER,
 
-    /** The box-drawing characters a table is ruled with. */
-    TABLE_RULE,
-
-    /** A substituted glyph — a bullet, a checkbox, a rule — rather than the user's own text. */
+    /** A substituted glyph — a bullet, a checkbox — rather than the user's own text. */
     MARKER,
+
+    /**
+     * Extra leading, worn by the newline that ends a line.
+     *
+     * A line is as tall as the tallest thing on it, and a newline is a thing on a line. So the way
+     * to give a document more air — without a `ParagraphStyle`, which cannot be used here — is to
+     * make every line terminator taller than the text it follows. It is purely additive: a heading
+     * already taller than this keeps its own height, and nothing is ever squeezed.
+     */
+    LEADING,
+
+    /** The same, tighter, inside a block that is meant to read densely. */
+    LEADING_TIGHT,
+
+    /** A blank line standing between a block and its neighbour. */
+    BLOCK_GAP,
 }
 
 /** Replace `[start, end)` of the source with [replacement]. An empty replacement hides it. */
@@ -45,69 +58,145 @@ data class MdEdit(val start: Int, val end: Int, val replacement: String)
 data class MdStyleRange(val start: Int, val end: Int, val style: MdStyle)
 
 /**
+ * Something to be *drawn* rather than spelled out in characters.
+ *
+ * A box round a code block, the grid of a table, the bar beside a quote: shapes a renderer draws and
+ * a text field cannot type. Each carries the offsets it covers, and the composable turns those into
+ * rectangles through the field's own `TextLayoutResult`.
+ */
+sealed interface MdDecoration
+
+/**
+ * A fenced code block, header line included.
+ *
+ * [headerStart] and [headerEnd] bracket the language word and are *equal* when the fence carries no
+ * language — the header line is then empty and the caret can sit in it, which is what lets the user
+ * type a language into the placeholder the drawing layer paints there.
+ *
+ * [sourceStart] and [sourceEnd] are in **source** coordinates, not transformed ones: they are what
+ * the Copy button puts on the clipboard, and that has to be the code as written.
+ */
+data class MdCodeBlock(
+    val start: Int,
+    val end: Int,
+    val headerStart: Int,
+    val headerEnd: Int,
+    val sourceStart: Int,
+    val sourceEnd: Int,
+) : MdDecoration
+
+/**
+ * A pipe table.
+ *
+ * [rows] are the rows that survive into the rendered text — the delimiter row is hidden, so it is
+ * not among them. [columnStops] are the offsets of the header row's pipes, each of which has been
+ * replaced by a single space for a real rule to be drawn down the middle of.
+ */
+data class MdTable(
+    val start: Int,
+    val end: Int,
+    val headerEnd: Int,
+    val rows: List<IntRange>,
+    val columnStops: List<Int>,
+) : MdDecoration
+
+/** A `---` line, emptied of characters so a full-width rule can be drawn across it. */
+data class MdRule(val offset: Int) : MdDecoration
+
+/** One or more consecutive `>` lines, sharing a single bar. */
+data class MdQuote(val start: Int, val end: Int) : MdDecoration
+
+/**
  * A recipe for turning Markdown source into what the reader sees.
  *
- * [edits] are in **source** coordinates, ascending and disjoint. [styles] are already in
+ * [edits] are in **source** coordinates, ascending and disjoint. Everything else is already in
  * **transformed** coordinates — that is, the offsets that remain once every edit has been applied.
  * Doing that conversion here rather than in the composable is what keeps the fiddly part testable:
- * an off-by-one in the mapping is a wrongly-coloured word, not a crash, and would otherwise only be
+ * an off-by-one in the mapping is a wrongly-drawn border, not a crash, and would otherwise only be
  * findable by eye.
  */
 data class MarkdownRenderPlan(
     val edits: List<MdEdit>,
     val styles: List<MdStyleRange>,
+    val decorations: List<MdDecoration>,
 )
 
 /**
  * Plans the WYSIWYG rendering of a Markdown document.
  *
- * The output feeds a single text field, so everything has to be expressible as "replace these
- * characters" plus "style these characters". Block structure that a renderer would draw — a quote
- * bar, a checkbox, a horizontal rule — is therefore *substituted as a glyph* rather than drawn:
- * `> ` becomes `▏ `, `- [ ] ` becomes `☐  `, and a `---` line becomes a run of box-drawing dashes.
- * That is the whole trick that lets one ordinary text field behave like a word processor.
+ * Inline syntax is expressible as "replace these characters" plus "style these characters", so that
+ * is how it is done: `**` is deleted outright and what it wrapped is made bold, `- ` becomes a
+ * bullet glyph, a checkbox becomes `☐`. That is the trick that lets one ordinary text field behave
+ * like a word processor.
  *
- * The same trick carries the two block types that need real shape. A code block pads every line out
- * to the width of its widest, so its background paints a solid rectangle instead of hugging the
- * glyphs; a table pads its cells and swaps its pipes for box-drawing rules, so the columns line up.
- * Both keep every character the user typed exactly where it was, which is what lets them stay
- * editable in the formatted view.
+ * Block *shape* is not expressible that way, and trying anyway is how a code block ends up being a
+ * background colour behind lines padded with spaces. So blocks emit a third thing — a [MdDecoration]
+ * — naming the offsets a box, a grid or a rule should be drawn around. The characters stay exactly
+ * where the user typed them and the geometry is drawn over the top, which is what keeps the block
+ * both good-looking and editable.
  */
 object MarkdownRenderer {
 
-    private const val QUOTE_BAR = "▏ "
     private const val BULLET_GLYPH = "•  "
     private const val TASK_OPEN = "☐  "
     private const val TASK_DONE = "☑  "
-    private const val RULE_GLYPH = "──────────"
     private const val IMAGE_GLYPH = "🖼 "
 
-    /** Beyond this a "block" is one long line, and padding it out would waste more than it buys. */
-    private const val MAX_BLOCK_WIDTH = 200
+    /**
+     * What clears the left edge of a drawn block.
+     *
+     * Spaces rather than a `ParagraphStyle` with a `textIndent`, which is what this obviously wants
+     * to be. Compose lays each paragraph out as its own block of text, and a paragraph whose range
+     * ends on a newline — which every range over whole lines does — comes back one line taller than
+     * its text, opening a gap under every block. Two spaces of monospace are exact, predictable and
+     * carry no ink.
+     */
+    private const val INDENT = "  "
+
+    /** The same, in a proportional face, where a space is narrower. */
+    private const val QUOTE_INDENT = "   "
+
+    /** Beyond this a table cell is a paragraph, and padding it out would waste more than it buys. */
+    private const val MAX_CELL_WIDTH = 200
+
+    // The transformation and the drawing layer both ask for the plan of the same string on the same
+    // frame. Both run on the main thread, so one slot is enough to make the second call free.
+    private var lastSource: String? = null
+    private var lastPlan: MarkdownRenderPlan? = null
 
     fun plan(markdown: String): MarkdownRenderPlan {
+        lastPlan?.let { if (lastSource == markdown) return it }
+
         val edits = ArrayList<MdEdit>()
         val styles = ArrayList<MdStyleRange>()
+        val decorations = ArrayList<MdDecoration>()
         val lines = Lines(markdown)
 
         var k = 0
         while (k < lines.count) {
             k = when {
                 MarkdownParser.FENCE.matchEntire(lines.text(k)) != null ->
-                    planFence(markdown, lines, k, edits, styles)
+                    planFence(markdown, lines, k, edits, styles, decorations)
 
                 lines.text(k).trim() == "$$" -> planMathBlock(lines, k, edits, styles)
 
-                lines.startsTable(k) -> planTable(markdown, lines, k, edits, styles)
+                lines.startsTable(k) -> planTable(markdown, lines, k, edits, styles, decorations)
 
                 else -> {
-                    scanLine(markdown, lines.start(k), lines.end(k), edits, styles)
+                    scanLine(lines, k, edits, styles, decorations)
                     k + 1
                 }
             }
         }
 
-        return MarkdownRenderPlan(edits, styles.map { it.mapped(edits) })
+        val result = MarkdownRenderPlan(
+            edits = edits,
+            styles = styles.map { it.mapped(edits) },
+            decorations = decorations.map { it.mapped(edits) },
+        )
+        lastSource = markdown
+        lastPlan = result
+        return result
     }
 
     /**
@@ -135,18 +224,69 @@ object MarkdownRenderer {
     }
 
     /**
-     * A style range starts *before* any padding inserted at its first offset and ends *after* any
-     * inserted at its last.
+     * Hangs [style] on the newline that ends line [k], if it has one.
      *
-     * Without that asymmetry an empty line inside a code block has nothing to style — its source
-     * range is zero characters long, both ends land on the same side of the padding, and the block's
-     * background breaks wherever the code has a blank line in it.
+     * Nothing is emitted for the document's last line: there is no terminator to hang it on, and no
+     * line below for the space to separate it from.
      */
-    private fun MdStyleRange.mapped(edits: List<MdEdit>) = MdStyleRange(
-        start = transformedOffset(edits, start, includeInsertionAt = false),
-        end = transformedOffset(edits, end, includeInsertionAt = true),
-        style = style,
-    )
+    private fun leading(lines: Lines, k: Int, styles: MutableList<MdStyleRange>, style: MdStyle) {
+        if (lines.end(k) >= lines.source.length) return
+        styles += MdStyleRange(lines.end(k), lines.end(k) + 1, style)
+    }
+
+    /**
+     * Puts a blank line at [anchor] to hold a block off whatever is next to it.
+     *
+     * A real inserted newline, kept short by the style on it. The alternative — drawing the box
+     * smaller than the lines it covers — has nothing to give: one line box begins exactly where the
+     * last one ended, so any margin has to be a line.
+     */
+    private fun gap(anchor: Int, edits: MutableList<MdEdit>, styles: MutableList<MdStyleRange>) {
+        edits += MdEdit(anchor, anchor, "\n")
+        // Zero characters of source, which maps to exactly the newline just inserted: the start of
+        // a style range falls before an insertion at its offset and the end falls after it.
+        styles += MdStyleRange(anchor, anchor, MdStyle.BLOCK_GAP)
+    }
+
+    /** The transformed offset text inserted here should fall *after* — an opening edge. */
+    private fun opens(edits: List<MdEdit>, offset: Int) =
+        transformedOffset(edits, offset, includeInsertionAt = false)
+
+    /** The transformed offset text inserted here should fall *before* — a closing edge. */
+    private fun closes(edits: List<MdEdit>, offset: Int) =
+        transformedOffset(edits, offset, includeInsertionAt = true)
+
+    /**
+     * A style range starts *before* any padding inserted at its first offset and ends *after* any
+     * inserted at its last, so a cell's padding is styled along with the cell.
+     */
+    private fun MdStyleRange.mapped(edits: List<MdEdit>) =
+        MdStyleRange(opens(edits, start), closes(edits, end), style)
+
+    private fun MdDecoration.mapped(edits: List<MdEdit>): MdDecoration = when (this) {
+        is MdCodeBlock -> copy(
+            // Starts close *after* whatever was inserted at them: a block's own first line is what
+            // its box is measured from, not the blank line inserted to hold it off the line above.
+            start = closes(edits, start),
+            end = closes(edits, end),
+            headerStart = opens(edits, headerStart),
+            headerEnd = closes(edits, headerEnd),
+        )
+
+        is MdTable -> copy(
+            start = closes(edits, start),
+            end = closes(edits, end),
+            headerEnd = closes(edits, headerEnd),
+            rows = rows.map { closes(edits, it.first)..closes(edits, it.last) },
+            // A cell's padding is inserted at the pipe that follows it, so a stop that opened before
+            // insertions would name the padding rather than the space the rule is drawn through.
+            columnStops = columnStops.map { closes(edits, it) },
+        )
+
+        is MdRule -> MdRule(closes(edits, offset))
+
+        is MdQuote -> copy(start = closes(edits, start), end = closes(edits, end))
+    }
 
     // ---- Lines -------------------------------------------------------------------------------
 
@@ -174,7 +314,6 @@ object MarkdownRenderer {
 
         fun start(k: Int) = starts[k]
         fun end(k: Int) = ends[k]
-        fun width(k: Int) = ends[k] - starts[k]
         fun text(k: Int): String = source.substring(starts[k], ends[k])
 
         /** The end of the line including its newline, so a whole line can be hidden without trace. */
@@ -193,9 +332,14 @@ object MarkdownRenderer {
     /**
      * Renders a fenced block and returns the line after it.
      *
-     * The opening fence is not hidden outright: its language word is kept and shown as the block's
-     * header, so the label the reader sees *is* the language in the source and editing one edits the
-     * other. Only the backticks go.
+     * Only the backticks are hidden. Whatever language word follows them is kept and shown as the
+     * block's header, so the label the reader sees *is* the language in the source and editing one
+     * edits the other. A fence with no language leaves an empty header line rather than no line at
+     * all: the caret can rest there, and typing a word into it is how the language gets set.
+     *
+     * Nothing is padded. The block's rectangle is drawn from [MdCodeBlock], so it does not have to
+     * be spelled out in trailing spaces — which is what used to force every line in the block to the
+     * same font size and the same upright face.
      */
     private fun planFence(
         source: String,
@@ -203,41 +347,60 @@ object MarkdownRenderer {
         open: Int,
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
+        decorations: MutableList<MdDecoration>,
     ): Int {
         val language = MarkdownParser.FENCE.matchEntire(lines.text(open))!!.groupValues[1]
 
         var close = open + 1
         while (close < lines.count && MarkdownParser.FENCE.matchEntire(lines.text(close)) == null) close++
         val lastBody = minOf(close, lines.count) - 1
+        val hasBody = lastBody >= open + 1
 
-        var width = language.length
-        for (k in open + 1..lastBody) width = maxOf(width, lines.width(k))
-        width = minOf(width + 2, MAX_BLOCK_WIDTH)
+        if (open > 0) gap(lines.start(open), edits, styles)
 
-        if (language.isEmpty()) {
-            edits += MdEdit(lines.start(open), lines.endInclusive(open), "")
+        val languageStart = if (language.isEmpty()) {
+            lines.end(open)
         } else {
-            val languageStart = lines.end(open) - lines.text(open).substringAfter("```").trimStart().length
-            edits += MdEdit(lines.start(open), languageStart, "")
-            edits += MdEdit(languageStart + language.length, lines.end(open), pad(width - language.length))
-            styles += MdStyleRange(languageStart, lines.end(open), MdStyle.FENCE_HEADER)
+            lines.end(open) - lines.text(open).substringAfter("```").trimStart().length
         }
 
+        // The backticks are replaced by the indent rather than deleted, so the header sits over the
+        // code rather than against the box's left edge — and so that a fence with no language still
+        // has somewhere for the caret to be.
+        edits += MdEdit(lines.start(open), languageStart, INDENT)
+        if (language.isNotEmpty()) {
+            val languageEnd = languageStart + language.length
+            // Trailing whitespace after the word goes too, or the header chip is drawn round a
+            // word plus however many spaces happened to follow it.
+            if (languageEnd < lines.end(open)) edits += MdEdit(languageEnd, lines.end(open), "")
+            styles += MdStyleRange(languageStart, languageEnd, MdStyle.FENCE_HEADER)
+        }
+
+        leading(lines, open, styles, MdStyle.LEADING_TIGHT)
         for (k in open + 1..lastBody) {
-            // Padding to a common width is what turns a background that hugs the glyphs into a
-            // block: without it a two-character line paints a two-character box.
-            edits += MdEdit(lines.end(k), lines.end(k), pad(width - lines.width(k)))
+            edits += MdEdit(lines.start(k), lines.start(k), INDENT)
             styles += MdStyleRange(lines.start(k), lines.end(k), MdStyle.FENCE)
+            leading(lines, k, styles, MdStyle.LEADING_TIGHT)
         }
 
         // Tokens after the block styles, so their colours win where the two overlap.
-        if (lastBody >= open + 1) {
-            highlight(source, language, lines.start(open + 1), lines.end(lastBody), styles)
-        }
+        if (hasBody) highlight(source, language, lines.start(open + 1), lines.end(lastBody), styles)
 
         if (close < lines.count) {
             edits += MdEdit(lines.start(close), lines.endInclusive(close), "")
+            if (lines.endInclusive(close) < lines.source.length) {
+                gap(lines.endInclusive(close), edits, styles)
+            }
         }
+
+        decorations += MdCodeBlock(
+            start = lines.start(open),
+            end = if (hasBody) lines.end(lastBody) else lines.end(open),
+            headerStart = languageStart,
+            headerEnd = languageStart + language.length,
+            sourceStart = if (hasBody) lines.start(open + 1) else lines.end(open),
+            sourceEnd = if (hasBody) lines.end(lastBody) else lines.end(open),
+        )
         return close + 1
     }
 
@@ -259,6 +422,7 @@ object MarkdownRenderer {
         edits += MdEdit(lines.start(open), lines.endInclusive(open), "")
         for (k in open + 1 until minOf(close, lines.count)) {
             styles += MdStyleRange(lines.start(k), lines.end(k), MdStyle.MATH)
+            leading(lines, k, styles, MdStyle.LEADING)
         }
         if (close < lines.count) edits += MdEdit(lines.start(close), lines.endInclusive(close), "")
         return close + 1
@@ -291,17 +455,14 @@ object MarkdownRenderer {
     /**
      * Rules a table and returns the line after it.
      *
-     * Cells are padded rather than rewritten, and every pipe becomes exactly one box-drawing
-     * character. That one-for-one swap is the point: replacing whole rows with a pretty grid would
-     * collapse every offset inside them, and the table would render beautifully and be impossible to
-     * type in.
+     * Cells are still padded to a common width — nothing but monospace padding can make columns line
+     * up, because it is the *text* that has to line up. What is gone is every character pretending
+     * to be a border: each `|` becomes a single space, one-for-one so that every offset inside the
+     * table survives, and the delimiter row is hidden outright. Real lines are drawn down the middle
+     * of those spaces and under the header, from [MdTable].
      *
-     * Every row is given the *same structure* — same pipes in the same cells — because that is what
-     * makes the columns line up no matter what the font does. `│` is not in the monospace face and
-     * arrives from a fallback at some other width; identical structure means every row is wrong by
-     * the same amount, which is to say right. The delimiter row is filled with ASCII hyphens for the
-     * same reason: the box-drawing dash it used to use was wider than a space, and that one row
-     * ended up longer than the table it belonged to.
+     * The cost is that alignment colons are unreachable in the formatted view. They are pure
+     * formatting, they are still in the source, and source mode still shows them.
      */
     private fun planTable(
         source: String,
@@ -309,6 +470,7 @@ object MarkdownRenderer {
         first: Int,
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
+        decorations: MutableList<MdDecoration>,
     ): Int {
         var last = first
         while (last + 1 < lines.count && lines.text(last + 1).contains('|')) last++
@@ -324,32 +486,38 @@ object MarkdownRenderer {
                 widths[column] = maxOf(widths[column], trimmedLength(source, cell))
             }
         }
-        for (column in widths.indices) widths[column] = minOf(widths[column] + 2, MAX_BLOCK_WIDTH)
+        for (column in widths.indices) widths[column] = minOf(widths[column] + 2, MAX_CELL_WIDTH)
+
+        if (first > 0) gap(lines.start(first), edits, styles)
+
+        val rowRanges = ArrayList<IntRange>(rows.size - 1)
+        val stops = ArrayList<Int>()
 
         for ((index, row) in rows.withIndex()) {
             val k = first + index
-            val delimiter = index == 1
+            if (index == 1) {
+                edits += MdEdit(lines.start(k), lines.endInclusive(k), "")
+                continue
+            }
+
             styles += MdStyleRange(
                 lines.start(k), lines.end(k),
                 if (index == 0) MdStyle.TABLE_HEADER else MdStyle.TABLE,
             )
+            rowRanges += lines.start(k)..lines.end(k)
 
             var pipe = lines.start(k)
             var column = 0
             while (pipe < lines.end(k)) {
                 if (source[pipe] == '|') {
-                    edits += MdEdit(pipe, pipe + 1, "│")
-                    styles += MdStyleRange(pipe, pipe + 1, MdStyle.TABLE_RULE)
+                    edits += MdEdit(pipe, pipe + 1, " ")
+                    // The header's pipes are the column boundaries for the whole table: every row
+                    // is padded to the same widths, so they all fall at the same place.
+                    if (index == 0) stops += pipe
                 }
                 if (column < row.size && pipe == row[column].first) {
                     val cell = row[column]
-                    val target = widths.getOrElse(column) { trimmedLength(source, cell) + 2 }
-                    if (delimiter) {
-                        edits += MdEdit(cell.first, cell.last + 1, "-".repeat(target))
-                        styles += MdStyleRange(cell.first, cell.last + 1, MdStyle.TABLE_RULE)
-                    } else {
-                        padCell(source, cell, target, edits)
-                    }
+                    padCell(source, cell, widths.getOrElse(column) { trimmedLength(source, cell) + 2 }, edits)
                     pipe = cell.last + 1
                     column++
                     continue
@@ -357,6 +525,21 @@ object MarkdownRenderer {
                 pipe++
             }
         }
+
+        if (lines.endInclusive(last) < lines.source.length) {
+            gap(lines.endInclusive(last), edits, styles)
+        }
+
+        decorations += MdTable(
+            start = lines.start(first),
+            // The last *visible* row, which is not always the last line: a table someone has only
+            // half typed is a header and a delimiter, and the delimiter is hidden. Measured to the
+            // line, the box would be drawn a row taller than the table it contains.
+            end = rowRanges.last().last,
+            headerEnd = lines.end(first),
+            rows = rowRanges,
+            columnStops = stops,
+        )
         return last + 1
     }
 
@@ -380,22 +563,30 @@ object MarkdownRenderer {
     }
 
     /**
-     * Widens or narrows one cell to [target] characters.
+     * Rewrites one cell's whitespace so it occupies exactly [target] characters: one leading space,
+     * the content, then whatever it takes to reach the width.
      *
-     * Narrowing only ever hides spaces the user cannot see anyway, so a table someone has already
-     * lined up by hand does not end up doubly padded.
+     * Both edges, not just the trailing one. Trimming only the tail cannot always reach the target —
+     * a cell written `|    a|` has no trailing spaces to give back — and one row that misses the
+     * width by a character is a column of drawn borders that no longer lines up with its text.
      */
     private fun padCell(source: String, cell: IntRange, target: Int, edits: MutableList<MdEdit>) {
-        val length = cell.last + 1 - cell.first
-        if (length == target) return
-        if (length < target) {
-            edits += MdEdit(cell.last + 1, cell.last + 1, pad(target - length))
+        val from = cell.first
+        val to = cell.last + 1
+
+        var contentStart = from
+        while (contentStart < to && source[contentStart] == ' ') contentStart++
+        if (contentStart == to) {
+            // A blank cell: one run of spaces, replaced wholesale.
+            if (to - from != target) edits += MdEdit(from, to, pad(target))
             return
         }
-        var trailing = cell.last + 1
-        while (trailing > cell.first && source[trailing - 1] == ' ') trailing--
-        val removable = minOf(length - target, cell.last + 1 - trailing)
-        if (removable > 0) edits += MdEdit(cell.last + 1 - removable, cell.last + 1, "")
+        var contentEnd = to
+        while (contentEnd > contentStart && source[contentEnd - 1] == ' ') contentEnd--
+
+        if (contentStart - from != 1) edits += MdEdit(from, contentStart, " ")
+        val trailing = (target - 1 - (contentEnd - contentStart)).coerceAtLeast(0)
+        if (to - contentEnd != trailing) edits += MdEdit(contentEnd, to, pad(trailing))
     }
 
     private fun trimmedLength(source: String, cell: IntRange): Int =
@@ -406,18 +597,24 @@ object MarkdownRenderer {
     // ---- Block level -------------------------------------------------------------------------
 
     private fun scanLine(
-        text: String,
-        start: Int,
-        end: Int,
+        lines: Lines,
+        k: Int,
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
+        decorations: MutableList<MdDecoration>,
     ) {
-        val line = text.substring(start, end)
+        val text = lines.source
+        val start = lines.start(k)
+        val end = lines.end(k)
+        val line = lines.text(k)
+        leading(lines, k, styles, MdStyle.LEADING)
         if (line.isBlank()) return
 
+        // The line is emptied rather than filled with dashes: a rule is drawn across the whole page
+        // from [MdRule], and no run of characters reaches both margins.
         if (MarkdownParser.RULE.matches(line)) {
-            edits += MdEdit(start, end, RULE_GLYPH)
-            styles += MdStyleRange(start, end, MdStyle.MARKER)
+            edits += MdEdit(start, end, "")
+            decorations += MdRule(start)
             return
         }
 
@@ -462,13 +659,33 @@ object MarkdownRenderer {
 
         MarkdownParser.QUOTE.matchEntire(line)?.let { match ->
             val textStart = end - match.groupValues[1].length
-            edits += MdEdit(start, textStart, QUOTE_BAR)
-            styles += MdStyleRange(start, end, MdStyle.QUOTE)
+            // The marker becomes the indent that clears the bar drawn beside it. A `ParagraphStyle`
+            // would be the tidier way to say this and cannot be used: Compose lays a paragraph out
+            // as its own block of text, and one whose range ends on a newline gets an extra empty
+            // line at the bottom of it. See [INDENT].
+            edits += MdEdit(start, textStart, QUOTE_INDENT)
+            styles += MdStyleRange(textStart, end, MdStyle.QUOTE)
+            openQuote(lines, k, decorations)
             scanInline(text, textStart, end, edits, styles)
             return
         }
 
         scanInline(text, start, end, edits, styles)
+    }
+
+    /**
+     * Extends the quote above this line, or starts a new one.
+     *
+     * A quotation is a block even though it is parsed a line at a time, and three `>` lines want one
+     * continuous bar beside them, not three stacked ones with seams between.
+     */
+    private fun openQuote(lines: Lines, k: Int, decorations: MutableList<MdDecoration>) {
+        val bar = decorations.lastOrNull()
+        if (bar is MdQuote && bar.end + 1 == lines.start(k)) {
+            decorations[decorations.lastIndex] = bar.copy(end = lines.end(k))
+            return
+        }
+        decorations += MdQuote(lines.start(k), lines.end(k))
     }
 
     private fun headingStyle(level: Int): MdStyle = when (level) {

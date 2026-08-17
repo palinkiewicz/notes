@@ -330,6 +330,11 @@ object NotesIcons {
         )
     }
 
+    /** Two stacked sheets: take a copy of this. */
+    val Copy: ImageVector by lazy {
+        strokedIcon("Copy", "M9 9 h10 v11 h-10 Z M15 9 v-3.5 h-10 v11 h3.5")
+    }
+
     /** A capital H with a descending stem: "this line is a heading". */
     val Heading: ImageVector by lazy {
         strokedIcon("Heading", "M5 4.5 v15 M13 4.5 v15 M5 12 h8 M16.5 19.5 v-7 h4 M20.5 15.5 h-4")

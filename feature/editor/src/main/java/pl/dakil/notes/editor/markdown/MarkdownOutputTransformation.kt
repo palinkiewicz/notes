@@ -30,7 +30,9 @@ data class MarkdownStyles(private val byStyle: Map<MdStyle, SpanStyle>) {
  * untouched Markdown, and the caret still lands where they tapped.
  *
  * Edits are applied back to front so each one's offsets are still valid when its turn comes; the
- * styles arrive already in post-edit coordinates from [MarkdownRenderer].
+ * styles arrive already in post-edit coordinates from [MarkdownRenderer]. The plan's other layer —
+ * the shapes a block wants drawn round it — is not applied here at all; a text field cannot draw a
+ * box, so `MarkdownDecorations` draws them from the same plan.
  */
 class MarkdownOutputTransformation(private val styles: MarkdownStyles) : OutputTransformation {
 
@@ -63,11 +65,12 @@ fun rememberMarkdownStyles(): MarkdownStyles {
 
         // Code spans keep the block's own family and size and change only colour, so a keyword and
         // the bracket beside it still line up in the monospace grid.
-        fun code(color: Color, weight: FontWeight? = null) = SpanStyle(
+        fun code(color: Color, weight: FontWeight? = null, italic: FontStyle? = null) = SpanStyle(
             fontFamily = FontFamily.Monospace,
             fontSize = 14.sp,
             color = color,
             fontWeight = weight,
+            fontStyle = italic,
         )
 
         MarkdownStyles(
@@ -81,6 +84,8 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                 MdStyle.BOLD to SpanStyle(fontWeight = FontWeight.Bold),
                 MdStyle.ITALIC to SpanStyle(fontStyle = FontStyle.Italic),
                 MdStyle.STRIKE to SpanStyle(textDecoration = TextDecoration.LineThrough),
+                // Inline code keeps a background: it is a chip a few characters wide, and a
+                // background that hugs the glyphs is exactly the right shape for one.
                 MdStyle.CODE to SpanStyle(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 14.sp,
@@ -88,16 +93,13 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                     background = colors.surfaceVariant,
                 ),
                 MdStyle.MATH to SpanStyle(fontFamily = FontFamily.Monospace, color = colors.tertiary),
-                // Same family and size as the block body, deliberately. The block is squared off by
-                // padding every line to the same number of characters, which only squares anything
-                // if every line's characters are the same width — a smaller header would leave the
-                // background ragged down the right-hand edge.
+                // No background, and free to be its own size: the block behind it is drawn, so
+                // nothing depends any more on every line having the same character advance.
                 MdStyle.FENCE_HEADER to SpanStyle(
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = colors.primary,
-                    background = colors.surfaceVariant,
                 ),
                 // Syntax colours. Deliberately few and far apart in hue: a code block in a note is
                 // read at a glance, and a dozen near-identical tints would be noise rather than
@@ -105,10 +107,7 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                 MdStyle.CODE_KEYWORD to code(colors.primary, FontWeight.SemiBold),
                 MdStyle.CODE_STRING to code(colors.tertiary),
                 MdStyle.CODE_NUMBER to code(colors.secondary),
-                // Not italic, for the same reason the header is not smaller: a synthesised oblique
-                // does not advance like the upright it is slanting, and a commented line would end
-                // up a few pixels wider than the rest of the block.
-                MdStyle.CODE_COMMENT to code(colors.onSurfaceVariant.copy(alpha = 0.7f)),
+                MdStyle.CODE_COMMENT to code(colors.onSurfaceVariant.copy(alpha = 0.7f), italic = FontStyle.Italic),
                 MdStyle.CODE_FUNCTION to code(colors.onSurface),
                 // Tables must be monospace or the padding that lines the columns up means nothing.
                 MdStyle.TABLE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
@@ -116,12 +115,6 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                     fontFamily = FontFamily.Monospace,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                ),
-                MdStyle.TABLE_RULE to SpanStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = colors.outline,
                 ),
                 MdStyle.LINK to SpanStyle(
                     color = colors.primary,
@@ -132,10 +125,17 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                 MdStyle.FENCE to SpanStyle(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 14.sp,
-                    color = colors.onSurfaceVariant,
-                    background = colors.surfaceVariant,
+                    color = colors.onSurface,
                 ),
                 MdStyle.MARKER to SpanStyle(color = colors.primary),
+                // Leading, worn by a line's terminating newline. A line takes the height of the
+                // tallest thing on it, so an oversized newline is space below the line and nothing
+                // else — no glyph to draw, no width, and a taller line keeps its own height.
+                MdStyle.LEADING to SpanStyle(fontSize = 21.sp),
+                MdStyle.LEADING_TIGHT to SpanStyle(fontSize = 16.sp),
+                // And the blank line that stands between a block and its neighbour, kept to about
+                // half the height of a line of text.
+                MdStyle.BLOCK_GAP to SpanStyle(fontSize = 7.sp),
             )
         )
     }

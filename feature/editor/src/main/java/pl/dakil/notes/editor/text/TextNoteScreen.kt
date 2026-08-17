@@ -1,17 +1,23 @@
 package pl.dakil.notes.editor.text
 
+import android.content.ClipData
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.then
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,22 +35,37 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
+import pl.dakil.notes.editor.markdown.BlockPadding
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownOutputTransformation
+import pl.dakil.notes.editor.markdown.MarkdownRenderer
+import pl.dakil.notes.editor.markdown.MdCodeBlock
+import pl.dakil.notes.editor.markdown.drawMarkdownDecorations
+import pl.dakil.notes.editor.markdown.rememberMarkdownDecorationPalette
 import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.theme.MonospaceStyle
+import kotlin.math.roundToInt
 
 /**
  * The plain-Markdown note editor.
@@ -188,8 +209,15 @@ private fun MarkdownField(
     val state = viewModel.text
     val colors = MaterialTheme.colorScheme
     val styles = rememberMarkdownStyles()
+    val palette = rememberMarkdownDecorationPalette()
     val transformation = remember(styles) { MarkdownOutputTransformation(styles) }
     val focusRequester = remember { FocusRequester() }
+
+    // The field's own scroller, held here rather than left internal: the decorator wraps the
+    // viewport and not the text, so anything drawn in it has to be moved by however far the text
+    // has slid. Without this the borders stay put while their blocks scroll away from under them.
+    val scroll = rememberScrollState()
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     val textStyle = if (sourceMode) {
         MonospaceStyle.copy(color = colors.onSurface)
@@ -215,12 +243,32 @@ private fun MarkdownField(
         cursorBrush = SolidColor(colors.primary),
         lineLimits = TextFieldLineLimits.MultiLine(),
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-        inputTransformation = ContinueList,
+        // The fence guard belongs to the formatted view only: in source mode the backticks are on
+        // screen, and typing in front of them is something a person can mean.
+        inputTransformation = if (sourceMode) ContinueList else ContinueList.then(KeepFenceIntact),
         // Null in source mode: that *is* the source, unchanged and unhidden.
         outputTransformation = if (sourceMode) null else transformation,
+        scrollState = scroll,
+        onTextLayout = { result -> layout = result() },
         decorator = TextFieldDecorator { field ->
-            Box(Modifier.fillMaxWidth()) {
-                if (state.text.isEmpty()) {
+            val text = state.text.toString()
+            // Source mode shows the source, decorations and all left undrawn — a box round the
+            // backticks would be claiming they are not there.
+            val plan = if (sourceMode) null else MarkdownRenderer.plan(text)
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .drawBehind {
+                        val result = layout ?: return@drawBehind
+                        val decorations = plan?.decorations ?: return@drawBehind
+                        translate(top = -scroll.value.toFloat()) {
+                            drawMarkdownDecorations(decorations, result, palette)
+                        }
+                    },
+            ) {
+                if (text.isEmpty()) {
                     Text(
                         text = "Write something…",
                         style = textStyle,
@@ -228,6 +276,13 @@ private fun MarkdownField(
                     )
                 }
                 field()
+                layout?.let { result ->
+                    plan?.decorations?.forEach { decoration ->
+                        if (decoration is MdCodeBlock) {
+                            CopyCodeButton(decoration, result, text, scroll.value)
+                        }
+                    }
+                }
             }
         },
     )
@@ -236,6 +291,55 @@ private fun MarkdownField(
     // user came back to *read* costs them half the page and a tap to get it back.
     androidx.compose.runtime.LaunchedEffect(Unit) {
         if (state.text.isEmpty()) focusRequester.requestFocus()
+    }
+}
+
+/**
+ * The button in a code block's header strip.
+ *
+ * Floated over the field rather than drawn into it, because it has to be pressable. The cost is
+ * that the top-right corner of every code block stops placing a caret when tapped; the header is
+ * mostly empty space, so that corner was not worth much.
+ */
+@Composable
+private fun BoxScope.CopyCodeButton(
+    block: MdCodeBlock,
+    layout: TextLayoutResult,
+    source: String,
+    scroll: Int,
+) {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val line = layout.getLineForOffset(block.start.coerceIn(0, layout.layoutInput.text.length))
+
+    IconButton(
+        onClick = {
+            val from = block.sourceStart.coerceIn(0, source.length)
+            val to = block.sourceEnd.coerceIn(from, source.length)
+            scope.launch {
+                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("code", source.substring(from, to))))
+            }
+        },
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .offset {
+                // Centred on the header strip, which reaches one BlockPadding above its line — the
+                // same measurement the strip itself is drawn from.
+                val top = layout.getLineTop(line) - BlockPadding.toPx()
+                val height = layout.getLineBottom(line) - top
+                IntOffset(
+                    x = -4.dp.roundToPx(),
+                    y = (top - scroll + (height - 22.dp.toPx()) / 2f).roundToInt(),
+                )
+            }
+            .size(22.dp),
+    ) {
+        Icon(
+            imageVector = NotesIcons.Copy,
+            contentDescription = "Copy code",
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

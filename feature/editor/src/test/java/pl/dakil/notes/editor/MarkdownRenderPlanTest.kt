@@ -4,15 +4,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.editor.markdown.MarkdownRenderer
+import pl.dakil.notes.editor.markdown.MdCodeBlock
+import pl.dakil.notes.editor.markdown.MdDecoration
+import pl.dakil.notes.editor.markdown.MdQuote
+import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdStyle
+import pl.dakil.notes.editor.markdown.MdTable
 
 /**
  * What the WYSIWYG editor actually shows.
  *
  * Written against the rendered string rather than against the plan's internals, because "what does
- * the user see" is the only claim worth pinning down — the offsets are a means to it. The invariant
- * test at the end guards the part that would fail loudly instead: a text field handed overlapping or
- * out-of-range edits throws rather than mis-renders.
+ * the user see" is the only claim worth pinning down — the offsets are a means to it. Block shape is
+ * the exception: a box, a grid and a rule are *drawn*, so the only thing a test on this side of the
+ * device can check is that they are aimed at the right characters.
+ *
+ * The invariant tests at the end guard the part that would fail loudly instead: a text field handed
+ * overlapping or out-of-range edits throws rather than mis-renders.
  */
 class MarkdownRenderPlanTest {
 
@@ -112,58 +120,97 @@ class MarkdownRenderPlanTest {
         assertEquals(listOf("buy milk"), styled("- [x] buy milk", MdStyle.STRIKE))
     }
 
+    // ---- Quotes --------------------------------------------------------------------------------
+
     @Test
-    fun `a quote marker becomes a bar`() {
-        assertEquals("▏ to be", render("> to be"))
-        assertEquals(listOf("▏ to be"), styled("> to be", MdStyle.QUOTE))
+    fun `a quote marker disappears entirely and leaves a bar to be drawn`() {
+        // The marker becomes the indent that clears the drawn bar.
+        assertEquals("   to be", render("> to be"))
+        assertEquals(listOf("to be"), styled("> to be", MdStyle.QUOTE))
+        assertEquals(listOf(MdQuote(0, 8)), decorations<MdQuote>("> to be"))
     }
 
     @Test
-    fun `a thematic break becomes a drawn line`() {
-        assertEquals("──────────", render("---"))
+    fun `adjacent quote lines share one bar`() {
+        // Three stacked bars with seams between them is not what a quotation looks like.
+        val source = "> one\n> two\n> three"
+        assertEquals(1, decorations<MdQuote>(source).size)
     }
+
+    @Test
+    fun `a paragraph between two quotes breaks the bar in two`() {
+        assertEquals(2, decorations<MdQuote>("> one\n\n> two").size)
+    }
+
+    // ---- Rules ---------------------------------------------------------------------------------
+
+    @Test
+    fun `a thematic break empties its line for a rule to be drawn across`() {
+        // No run of characters reaches both margins, so the line carries none: it is there to hold
+        // the height, and the line itself is drawn.
+        assertEquals("", renderRaw("---"))
+        assertEquals(listOf(MdRule(0)), decorations<MdRule>("---"))
+    }
+
+    @Test
+    fun `a rule between paragraphs keeps its own line`() {
+        assertEquals("a\n\nb", renderRaw("a\n---\nb"))
+        assertEquals(listOf(MdRule(2)), decorations<MdRule>("a\n---\nb"))
+    }
+
+    // ---- Fenced code ---------------------------------------------------------------------------
 
     @Test
     fun `a fence keeps its language as a header and drops the backticks`() {
         // The label the reader sees is the language in the source, so editing one edits the other.
-        assertEquals("kotlin\nval x = 1\n", render("```kotlin\nval x = 1\n```"))
+        assertEquals("  kotlin\n  val x = 1\n", render("```kotlin\nval x = 1\n```"))
         assertEquals(listOf("kotlin"), styled("```kotlin\nval x = 1\n```", MdStyle.FENCE_HEADER))
     }
 
     @Test
-    fun `a fence with no language has no header line`() {
-        assertEquals("val x = 1\n", render("```\nval x = 1\n```"))
+    fun `a block is not padded out with spaces`() {
+        // It used to be: a background only paints behind glyphs, so a rectangle had to be spelled
+        // out. The rectangle is drawn now, and every one of those spaces was a character the user
+        // could put a caret in the middle of.
+        val rendered = renderRaw("```kotlin\nab\nlonger line\n```")
+        for (line in rendered.lines()) {
+            assertEquals("padded: '$line'", line.trimEnd(), line)
+        }
     }
 
     @Test
-    fun `every line of a block is padded to the same width`() {
-        // A background only paints behind glyphs, so without this a two-character line would draw a
-        // two-character box instead of a block.
-        val lines = renderRaw("```\nab\nlonger line\n```").lines()
-        assertEquals(lines[0].length, lines[1].length)
-        assertTrue("expected padding, got '${lines[0]}'", lines[0].startsWith("ab "))
+    fun `the block covers every line between the fences`() {
+        val source = "```\nab\n\ncd\n```"
+        val block = decorations<MdCodeBlock>(source).single()
+        val rendered = renderRaw(source)
+        // Including the blank line: a box drawn round the code has to reach the last line of it,
+        // and a blank line in the middle used to break the background in half.
+        assertEquals("  \n  ab\n  \n  cd", rendered.substring(block.start, block.end))
     }
 
     @Test
-    fun `a blank line inside a block is still part of the block`() {
-        // Its source range is zero characters long, so without care it gets no style at all and the
-        // block's background breaks in half wherever the code has a blank line.
-        val blank = styledRaw("```\nab\n\ncd\n```", MdStyle.FENCE).filter { it.isBlank() }
-        assertTrue("the blank line was left unstyled", blank.isNotEmpty())
-        assertEquals(renderRaw("```\nab\n\ncd\n```").lines()[0].length, blank.first().length)
+    fun `a fence with no language leaves an empty header line to type into`() {
+        // The line stays so the caret has somewhere to sit; the placeholder over it is drawn, not
+        // typed, so a word entered there lands in the source as the fence's language.
+        assertEquals("  \n  val x = 1\n", renderRaw("```\nval x = 1\n```"))
+        val block = decorations<MdCodeBlock>("```\nval x = 1\n```").single()
+        assertEquals(block.headerStart, block.headerEnd)
     }
 
     @Test
-    fun `the header is padded to the block width too`() {
-        val lines = renderRaw("```kotlin\nval something = 1\n```").lines()
-        assertEquals(lines[1].length, lines[0].length)
+    fun `the block knows which source characters are the code`() {
+        // This is what the Copy button puts on the clipboard, so it has to be the code as written —
+        // source offsets, not the rendered ones everything else in the plan uses.
+        val source = "```kotlin\nval x = 1\nval y = 2\n```"
+        val block = decorations<MdCodeBlock>(source).single()
+        assertEquals("val x = 1\nval y = 2", source.substring(block.sourceStart, block.sourceEnd))
     }
 
     @Test
     fun `markdown inside a fence is not interpreted`() {
         // The whole point of a code block is that its contents are quoted, not parsed.
         val source = "```\n# not a heading **not bold**\n```"
-        assertEquals("# not a heading **not bold**\n", render(source))
+        assertEquals("\n  # not a heading **not bold**\n", render(source))
         assertEquals(emptyList<String>(), styled(source, MdStyle.BOLD))
     }
 
@@ -203,20 +250,27 @@ class MarkdownRenderPlanTest {
     @Test
     fun `an unknown language still renders, just without colour`() {
         val source = "```klingon\nnuqneH\n```"
-        assertEquals("klingon\nnuqneH\n", render(source))
+        assertEquals("  klingon\n  nuqneH\n", render(source))
         assertEquals(emptyList<String>(), styled(source, MdStyle.CODE_KEYWORD))
     }
 
     // ---- Tables --------------------------------------------------------------------------------
 
     @Test
-    fun `a table is ruled and its columns line up`() {
+    fun `a table's rows all come out the same width`() {
+        // Which is the whole visible promise of a table: the columns line up because the *text*
+        // lines up, and the rules are then drawn between them.
         val source = "| a | long header |\n| --- | --- |\n| 1 | 2 |"
         val lines = renderRaw(source).lines()
-        assertTrue("expected box rules, got '${lines[0]}'", lines[0].startsWith("│"))
-        // Every row the same width is the whole visible promise of a table.
+        assertEquals(2, lines.size)
         assertEquals(lines[0].length, lines[1].length)
-        assertEquals(lines[0].length, lines[2].length)
+    }
+
+    @Test
+    fun `the delimiter row is gone from what the reader sees`() {
+        // It carries no information a reader wants and every character of it was a fake border.
+        val rendered = renderRaw("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        assertTrue("the dashes survived: '$rendered'", !rendered.contains("-"))
     }
 
     @Test
@@ -231,10 +285,44 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
-    fun `a pipe becomes exactly one rule character`() {
-        val plan = MarkdownRenderer.plan("| a | b |\n| --- | --- |\n| 1 | 2 |")
-        val pipeEdits = plan.edits.filter { it.end - it.start == 1 && it.replacement.length == 1 }
-        assertTrue("expected one-for-one pipe swaps", pipeEdits.isNotEmpty())
+    fun `every column rule is aimed at a space`() {
+        // Each pipe becomes exactly one space and the rule is drawn down the middle of it. Aimed at
+        // anything else, the rule would be struck through a character the user typed.
+        val source = "| a | long header |\n| --- | --- |\n| 1 | 2 |"
+        val table = decorations<MdTable>(source).single()
+        val rendered = renderRaw(source)
+        assertTrue("no columns found", table.columnStops.isNotEmpty())
+        for (stop in table.columnStops) {
+            assertEquals("column $stop is not on a space", ' ', rendered[stop])
+        }
+    }
+
+    @Test
+    fun `a table without outer pipes still finds its columns`() {
+        val source = "a | b\n--- | ---\n1 | 2"
+        val table = decorations<MdTable>(source).single()
+        val rendered = renderRaw(source)
+        assertEquals(1, table.columnStops.size)
+        assertEquals(' ', rendered[table.columnStops.single()])
+    }
+
+    @Test
+    fun `a cell padded only on the left still reaches the column width`() {
+        // Trimming the tail alone cannot get `|    a|` down to size, and one row a character out is
+        // a column of drawn rules that no longer lines up with its text.
+        val source = "|    a|  b  |\n| --- | --- |\n| 1 | 2 |"
+        val lines = renderRaw(source).lines()
+        assertEquals(lines[0].length, lines[1].length)
+    }
+
+    @Test
+    fun `a half-typed table is measured to its last visible row`() {
+        // A header and a delimiter and nothing else. The delimiter is hidden, so measuring the box
+        // to the last *line* would draw it a row taller than the table it contains.
+        val source = "| a | b |\n| --- | --- |"
+        val table = decorations<MdTable>(source).single()
+        assertEquals(table.rows.single().last, table.end)
+        assertEquals(renderRaw(source).lines().first().length, table.end)
     }
 
     @Test
@@ -256,6 +344,51 @@ class MarkdownRenderPlanTest {
     fun `text with no markup is left exactly as it is`() {
         val plain = "Just a sentence.\n\nAnd another one."
         assertEquals(plain, render(plain))
+    }
+
+    // ---- Spacing -------------------------------------------------------------------------------
+
+    @Test
+    fun `a block standing between two paragraphs is held off both`() {
+        // The margin has to be a line: one line box begins exactly where the last one ended, so
+        // there is no space to draw a box into. The inserted lines are kept short by their style.
+        assertEquals(
+            listOf("before", "", "  ", "  x", "", "after"),
+            renderRaw("before\n```\nx\n```\nafter").lines(),
+        )
+    }
+
+    @Test
+    fun `a block with nothing beside it gets no margin`() {
+        // A blank line at the top of a document is not a margin, it is a blank line.
+        assertEquals(listOf("  ", "  x", ""), renderRaw("```\nx\n```").lines())
+    }
+
+    @Test
+    fun `a table is held off its neighbours too`() {
+        val rendered = renderRaw("before\n| a |\n| --- |\n| 1 |\nafter").lines()
+        assertEquals("", rendered[1])
+        assertEquals("", rendered[rendered.lastIndex - 1])
+    }
+
+    @Test
+    fun `every line carries its leading on its own newline`() {
+        // Which is what gives the document its line height: a line is as tall as the tallest thing
+        // on it, and this makes the tallest thing the terminator.
+        val source = "one\ntwo\nthree"
+        val rendered = renderRaw(source)
+        val leading = MarkdownRenderer.plan(source).styles.filter { it.style == MdStyle.LEADING }
+        // Two, not three: the last line has no terminator, and nothing below to be spaced from.
+        assertEquals(2, leading.size)
+        for (range in leading) assertEquals("\n", rendered.substring(range.start, range.end))
+    }
+
+    @Test
+    fun `code keeps the tighter leading`() {
+        // A code block is meant to read densely; body spacing inside one would undo that.
+        val plan = MarkdownRenderer.plan("```kotlin\nval x = 1\n```")
+        assertEquals(0, plan.styles.count { it.style == MdStyle.LEADING })
+        assertEquals(2, plan.styles.count { it.style == MdStyle.LEADING_TIGHT })
     }
 
     // ---- Invariants the text field depends on -------------------------------------------------
@@ -283,6 +416,16 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `decorations land inside the rendered text`() {
+        val rendered = renderRaw(KITCHEN_SINK)
+        for (decoration in MarkdownRenderer.plan(KITCHEN_SINK).decorations) {
+            for (offset in offsetsOf(decoration)) {
+                assertTrue("$decoration points past the end", offset in 0..rendered.length)
+            }
+        }
+    }
+
+    @Test
     fun `the offset mapping never goes backwards`() {
         // A text field rejects a non-monotonic mapping outright, so this is a crash guard rather
         // than a cosmetic one.
@@ -302,6 +445,7 @@ class MarkdownRenderPlanTest {
             Some **bold** and *italic* and `code` and ~~gone~~.
 
             > A quote with a [link](https://example.com).
+            > And a second line of it.
 
             - milk
             - [ ] eggs
@@ -315,12 +459,29 @@ class MarkdownRenderPlanTest {
             fun main() = println("# not a heading")
             ```
 
+            ```
+            no language here
+            ```
+
             | a | b |
             | --- | --- |
             | 1 | 2 |
 
             An ![image](pic.png) and an unclosed **marker.
         """.trimIndent()
+
+        fun offsetsOf(decoration: MdDecoration): List<Int> = when (decoration) {
+            is MdCodeBlock ->
+                listOf(decoration.start, decoration.end, decoration.headerStart, decoration.headerEnd)
+
+            is MdTable ->
+                listOf(decoration.start, decoration.end, decoration.headerEnd) +
+                    decoration.columnStops +
+                    decoration.rows.flatMap { listOf(it.first, it.last) }
+
+            is MdRule -> listOf(decoration.offset)
+            is MdQuote -> listOf(decoration.start, decoration.end)
+        }
     }
 
     /** Applies the plan the way `MarkdownOutputTransformation` does, so the test sees what it does. */
@@ -334,29 +495,28 @@ class MarkdownRenderPlanTest {
     /**
      * The rendering with each line's trailing padding removed.
      *
-     * Code blocks and tables are padded out so their backgrounds and columns line up, which is
-     * tested on its own; everywhere else it would only make the expected strings unreadable.
+     * Table cells are padded so the columns line up, which is tested on its own; everywhere else the
+     * padding would only make the expected strings unreadable.
      */
     private fun render(markdown: String): String =
         renderRaw(markdown).lines().joinToString("\n") { it.trimEnd() }
 
     /**
-     * The text each [style] covers, with block padding trimmed off the end.
+     * The text each [style] covers, trimmed.
      *
-     * A span reaching the end of a line inside a padded block absorbs that line's padding, because
-     * the padding is inserted at exactly the offset the span ends on and the mapping cannot tell the
-     * two apart. It is invisible — spaces carry no ink, and none of these styles paint a background
-     * — so the trim keeps the expected strings honest rather than papering over anything. Where the
-     * padding *must* be covered, see [styledRaw].
+     * A style range takes in whitespace inserted at either of its ends — a block's indent, a cell's
+     * padding — because the mapping cannot tell inserted spaces at an offset from the character that
+     * was already there. None of it carries ink, so the trim keeps the expected strings readable
+     * rather than papering over anything.
      */
-    private fun styled(markdown: String, style: MdStyle): List<String> =
-        styledRaw(markdown, style).map { it.trimEnd() }
-
-    private fun styledRaw(markdown: String, style: MdStyle): List<String> {
+    private fun styled(markdown: String, style: MdStyle): List<String> {
         val plan = MarkdownRenderer.plan(markdown)
         val rendered = renderRaw(markdown)
         return plan.styles
             .filter { it.style == style && it.end > it.start }
-            .map { rendered.substring(it.start, it.end) }
+            .map { rendered.substring(it.start, it.end).trim() }
     }
+
+    private inline fun <reified T : MdDecoration> decorations(markdown: String): List<T> =
+        MarkdownRenderer.plan(markdown).decorations.filterIsInstance<T>()
 }
