@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.data.NoteIndex
 import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.NoteSort
@@ -165,11 +166,11 @@ class LibraryViewModel(
 
     // ---- Mutations -----------------------------------------------------------------------------
 
-    fun createNote(title: String, onCreated: (StoreRef) -> Unit) {
+    fun createNote(title: String, kind: NoteKind, onCreated: (StoreRef) -> Unit) {
         val parent = _state.value.current ?: return
         viewModelScope.launch {
-            repository.create(parent, title.ifBlank { "Untitled" }).fold(
-                onSuccess = { (ref, _) ->
+            repository.create(parent, title.ifBlank { "Untitled" }, kind).fold(
+                onSuccess = { ref ->
                     reload()
                     onCreated(ref)
                 },

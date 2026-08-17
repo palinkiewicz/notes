@@ -83,6 +83,13 @@ interface NoteStore {
 
     suspend fun delete(ref: StoreRef)
 
+    /**
+     * Renames [from] within its own parent; [to] carries the new **display name**, not a full ref.
+     *
+     * A name rather than a destination ref because SAF only exposes rename that way — there is no
+     * "write this document at this URI" operation — and a contract only one backend can honour is
+     * not a contract.
+     */
     suspend fun move(from: StoreRef, to: StoreRef): StoreRef
 
     suspend fun createDirectory(parent: StoreRef, name: String): StoreRef
@@ -90,8 +97,14 @@ interface NoteStore {
     /** Resolves a child by name, creating nothing. */
     suspend fun child(parent: StoreRef, name: String): StoreRef?
 
-    /** Allocates a ref for a new child, avoiding a collision with an existing name. */
-    suspend fun newChild(parent: StoreRef, name: String): StoreRef
+    /**
+     * Allocates a ref for a new child, avoiding a collision with an existing name.
+     *
+     * [mimeType] is what a backend that records one should record. A filesystem has nowhere to put
+     * it and ignores it; SAF stores it on the document, and getting it wrong there means the file
+     * opens in the wrong app from the system file browser.
+     */
+    suspend fun newChild(parent: StoreRef, name: String, mimeType: String): StoreRef
 
     /**
      * Change notifications for [dir]. Backends without watch support return an empty flow, which

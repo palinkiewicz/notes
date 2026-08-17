@@ -301,7 +301,7 @@ fun Modifier.dismissToolPopupOnPress(onDismiss: () -> Unit): Modifier {
 }
 
 /** Which side of the button the popup opens on: above the bottom bar, beside the rail. */
-private enum class PopupPlacement { ABOVE, END }
+internal enum class PopupPlacement { ABOVE, END }
 
 /**
  * A tool button: an icon, contained while its tool is the selected one.
@@ -311,7 +311,7 @@ private enum class PopupPlacement { ABOVE, END }
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ToolBarButton(
+internal fun ToolBarButton(
     icon: ImageVector,
     label: String,
     selected: Boolean,
@@ -550,7 +550,7 @@ private fun formatSize(value: Float): String = String.format("%.1f", value)
  * caller for the same reason.
  */
 @Composable
-private fun InlineSelector(
+internal fun InlineSelector(
     placement: PopupPlacement,
     onDismiss: () -> Unit,
     content: @Composable RowScope.() -> Unit,
@@ -621,7 +621,7 @@ private class InlineSelectorPosition(
 }
 
 @Composable
-private fun SelectorItem(
+internal fun SelectorItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,

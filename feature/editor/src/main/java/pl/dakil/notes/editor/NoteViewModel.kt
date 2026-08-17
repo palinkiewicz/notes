@@ -85,6 +85,8 @@ data class EditorUiState(
     val selection: Selection? = null,
     val inputConfig: InputConfig = InputConfig(),
     val recentColors: List<Int> = emptyList(),
+    /** Zoom levels the user pinned, as whole percentages, ascending. */
+    val zoomPresets: List<Int> = emptyList(),
     val saveState: SaveState = SaveState.Idle,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -120,7 +122,13 @@ class NoteViewModel(
     init {
         settings.settings
             .onEach { app ->
-                _state.update { it.copy(inputConfig = app.input, recentColors = app.recentColors) }
+                _state.update {
+                    it.copy(
+                        inputConfig = app.input,
+                        recentColors = app.recentColors,
+                        zoomPresets = app.zoomPresets,
+                    )
+                }
             }
             .launchIn(viewModelScope)
 
@@ -219,6 +227,11 @@ class NoteViewModel(
 
     /** Records a colour the user settled on, so it is one tap away next time. */
     fun rememberColor(argb: Int) = settings.addRecentColor(argb)
+
+    /** Pins the current zoom so it can be picked by name later. Kept app-wide, not per-note. */
+    fun addZoomPreset(percent: Int) = settings.addZoomPreset(percent)
+
+    fun removeZoomPreset(percent: Int) = settings.removeZoomPreset(percent)
 
     fun setActiveLayer(id: BlockId) = _state.update { it.copy(activeLayerId = id) }
 

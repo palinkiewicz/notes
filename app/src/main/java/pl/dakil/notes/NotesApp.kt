@@ -18,6 +18,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.EditorScreen
 import pl.dakil.notes.editor.NoteViewModel
+import pl.dakil.notes.editor.text.TextNoteScreen
+import pl.dakil.notes.editor.text.TextNoteViewModel
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.library.LibraryScreen
 import pl.dakil.notes.library.LibraryViewModel
 import pl.dakil.notes.ui.icons.NotesIcons
@@ -57,11 +60,21 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
     val noteViewModel: NoteViewModel = viewModel(
         factory = NoteViewModel.factory(container.repository, container.settings)
     )
+    val textNoteViewModel: TextNoteViewModel = viewModel(
+        factory = TextNoteViewModel.factory(container.repository)
+    )
 
     androidx.compose.runtime.LaunchedEffect(Unit) { libraryViewModel.start() }
 
+    // Only the editor that is actually open is flushed: the other one still holds the last note it
+    // had, and flushing that would rewrite a file nobody has touched.
     fun closeEditor() {
-        noteViewModel.flush()
+        val ref = openNote
+        if (ref != null && NoteKind.of(ref.substringAfterLast('/')) == NoteKind.TEXT) {
+            textNoteViewModel.flush()
+        } else {
+            noteViewModel.flush()
+        }
         openNote = null
         libraryViewModel.refresh()
     }
@@ -78,16 +91,31 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
     if (currentNote != null) {
         // The editor takes the whole window: on a phone the navigation bar would eat scarce page
         // height, and on a tablet the docked tool rail already occupies that edge.
-        androidx.compose.runtime.LaunchedEffect(currentNote) {
-            noteViewModel.open(StoreRef(currentNote))
+        //
+        // The file extension picks the editor. Nothing extra is saved for it, because a note that
+        // could disagree with its own file name about what it is would be worse than no record.
+        if (NoteKind.of(currentNote.substringAfterLast('/')) == NoteKind.TEXT) {
+            androidx.compose.runtime.LaunchedEffect(currentNote) {
+                textNoteViewModel.open(StoreRef(currentNote))
+            }
+            TextNoteScreen(
+                viewModel = textNoteViewModel,
+                onNavigateBack = ::closeEditor,
+                expanded = expanded,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            androidx.compose.runtime.LaunchedEffect(currentNote) {
+                noteViewModel.open(StoreRef(currentNote))
+            }
+            EditorScreen(
+                viewModel = noteViewModel,
+                onNavigateBack = ::closeEditor,
+                darkTheme = darkTheme,
+                expanded = expanded,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
-        EditorScreen(
-            viewModel = noteViewModel,
-            onNavigateBack = ::closeEditor,
-            darkTheme = darkTheme,
-            expanded = expanded,
-            modifier = Modifier.fillMaxSize(),
-        )
         return
     }
 
@@ -115,7 +143,6 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
             Destination.LIBRARY -> LibraryScreen(
                 viewModel = libraryViewModel,
                 onOpenNote = { openNote = it.value },
-                expanded = expanded,
             )
 
             Destination.SETTINGS -> SettingsScreen(container.settings)

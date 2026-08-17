@@ -91,9 +91,12 @@ class FileNoteStore(
 
     override suspend fun move(from: StoreRef, to: StoreRef): StoreRef = withContext(io) {
         val source = fileOf(from)
-        val target = fileOf(to)
-        target.parentFile?.mkdirs()
-        if (!source.renameTo(target)) throw StoreException("Could not move ${from.value}")
+        // `to` is a display name, not a path — resolving it as one would drop the note into the
+        // process's working directory instead of renaming it in place.
+        val target = File(source.parentFile, to.value.sanitizeFileName())
+        if (target != source && !source.renameTo(target)) {
+            throw StoreException("Could not rename ${from.value}")
+        }
         StoreRef(target.absolutePath)
     }
 
@@ -107,7 +110,8 @@ class FileNoteStore(
         File(fileOf(parent), name).takeIf { it.exists() }?.let { StoreRef(it.absolutePath) }
     }
 
-    override suspend fun newChild(parent: StoreRef, name: String): StoreRef = withContext(io) {
+    // The filesystem has no place to record a MIME type; the extension in `name` carries it.
+    override suspend fun newChild(parent: StoreRef, name: String, mimeType: String): StoreRef = withContext(io) {
         StoreRef(File(fileOf(parent), uniqueName(fileOf(parent), name.sanitizeFileName())).absolutePath)
     }
 

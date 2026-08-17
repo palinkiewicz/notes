@@ -139,6 +139,88 @@ class SheetTransformTest {
     }
 
     @Test
+    fun `a locked zoom ignores a pinch but still pans`() {
+        val t = phone()
+        t.fitWidthIfUnset()
+        t.zoomAround(2f, 540f, 1100f)
+        val scale = t.zoom
+        t.zoomLocked = true
+
+        t.zoomAround(2f, 540f, 1100f)
+        assertEquals("a pinch is what the lock is for", scale, t.zoom, 1e-4f)
+
+        // Panning has to keep working: locking the scale to draw at is useless if it also pins the
+        // page, since the drawing hand still has to reach the rest of the note.
+        val before = t.contentToScreenY(0f)
+        t.panBy(0f, -200f)
+        assertTrue("the page should still move", t.contentToScreenY(0f) < before)
+    }
+
+    @Test
+    fun `a scale asked for by name applies even when locked`() {
+        val t = phone()
+        t.fitWidthIfUnset()
+        t.zoomLocked = true
+
+        t.zoomTo(1f)
+
+        assertEquals("the lock guards the gesture, not the menu", 1f, t.zoom, 1e-4f)
+        assertTrue("and it stays on afterwards", t.zoomLocked)
+    }
+
+    @Test
+    fun `setting a scale keeps the middle of the window where it was`() {
+        val t = phone()
+        t.fitWidthIfUnset()
+        val anchorX = t.screenToContentX(540f)
+        val anchorY = t.screenToContentY(1100f)
+
+        t.zoomTo(1f)
+
+        // Anchoring anywhere else means picking a zoom from the menu also scrolls the note away
+        // from whatever the user had chosen that zoom in order to look at.
+        assertEquals(540f, t.contentToScreenX(anchorX), 0.01f)
+        assertEquals(1100f, t.contentToScreenY(anchorY), 0.01f)
+    }
+
+    @Test
+    fun `fill width and fill height fit the page in that dimension`() {
+        val t = phone()
+        t.fitWidthIfUnset()
+
+        t.zoomTo(t.fitWidthZoom())
+        assertTrue("the left edge should be on screen", t.contentToScreenX(0f) >= 0f)
+        assertTrue("the right edge should be on screen", t.contentToScreenX(PAGE_W) <= 1080f)
+
+        t.zoomTo(t.fitHeightZoom(PAGE_H))
+        // One page, not the whole four-page strip: fitting the document would answer "fill height"
+        // with four thumbnails nobody can read.
+        val pageOnScreen = PAGE_H * t.zoom
+        assertTrue("a page should fit in the window", pageOnScreen <= 2200f)
+        assertTrue("and very nearly fill it", pageOnScreen > 2200f * 0.9f)
+    }
+
+    @Test
+    fun `only a zoom the user asked for wakes the indicator`() {
+        val t = phone()
+        val opened = t.zoomEpoch
+        t.fitWidthIfUnset()
+        assertEquals("opening a note is not a zoom", opened, t.zoomEpoch)
+
+        t.zoomAround(2f, 540f, 1100f)
+        assertTrue("a pinch is", t.zoomEpoch > opened)
+
+        val pinched = t.zoomEpoch
+        t.panBy(0f, -100f)
+        assertEquals("panning is not", pinched, t.zoomEpoch)
+
+        // Even picking the scale it is already at, so that tapping an entry in the menu does not
+        // dismiss the very chip the menu belongs to.
+        t.zoomTo(t.zoom)
+        assertTrue(t.zoomEpoch > pinched)
+    }
+
+    @Test
     fun `a restored view keeps the scale it was saved at`() {
         val t = phone()
         t.fitWidthIfUnset()
@@ -153,6 +235,25 @@ class SheetTransformTest {
         // Re-fitting here would silently undo the user's zoom every time they rotated the phone.
         restored.fitWidthIfUnset()
 
+        assertEquals(t.zoom, restored.zoom, 1e-4f)
+    }
+
+    @Test
+    fun `a restored view is still locked if it was locked`() {
+        val t = phone()
+        t.fitWidthIfUnset()
+        t.zoomLocked = true
+
+        val restored = SheetTransform.Saver.run {
+            val saved = with(TestSaverScope) { save(t) }!!
+            restore(saved)!!
+        }
+        restored.setViewport(1080f, 2200f)
+        restored.setContent(PAGE_W, PAGE_H * 4)
+
+        // A rotation that quietly unlocked the zoom would look like the lock button not working.
+        assertTrue(restored.zoomLocked)
+        restored.zoomAround(2f, 540f, 1100f)
         assertEquals(t.zoom, restored.zoom, 1e-4f)
     }
 

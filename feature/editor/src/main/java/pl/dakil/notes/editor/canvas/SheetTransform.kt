@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 
@@ -46,6 +48,28 @@ class SheetTransform {
     private var insetBottom = 0f
 
     val zoom: Float get() = rawZoom
+
+    /**
+     * While set, a pinch cannot change the scale — panning is unaffected.
+     *
+     * The case it exists for is drawing at a chosen scale: resting a hand on the glass mid-stroke
+     * routinely registers as a second pointer, and a stroke that ends with the page half a size
+     * bigger is one the user then has to undo *and* re-find. An explicit choice from the zoom menu
+     * still applies, and the lock stays on around it: the lock guards against the gesture, not
+     * against the user asking for a scale by name.
+     */
+    var zoomLocked by mutableStateOf(false)
+
+    /**
+     * Bumped on every scale change the user asked for — a pinch, or a pick from the zoom menu — and
+     * never by [fitWidthIfUnset].
+     *
+     * It exists so the zoom indicator can time its own fade from a `snapshotFlow` without anything
+     * having to observe [zoom] during composition. Opening a note is not a zoom, so the initial
+     * fit-to-width deliberately leaves this alone and the indicator stays away.
+     */
+    private var zoomEpochState by mutableIntStateOf(0)
+    val zoomEpoch: Int get() = zoomEpochState
 
     /**
      * Screen x of the sheet's left edge. Clamped on read, so a document that gains or loses pages
@@ -94,16 +118,55 @@ class SheetTransform {
 
     /** Scales by [factor] about the screen point ([focusX], [focusY]), which stays put. */
     fun zoomAround(factor: Float, focusX: Float, focusY: Float) {
-        val target = (rawZoom * factor).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        if (target == rawZoom) return
+        if (zoomLocked) return
+        if (applyZoom(rawZoom * factor, focusX, focusY)) zoomEpochState++
+    }
+
+    /**
+     * Scales to [target] about the middle of the window.
+     *
+     * The centre is the anchor rather than the top of the page because this is reached from the
+     * zoom menu, which the user opens while looking at something: jumping to the top of the
+     * document to change scale would mean scrolling back to whatever they were reading.
+     */
+    fun zoomTo(target: Float) {
+        applyZoom(target, viewportWidth * 0.5f, viewportHeight * 0.5f)
+        settled = true
+        // Bumped even when the scale did not move, so that picking the value you are already at
+        // still holds the indicator on screen rather than dismissing it.
+        zoomEpochState++
+    }
+
+    /** The scale at which the page spans the width of the window — what a note opens at. */
+    fun fitWidthZoom(): Float =
+        if (viewportWidth <= 0f || contentWidth <= 0f) rawZoom
+        else ((viewportWidth - EDGE_PAD * 2f) / contentWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
+
+    /**
+     * The scale at which *one* page spans the height of the window.
+     *
+     * One page, not the strip: "fill height" asks to see a page whole, and fitting a four-page
+     * document into the window would answer with four unreadable thumbnails. The top inset comes
+     * out of the budget because that band belongs to the page header, so a page sized to the raw
+     * window height would open with its own controls sitting over its first line.
+     */
+    fun fitHeightZoom(pageHeightPx: Float): Float =
+        if (viewportHeight <= 0f || pageHeightPx <= 0f) rawZoom
+        else ((viewportHeight - insetTop - EDGE_PAD * 2f) / pageHeightPx).coerceIn(MIN_ZOOM, MAX_ZOOM)
+
+    /** Returns true when the scale actually moved. */
+    private fun applyZoom(target: Float, focusX: Float, focusY: Float): Boolean {
+        val clamped = target.coerceIn(MIN_ZOOM, MAX_ZOOM)
+        if (clamped == rawZoom) return false
 
         // The content point under the focus, in unzoomed pixels — the invariant of the gesture.
         val contentX = screenToContentX(focusX)
         val contentY = screenToContentY(focusY)
 
-        rawZoom = target
-        rawOffsetX = clampX(focusX - contentX * target)
-        rawOffsetY = clampY(focusY - contentY * target)
+        rawZoom = clamped
+        rawOffsetX = clampX(focusX - contentX * clamped)
+        rawOffsetY = clampY(focusY - contentY * clamped)
+        return true
     }
 
     fun panBy(dx: Float, dy: Float) {
@@ -206,12 +269,13 @@ class SheetTransform {
         private const val SCROLL_MS = 320
 
         val Saver: Saver<SheetTransform, List<Float>> = Saver(
-            save = { listOf(it.rawZoom, it.rawOffsetX, it.rawOffsetY) },
+            save = { listOf(it.rawZoom, it.rawOffsetX, it.rawOffsetY, if (it.zoomLocked) 1f else 0f) },
             restore = { saved ->
                 SheetTransform().apply {
                     rawZoom = saved[0]
                     rawOffsetX = saved[1]
                     rawOffsetY = saved[2]
+                    zoomLocked = saved[3] != 0f
                     // A restored view already has a scale the user was looking at; re-fitting it
                     // on the way back from a rotation would throw that away.
                     settled = true

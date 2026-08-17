@@ -34,6 +34,8 @@ data class AppSettings(
     val defaultView: ViewMode = ViewMode.PAGED,
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
     val recentColors: List<Int> = emptyList(),
+    /** Zoom levels the user pinned, as whole percentages, ascending. 100% is always offered. */
+    val zoomPresets: List<Int> = emptyList(),
 )
 
 /**
@@ -80,6 +82,7 @@ class SettingsRepository(context: Context) {
         patternInDocumentMode = prefs.getBoolean(KEY_PATTERN_IN_DOC, false),
         libraryRoot = prefs.getString(KEY_LIBRARY_ROOT, null),
         recentColors = readRecentColors(),
+        zoomPresets = readZoomPresets(),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
     )
 
@@ -129,6 +132,32 @@ class SettingsRepository(context: Context) {
     }
 
     fun setDefaultView(view: ViewMode) = prefs.edit().putString(KEY_DEFAULT_VIEW, view.key).apply()
+
+    /**
+     * Pins a zoom level so it can be picked again by name.
+     *
+     * Kept ascending rather than newest-first, unlike [addRecentColor]: this is a menu the user
+     * reads down, and a scale is ordered by nature — a list that reshuffled itself on every use
+     * would mean hunting for the entry that was second from the top a moment ago.
+     */
+    fun addZoomPreset(percent: Int) {
+        val updated = (readZoomPresets() + percent).distinct().sorted().take(MAX_ZOOM_PRESETS)
+        prefs.edit().putString(KEY_ZOOM_PRESETS, updated.joinToString(",")).apply()
+    }
+
+    fun removeZoomPreset(percent: Int) {
+        val updated = readZoomPresets().filterNot { it == percent }
+        prefs.edit().putString(KEY_ZOOM_PRESETS, updated.joinToString(",")).apply()
+    }
+
+    private fun readZoomPresets(): List<Int> =
+        prefs.getString(KEY_ZOOM_PRESETS, null)
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.distinct()
+            ?.sorted()
+            ?.take(MAX_ZOOM_PRESETS)
+            ?: emptyList()
 
     fun clearRecentColors() = prefs.edit().remove(KEY_RECENT_COLORS).apply()
 
@@ -201,9 +230,13 @@ class SettingsRepository(context: Context) {
         const val KEY_LIBRARY_ROOT = "library.root"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
+        const val KEY_ZOOM_PRESETS = "ui.zoomPresets"
 
         /** Two rows on a phone; beyond that the row becomes a scroll people do not scroll. */
         const val MAX_RECENT_COLORS = 12
+
+        /** The menu carries three fixed entries already; past this it stops fitting the screen. */
+        const val MAX_ZOOM_PRESETS = 8
 
         const val KEY_PAGE_KIND = "page.kind"
         const val KEY_PAGE_W = "page.width"

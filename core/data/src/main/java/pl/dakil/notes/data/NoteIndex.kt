@@ -7,12 +7,14 @@ import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.model.Note
 
 /** A row of the library list. Cheap to build — never requires opening a `.daknote`. */
 data class NoteSummary(
     val ref: StoreRef,
     val noteId: String,
+    val kind: NoteKind,
     val title: String,
     val tags: List<String>,
     val modifiedAt: Long,
@@ -66,6 +68,7 @@ class NoteIndex(
             CREATE TABLE notes (
               ref TEXT PRIMARY KEY,
               note_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
               parent TEXT NOT NULL,
               title TEXT NOT NULL,
               tags TEXT NOT NULL,
@@ -96,8 +99,38 @@ class NoteIndex(
         note: Note,
         fileModified: Long = note.meta.modified,
         fileSize: Long = 0L,
+    ) = put(
+        ref = ref,
+        kind = NoteKind.INK,
+        noteId = note.meta.id.raw,
+        title = note.meta.title,
+        tags = note.meta.tags,
+        created = note.meta.created,
+        modified = note.meta.modified,
+        body = note.plainText(),
+        fileModified = fileModified,
+        fileSize = fileSize,
+    )
+
+    /**
+     * The primitive every other write goes through.
+     *
+     * Spelled out in fields rather than taking a [Note], because a `.md` file has no manifest and so
+     * no [pl.dakil.notes.model.NoteMeta] to hand over — its title is its file name and its id is its
+     * path.
+     */
+    suspend fun put(
+        ref: StoreRef,
+        kind: NoteKind,
+        noteId: String,
+        title: String,
+        tags: List<String>,
+        created: Long,
+        modified: Long,
+        body: String,
+        fileModified: Long,
+        fileSize: Long,
     ) = withContext(io) {
-        val body = note.plainText()
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
@@ -105,12 +138,13 @@ class NoteIndex(
                 "notes", null,
                 ContentValues().apply {
                     put("ref", ref.value)
-                    put("note_id", note.meta.id.raw)
+                    put("note_id", noteId)
+                    put("kind", kind.name)
                     put("parent", parentOf(ref.value))
-                    put("title", note.meta.title)
-                    put("tags", note.meta.tags.joinToString(TAG_SEPARATOR))
-                    put("created", note.meta.created)
-                    put("modified", note.meta.modified)
+                    put("title", title)
+                    put("tags", tags.joinToString(TAG_SEPARATOR))
+                    put("created", created)
+                    put("modified", modified)
                     put("file_modified", fileModified)
                     put("file_size", fileSize)
                     put("snippet", body.take(SNIPPET_LENGTH).replace('\n', ' ').trim())
@@ -122,8 +156,8 @@ class NoteIndex(
                 "notes_fts", null,
                 ContentValues().apply {
                     put("ref", ref.value)
-                    put("title", note.meta.title)
-                    put("body", body + "\n" + note.meta.tags.joinToString(" "))
+                    put("title", title)
+                    put("body", body + "\n" + tags.joinToString(" "))
                 },
             )
             db.setTransactionSuccessful()
@@ -192,7 +226,7 @@ class NoteIndex(
             NoteSort.CREATED_DESC -> "created DESC"
         }
         helper.readableDatabase.rawQuery(
-            "SELECT ref, note_id, title, tags, created, modified, snippet FROM notes " +
+            "SELECT ref, note_id, kind, title, tags, created, modified, snippet FROM notes " +
                 "WHERE parent = ? ORDER BY $order",
             arrayOf(parent.value),
         ).use { it.toSummaries() }.filter { summary ->
@@ -208,7 +242,7 @@ class NoteIndex(
         val match = buildMatchExpression(query) ?: return@withContext emptyList()
         helper.readableDatabase.rawQuery(
             """
-            SELECT n.ref, n.note_id, n.title, n.tags, n.created, n.modified, n.snippet
+            SELECT n.ref, n.note_id, n.kind, n.title, n.tags, n.created, n.modified, n.snippet
             FROM notes_fts f JOIN notes n ON n.ref = f.ref
             WHERE notes_fts MATCH ?
             ORDER BY n.modified DESC
@@ -242,11 +276,14 @@ class NoteIndex(
             out += NoteSummary(
                 ref = StoreRef(getString(0)),
                 noteId = getString(1),
-                title = getString(2),
-                tags = getString(3).split(TAG_SEPARATOR).filter { it.isNotBlank() },
-                createdAt = getLong(4),
-                modifiedAt = getLong(5),
-                snippet = getString(6),
+                // A row written by a build that knew a kind this one does not is listed as an ink
+                // note rather than dropped: the file is still there and still openable.
+                kind = NoteKind.entries.firstOrNull { it.name == getString(2) } ?: NoteKind.INK,
+                title = getString(3),
+                tags = getString(4).split(TAG_SEPARATOR).filter { it.isNotBlank() },
+                createdAt = getLong(5),
+                modifiedAt = getLong(6),
+                snippet = getString(7),
             )
         }
         return out
@@ -276,7 +313,7 @@ class NoteIndex(
         const val DATABASE_NAME = "note-index.db"
 
         /** Bumping this rebuilds the index from the files, which are the source of truth. */
-        const val VERSION = 1
+        const val VERSION = 2
 
         /** ASCII unit separator: it cannot occur in a user-typed tag, so no escaping is needed. */
         const val TAG_SEPARATOR = "\u001F"

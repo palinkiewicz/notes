@@ -1,6 +1,12 @@
 package pl.dakil.notes.library
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.NoteSummary
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.ui.icons.NotesIcons
 import java.text.DateFormat
 import java.util.Date
@@ -63,12 +68,15 @@ import java.util.Date
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onOpenNote: (StoreRef) -> Unit,
-    expanded: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var searchActive by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
+    var newNoteMenuOpen by remember { mutableStateOf(false) }
+
+    // The menu takes no focus, so without this back would dismiss the whole screen behind it.
+    BackHandler(enabled = newNoteMenuOpen) { newNoteMenuOpen = false }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -79,104 +87,118 @@ fun LibraryScreen(
         contentWindowInsets = ScaffoldDefaults.contentWindowInsets
             .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
         floatingActionButton = {
-            if (expanded) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.createNote("Untitled", onOpenNote) },
-                    icon = { Icon(NotesIcons.Add, contentDescription = null) },
-                    text = { Text("New note") },
-                )
-            } else {
-                FloatingActionButton(onClick = { viewModel.createNote("Untitled", onOpenNote) }) {
-                    Icon(NotesIcons.Add, contentDescription = "New note")
-                }
-            }
+            NewNoteFab(
+                open = newNoteMenuOpen,
+                onOpenChange = { newNoteMenuOpen = it },
+                onCreate = { kind -> viewModel.createNote("Untitled", kind, onOpenNote) },
+            )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(padding).fillMaxSize()) {
 
-            SearchBar(
-                inputField = {
-                    SearchBarDefaults.InputField(
-                        query = state.query,
-                        onQueryChange = viewModel::setQuery,
-                        onSearch = { searchActive = false },
-                        expanded = searchActive,
-                        onExpandedChange = { searchActive = it },
-                        placeholder = { Text("Search notes") },
-                        leadingIcon = { Icon(NotesIcons.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (state.query.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.setQuery("") }) {
-                                    Icon(NotesIcons.Close, contentDescription = "Clear search")
+                SearchBar(
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            query = state.query,
+                            onQueryChange = viewModel::setQuery,
+                            onSearch = { searchActive = false },
+                            expanded = searchActive,
+                            onExpandedChange = { searchActive = it },
+                            placeholder = { Text("Search notes") },
+                            leadingIcon = { Icon(NotesIcons.Search, contentDescription = null) },
+                            trailingIcon = {
+                                if (state.query.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.setQuery("") }) {
+                                        Icon(NotesIcons.Close, contentDescription = "Clear search")
+                                    }
                                 }
-                            }
-                        },
-                    )
-                },
-                expanded = searchActive,
-                onExpandedChange = { searchActive = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (searchActive) 0.dp else 12.dp),
-            ) {
-                // Expanded search results, shown over the list while typing.
-                NoteList(
-                    notes = state.visibleNotes,
-                    selected = state.selectedNote,
-                    onOpen = { ref ->
-                        searchActive = false
-                        onOpenNote(ref)
+                            },
+                        )
                     },
-                    onDelete = viewModel::deleteNote,
-                )
-            }
-
-            if (!searchActive) {
-                Breadcrumbs(state, viewModel)
-                FilterRow(state, viewModel, sortMenuOpen) { sortMenuOpen = it }
-                HorizontalDivider()
-
-                when {
-                    state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-
-                    state.error != null -> EmptyState(
-                        title = "Nothing to show",
-                        detail = state.error!!,
-                        action = "Retry",
-                        onAction = viewModel::refresh,
-                    )
-
-                    state.folders.isEmpty() && state.visibleNotes.isEmpty() -> EmptyState(
-                        title = if (state.isSearching) "No matches" else "No notes yet",
-                        detail = if (state.isSearching) {
-                            "Nothing here matches \"${state.query}\"."
-                        } else {
-                            "Tap the button below to start your first note."
+                    expanded = searchActive,
+                    onExpandedChange = { searchActive = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (searchActive) 0.dp else 12.dp),
+                ) {
+                    // Expanded search results, shown over the list while typing.
+                    NoteList(
+                        notes = state.visibleNotes,
+                        selected = state.selectedNote,
+                        onOpen = { ref ->
+                            searchActive = false
+                            onOpenNote(ref)
                         },
+                        onDelete = viewModel::deleteNote,
                     )
+                }
 
-                    else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(state.folders, key = { it.ref.value }) { folder ->
-                            ListItem(
-                                headlineContent = { Text(folder.name) },
-                                leadingContent = {
-                                    Icon(NotesIcons.Folder, contentDescription = null)
-                                },
-                                modifier = Modifier.clickableRow { viewModel.openFolder(folder) },
-                            )
+                if (!searchActive) {
+                    Breadcrumbs(state, viewModel)
+                    FilterRow(state, viewModel, sortMenuOpen) { sortMenuOpen = it }
+                    HorizontalDivider()
+
+                    when {
+                        state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            CircularProgressIndicator()
                         }
-                        items(state.visibleNotes, key = { it.ref.value }) { note ->
-                            NoteRow(
-                                note = note,
-                                selected = state.selectedNote == note.ref,
-                                onOpen = { onOpenNote(note.ref) },
-                                onDelete = { viewModel.deleteNote(note.ref) },
-                            )
+
+                        state.error != null -> EmptyState(
+                            title = "Nothing to show",
+                            detail = state.error!!,
+                            action = "Retry",
+                            onAction = viewModel::refresh,
+                        )
+
+                        state.folders.isEmpty() && state.visibleNotes.isEmpty() -> EmptyState(
+                            title = if (state.isSearching) "No matches" else "No notes yet",
+                            detail = if (state.isSearching) {
+                                "Nothing here matches \"${state.query}\"."
+                            } else {
+                                "Tap the button below to start your first note."
+                            },
+                        )
+
+                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                            items(state.folders, key = { it.ref.value }) { folder ->
+                                ListItem(
+                                    headlineContent = { Text(folder.name) },
+                                    leadingContent = {
+                                        Icon(NotesIcons.Folder, contentDescription = null)
+                                    },
+                                    modifier = Modifier.clickableRow { viewModel.openFolder(folder) },
+                                )
+                            }
+                            items(state.visibleNotes, key = { it.ref.value }) { note ->
+                                NoteRow(
+                                    note = note,
+                                    selected = state.selectedNote == note.ref,
+                                    onOpen = { onOpenNote(note.ref) },
+                                    onDelete = { viewModel.deleteNote(note.ref) },
+                                )
+                            }
                         }
                     }
                 }
+            }
+
+            // Under the FAB but over the list: tapping anywhere else closes the menu, which is the
+            // only dismissal a menu with no focus of its own can offer.
+            AnimatedVisibility(
+                visible = newNoteMenuOpen,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { newNoteMenuOpen = false }
+                )
             }
         }
     }
@@ -232,7 +254,18 @@ private fun NoteRow(
                 )
             }
         },
-        leadingContent = { Icon(NotesIcons.Note, contentDescription = null) },
+        leadingContent = {
+            Icon(
+                imageVector = when (note.kind) {
+                    NoteKind.INK -> NotesIcons.Note
+                    NoteKind.TEXT -> NotesIcons.TextNote
+                },
+                contentDescription = when (note.kind) {
+                    NoteKind.INK -> "Ink note"
+                    NoteKind.TEXT -> "Text note"
+                },
+            )
+        },
         trailingContent = {
             Box {
                 IconButton(onClick = { menuOpen = true }) {

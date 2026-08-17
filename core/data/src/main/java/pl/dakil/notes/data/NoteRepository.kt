@@ -15,6 +15,7 @@ import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.format.DakNoteFormatException
 import pl.dakil.notes.format.DakNoteReader
 import pl.dakil.notes.format.DakNoteWriter
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
 import pl.dakil.notes.model.PageBackground
@@ -32,11 +33,15 @@ sealed interface SaveState {
 }
 
 /**
- * Loads, saves and lists `.daknote` files, on top of whichever [NoteStore] is configured.
+ * Loads, saves and lists notes of both kinds, on top of whichever [NoteStore] is configured.
  *
  * Autosave is debounced rather than immediate: a stroke lands every few milliseconds while drawing,
  * and serialising the document on each one would stall the input thread. The debounce collapses a
  * burst of edits into one write once the hand pauses.
+ *
+ * Both note kinds share that one pipeline — one debounce, one write lock, one [saveState] — because
+ * only one note is ever open, and two independent savers would race on the same file the moment a
+ * future build lets a note change kind.
  */
 class NoteRepository(
     private val store: NoteStore,
@@ -50,7 +55,13 @@ class NoteRepository(
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: Flow<SaveState> = _saveState.asStateFlow()
 
-    private data class PendingSave(val ref: StoreRef, val note: Note)
+    /** What is waiting to be written. One document, either kind. */
+    private sealed interface PendingSave {
+        val ref: StoreRef
+
+        data class Ink(override val ref: StoreRef, val note: Note) : PendingSave
+        data class Text(override val ref: StoreRef, val markdown: String) : PendingSave
+    }
 
     private val saveRequests = MutableSharedFlow<PendingSave>(
         replay = 1,
@@ -65,7 +76,7 @@ class NoteRepository(
             saveRequests
                 .debounce(AUTOSAVE_DEBOUNCE_MS)
                 .conflate()
-                .collect { pending -> performSave(pending.ref, pending.note) }
+                .collect { pending -> performSave(pending) }
         }
     }
 
@@ -82,17 +93,33 @@ class NoteRepository(
         }
     }
 
+    /** Reads a plain `.md` note. There is no format to parse — the bytes are the document. */
+    suspend fun loadMarkdown(ref: StoreRef): Result<String> = runCatching {
+        store.read(ref) { it.readBytes().toString(Charsets.UTF_8) }
+    }.onSuccess {
+        _saveState.value = SaveState.Idle
+    }.recoverCatching { cause ->
+        throw if (cause is StoreException) cause else StoreException("Could not open the note", cause)
+    }
+
     suspend fun create(
         parent: StoreRef,
         title: String,
+        kind: NoteKind = NoteKind.INK,
         size: PageSize = PageSize.A4,
         background: PageBackground = PageBackground.DEFAULT,
-    ): Result<Pair<StoreRef, Note>> = runCatching {
-        val note = DakNote.newNote(title = title, size = size, background = background, now = clock())
-        val fileName = "${title.sanitizeFileName()}.${DakNote.EXTENSION}"
-        val ref = store.newChild(parent, fileName)
-        writeNow(ref, note)
-        ref to note
+    ): Result<StoreRef> = runCatching {
+        val ref = store.newChild(parent, "${title.sanitizeFileName()}.${kind.extension}", kind.mimeType)
+        when (kind) {
+            NoteKind.INK -> writeInk(
+                ref,
+                DakNote.newNote(title = title, size = size, background = background, now = clock()),
+            )
+            // Deliberately empty rather than seeded with "# $title": the file name is already the
+            // title, and a heading the user did not type is one they have to delete.
+            NoteKind.TEXT -> writeText(ref, "")
+        }
+        ref
     }
 
     // ---- Saving --------------------------------------------------------------------------------
@@ -108,7 +135,13 @@ class NoteRepository(
             return
         }
         _saveState.value = SaveState.Pending
-        saveRequests.tryEmit(PendingSave(ref, note))
+        saveRequests.tryEmit(PendingSave.Ink(ref, note))
+    }
+
+    /** Safe to call on every keystroke; see [requestSave]. */
+    fun requestSaveMarkdown(ref: StoreRef, markdown: String) {
+        _saveState.value = SaveState.Pending
+        saveRequests.tryEmit(PendingSave.Text(ref, markdown))
     }
 
     /** Forces an immediate write — used when the editor is leaving the foreground. */
@@ -117,13 +150,19 @@ class NoteRepository(
             _saveState.value = SaveState.ReadOnly
             return Result.success(Unit)
         }
-        return performSave(ref, note)
+        return performSave(PendingSave.Ink(ref, note))
     }
 
-    private suspend fun performSave(ref: StoreRef, note: Note): Result<Unit> = writeLock.withLock {
+    suspend fun flushMarkdown(ref: StoreRef, markdown: String): Result<Unit> =
+        performSave(PendingSave.Text(ref, markdown))
+
+    private suspend fun performSave(pending: PendingSave): Result<Unit> = writeLock.withLock {
         _saveState.value = SaveState.Saving
         runCatching {
-            writeNow(ref, note)
+            when (pending) {
+                is PendingSave.Ink -> writeInk(pending.ref, pending.note)
+                is PendingSave.Text -> writeText(pending.ref, pending.markdown)
+            }
         }.onSuccess {
             _saveState.value = SaveState.Saved(clock())
         }.onFailure { cause ->
@@ -131,12 +170,42 @@ class NoteRepository(
         }
     }
 
-    private suspend fun writeNow(ref: StoreRef, note: Note) {
+    private suspend fun writeInk(ref: StoreRef, note: Note) {
         val stamped = note.copy(
             meta = note.meta.copy(modified = clock(), revision = note.meta.revision + 1),
         )
         store.write(ref) { out -> DakNoteWriter.write(stamped, out) }
         index.put(ref, stamped)
+    }
+
+    /**
+     * Writes a `.md` note.
+     *
+     * Nothing is stamped, because there is nowhere to stamp it: no manifest, no revision counter.
+     * The file's own timestamp is the modification time, which is also what any other editor
+     * touching the same file would leave behind.
+     */
+    private suspend fun writeText(ref: StoreRef, markdown: String) {
+        store.write(ref) { out -> out.write(markdown.toByteArray(Charsets.UTF_8)) }
+        indexText(ref, markdown, store.metadata(ref))
+    }
+
+    private suspend fun indexText(ref: StoreRef, markdown: String, entry: StoreEntry?) {
+        val name = entry?.name ?: ref.value.substringAfterLast('/')
+        val modified = entry?.modifiedAt ?: clock()
+        index.put(
+            ref = ref,
+            kind = NoteKind.TEXT,
+            // A plain Markdown file has no id of its own; its location is the only stable handle.
+            noteId = ref.value,
+            title = NoteKind.titleOf(name),
+            tags = emptyList(),
+            created = modified,
+            modified = modified,
+            body = markdown,
+            fileModified = modified,
+            fileSize = entry?.sizeBytes ?: markdown.toByteArray(Charsets.UTF_8).size.toLong(),
+        )
     }
 
     // ---- Library -------------------------------------------------------------------------------
@@ -152,21 +221,41 @@ class NoteRepository(
         val seen = HashSet<String>()
         for (entry in store.list(dir)) {
             if (entry.isDirectory) continue
-            if (!entry.name.endsWith(".${DakNote.EXTENSION}")) continue
+            val kind = NoteKind.of(entry.name) ?: continue
+            // Must happen before the isCurrent shortcut: retainOnly below purges everything the
+            // scan did not report, current or not.
             seen += entry.ref.value
             if (index.isCurrent(entry.ref, entry.modifiedAt, entry.sizeBytes)) continue
-            val note = runCatching { store.read(entry.ref) { DakNoteReader.read(it) } }.getOrNull()
-                ?: continue
-            index.put(entry.ref, note, entry.modifiedAt, entry.sizeBytes)
+            when (kind) {
+                NoteKind.INK -> {
+                    val note = runCatching { store.read(entry.ref) { DakNoteReader.read(it) } }
+                        .getOrNull() ?: continue
+                    index.put(entry.ref, note, entry.modifiedAt, entry.sizeBytes)
+                }
+
+                NoteKind.TEXT -> {
+                    val markdown = runCatching {
+                        store.read(entry.ref) { it.readBytes().toString(Charsets.UTF_8) }
+                    }.getOrNull() ?: continue
+                    indexText(entry.ref, markdown, entry)
+                }
+            }
             count++
         }
         index.retainOnly(dir, seen)
         count
     }
 
+    /**
+     * Renames the file behind [ref], keeping whatever kind it already is.
+     *
+     * The extension comes from the existing name rather than a constant: renaming a `.md` note must
+     * not silently turn it into something no reader can open.
+     */
     suspend fun rename(ref: StoreRef, newTitle: String): Result<StoreRef> = runCatching {
-        val fileName = "${newTitle.sanitizeFileName()}.${DakNote.EXTENSION}"
-        val moved = store.move(ref, StoreRef(fileName))
+        val current = ref.value.substringAfterLast('/')
+        val kind = NoteKind.of(current) ?: NoteKind.INK
+        val moved = store.move(ref, StoreRef("${newTitle.sanitizeFileName()}.${kind.extension}"))
         index.move(ref, moved)
         moved
     }

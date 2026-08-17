@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.TransformOrigin
@@ -21,6 +22,7 @@ import pl.dakil.notes.editor.canvas.PageChrome
 import pl.dakil.notes.editor.canvas.SheetPainter
 import pl.dakil.notes.editor.canvas.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
+import pl.dakil.notes.editor.canvas.ZoomChip
 import pl.dakil.notes.editor.canvas.sheetTransformGestures
 import pl.dakil.notes.editor.markdown.MarkdownBlock
 import pl.dakil.notes.editor.markdown.PaginatedFlow
@@ -163,6 +165,19 @@ fun SheetEditor(
             },
             onAddPage = viewModel::addPage,
             modifier = Modifier.fillMaxSize(),
+        )
+
+        // Over the top of the page, in the window's coordinates like the rest of the chrome. It is
+        // absent from the layout almost all of the time — see ZoomChip for when it appears.
+        ZoomChip(
+            transform = transform,
+            presets = state.zoomPresets,
+            pageHeightPx = format.height * ptToPx,
+            onAddPreset = viewModel::addZoomPreset,
+            onRemovePreset = viewModel::removeZoomPreset,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp),
         )
     }
 }

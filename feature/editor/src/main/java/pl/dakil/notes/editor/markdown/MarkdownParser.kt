@@ -27,14 +27,17 @@ sealed interface MdBlock {
 
 object MarkdownParser {
 
-    private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
-    private val BULLET = Regex("^(\\s*)[-*+]\\s+(.*)$")
-    private val ORDERED = Regex("^(\\s*)(\\d+)[.)]\\s+(.*)$")
-    private val TASK = Regex("^(\\s*)[-*+]\\s+\\[([ xX])]\\s*(.*)$")
-    private val QUOTE = Regex("^>\\s?(.*)$")
-    private val FENCE = Regex("^```\\s*(\\w*)\\s*$")
-    private val RULE = Regex("^\\s*([-*_])\\s*(\\1\\s*){2,}$")
-    private val TABLE_DELIMITER = Regex("^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$")
+    // `internal` so the WYSIWYG renderer recognises exactly the same blocks this parser does; two
+    // sets of line patterns would drift, and the drift would show as text that renders one way and
+    // edits another.
+    internal val HEADING = Regex("^(#{1,6})\\s+(.*)$")
+    internal val BULLET = Regex("^(\\s*)[-*+]\\s+(.*)$")
+    internal val ORDERED = Regex("^(\\s*)(\\d+)[.)]\\s+(.*)$")
+    internal val TASK = Regex("^(\\s*)[-*+]\\s+\\[([ xX])]\\s*(.*)$")
+    internal val QUOTE = Regex("^>\\s?(.*)$")
+    internal val FENCE = Regex("^```\\s*(\\w*)\\s*$")
+    internal val RULE = Regex("^\\s*([-*_])\\s*(\\1\\s*){2,}$")
+    internal val TABLE_DELIMITER = Regex("^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$")
 
     fun parse(markdown: String): List<MdBlock> {
         val lines = markdown.lines()

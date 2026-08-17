@@ -10,7 +10,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.withContext
-import pl.dakil.notes.format.DakNote
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -180,7 +179,7 @@ class SafNoteStore(
     override suspend fun child(parent: StoreRef, name: String): StoreRef? =
         list(parent).firstOrNull { it.name == name }?.ref
 
-    override suspend fun newChild(parent: StoreRef, name: String): StoreRef = withContext(io) {
+    override suspend fun newChild(parent: StoreRef, name: String, mimeType: String): StoreRef = withContext(io) {
         val taken = list(parent).mapTo(HashSet()) { it.name }
         val safe = name.sanitizeFileName()
         var candidate = safe
@@ -192,7 +191,7 @@ class SafNoteStore(
             while ("$stem ($n)$extension" in taken) n++
             candidate = "$stem ($n)$extension"
         }
-        create(parent, DakNote.MIME_TYPE, candidate)
+        create(parent, mimeType, candidate)
     }
 
     private fun create(parent: StoreRef, mimeType: String, displayName: String): StoreRef {

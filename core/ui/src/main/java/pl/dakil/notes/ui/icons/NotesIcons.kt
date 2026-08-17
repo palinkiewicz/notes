@@ -193,6 +193,164 @@ object NotesIcons {
     }
 
     /**
+     * Padlock, shackle down. Authored rather than aliased to `Icons.Default.Lock` so that it and
+     * [LockOpen] read as one glyph in two states — the filled core icon has no open counterpart,
+     * and a pair drawn in two different styles reads as two different controls.
+     */
+    val Lock: ImageVector by lazy {
+        strokedIcon("Lock", "M5.5 10.5 h13 v10 h-13 Z M8.5 10.5 v-3 a3.5 3.5 0 0 1 7 0 v3")
+    }
+
+    /** The same padlock with the shackle sprung, hinged on the left so the body does not move. */
+    val LockOpen: ImageVector by lazy {
+        strokedIcon("LockOpen", "M5.5 10.5 h13 v10 h-13 Z M8.5 10.5 v-3 a3.5 3.5 0 0 1 7 0")
+    }
+
+    /** Chevron: opens the menu belonging to the control it sits on. */
+    val ExpandMore: ImageVector by lazy {
+        strokedIcon("ExpandMore", "M6.5 9.5 L12 15 L17.5 9.5")
+    }
+
+    /**
+     * Scale the page until it spans the window sideways: an arrow pushing out to two walls.
+     *
+     * The walls are what distinguish this from a plain resize — they are the edges of the window,
+     * so the glyph says "out to there" rather than "bigger", which is the whole distinction between
+     * fill-width and a zoom step.
+     */
+    val FillWidth: ImageVector by lazy {
+        strokedIcon(
+            "FillWidth",
+            "M3.5 5 v14 M20.5 5 v14 M7 12 h10.5 M9.5 9.5 L7 12 L9.5 14.5 M15 9.5 L17.5 12 L15 14.5",
+        )
+    }
+
+    /** The same glyph turned a quarter: out to the top and bottom of the window. */
+    val FillHeight: ImageVector by lazy {
+        strokedIcon(
+            "FillHeight",
+            "M5 3.5 h14 M5 20.5 h14 M12 7 v10 M9.5 9.5 L12 7 L14.5 9.5 M9.5 14.5 L12 17 L14.5 14.5",
+        )
+    }
+
+    // ---- Markdown formatting --------------------------------------------------------------------
+    //
+    // Bold, italic and strikethrough are deliberately absent: those three are letterforms, and a
+    // stroked outline of a "B" reads as a diagram of a B rather than as a B. The format bar draws
+    // them with `Text` instead, which is both free and more legible at 24dp.
+
+    /** A page of lines with a folded corner: a note that is only text. */
+    val TextNote: ImageVector by lazy {
+        strokedIcon(
+            "TextNote",
+            "M5.5 3.5 h9 l4 4 v13 h-13 Z M14.5 3.5 v4 h4 M8.5 12 h7 M8.5 16 h4",
+        )
+    }
+
+    /** Three dots with three rules beside them. */
+    val BulletList: ImageVector by lazy {
+        strokedIcon(
+            "BulletList",
+            "M9 6 h11 M9 12 h11 M9 18 h11 " +
+                "M4.6 6 m-0.9 0 a0.9 0.9 0 1 0 1.8 0 a0.9 0.9 0 1 0 -1.8 0 " +
+                "M4.6 12 m-0.9 0 a0.9 0.9 0 1 0 1.8 0 a0.9 0.9 0 1 0 -1.8 0 " +
+                "M4.6 18 m-0.9 0 a0.9 0.9 0 1 0 1.8 0 a0.9 0.9 0 1 0 -1.8 0",
+        )
+    }
+
+    /** The same rules, numbered 1–2–3 down the left. */
+    val NumberedList: ImageVector by lazy {
+        strokedIcon(
+            "NumberedList",
+            "M9 6 h11 M9 12 h11 M9 18 h11 " +
+                "M3.4 4.6 L4.8 4 v4 " +
+                "M3.2 10.6 a1.4 1.4 0 1 1 2.2 1.6 L3.2 14 h2.4 " +
+                "M3.3 16.4 a1.3 1.3 0 1 1 1.1 2 a1.3 1.3 0 1 1 -1.1 2",
+        )
+    }
+
+    /** A ticked box beside a rule: the task-list item. */
+    val TaskList: ImageVector by lazy {
+        strokedIcon(
+            "TaskList",
+            "M3.5 4.5 h6 v6 h-6 Z M4.8 7.6 L6.3 9.1 L8.6 5.6 " +
+                "M12.5 7.5 h8 M3.5 13.5 h6 v6 h-6 Z M12.5 16.5 h8",
+        )
+    }
+
+    /** A curly opening quote over a rule. */
+    val Quote: ImageVector by lazy {
+        strokedIcon(
+            "Quote",
+            "M4 4.5 v15 M8.5 8 h11.5 M8.5 12 h11.5 M8.5 16 h7",
+        )
+    }
+
+    /** Angle brackets: the inline code span. */
+    val InlineCode: ImageVector by lazy {
+        strokedIcon("InlineCode", "M9 8 L5 12 L9 16 M15 8 L19 12 L15 16 M13.4 5.5 L10.6 18.5")
+    }
+
+    /** The same brackets boxed: a whole fenced block rather than a span. */
+    val CodeBlock: ImageVector by lazy {
+        strokedIcon(
+            "CodeBlock",
+            "M3.5 4.5 h17 v15 h-17 Z M9.5 9.5 L7 12 L9.5 14.5 M14.5 9.5 L17 12 L14.5 14.5",
+        )
+    }
+
+    /** A single rule across the page: the thematic break. */
+    val HorizontalRule: ImageVector by lazy {
+        strokedIcon("HorizontalRule", "M3.5 12 h17")
+    }
+
+    /** Two chain links. */
+    val Link: ImageVector by lazy {
+        strokedIcon(
+            "Link",
+            "M10 13.8 a3.6 3.6 0 0 0 5.1 0 l3 -3 a3.6 3.6 0 0 0 -5.1 -5.1 l-1.4 1.4 " +
+                "M14 10.2 a3.6 3.6 0 0 0 -5.1 0 l-3 3 a3.6 3.6 0 0 0 5.1 5.1 l1.4 -1.4",
+        )
+    }
+
+    /** A framed picture with a sun and a hill. */
+    val Image: ImageVector by lazy {
+        strokedIcon(
+            "Image",
+            "M3.5 4.5 h17 v15 h-17 Z M8 9.2 m-1.2 0 a1.2 1.2 0 1 0 2.4 0 a1.2 1.2 0 1 0 -2.4 0 " +
+                "M3.5 16.5 L9 11.5 L14 16 L17 13.5 L20.5 16.5",
+        )
+    }
+
+    /** A grid: header row plus two columns. */
+    val Table: ImageVector by lazy {
+        strokedIcon(
+            "Table",
+            "M3.5 4.5 h17 v15 h-17 Z M3.5 9.5 h17 M3.5 14.5 h17 M12 9.5 v10",
+        )
+    }
+
+    /** A capital H with a descending stem: "this line is a heading". */
+    val Heading: ImageVector by lazy {
+        strokedIcon("Heading", "M5 4.5 v15 M13 4.5 v15 M5 12 h8 M16.5 19.5 v-7 h4 M20.5 15.5 h-4")
+    }
+
+    /** An eye: leave the source alone and show the formatted result. */
+    val Preview: ImageVector by lazy {
+        strokedIcon(
+            "Preview",
+            "M2.5 12 c3 -4.8 6.2 -7.2 9.5 -7.2 c3.3 0 6.5 2.4 9.5 7.2 " +
+                "c-3 4.8 -6.2 7.2 -9.5 7.2 c-3.3 0 -6.5 -2.4 -9.5 -7.2 Z " +
+                "M12 12 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0",
+        )
+    }
+
+    /** Angle brackets around a slash: show the raw Markdown. */
+    val Source: ImageVector by lazy {
+        strokedIcon("Source", "M8 7 L3.5 12 L8 17 M16 7 L20.5 12 L16 17 M13.6 5 L10.4 19")
+    }
+
+    /**
      * Builds a 24×24 icon from SVG path data, rendered as a stroke.
      *
      * `PathParser` is part of `ui-graphics`, so this needs no extra dependency and no generated
