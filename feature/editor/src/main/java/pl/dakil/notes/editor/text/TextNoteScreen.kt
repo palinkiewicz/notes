@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,9 +26,14 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
@@ -47,9 +55,13 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
@@ -64,12 +76,18 @@ import pl.dakil.notes.editor.markdown.BlockPadding
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownOutputTransformation
 import pl.dakil.notes.editor.markdown.MarkdownRenderer
+import pl.dakil.notes.editor.markdown.MarkdownStructure
+import pl.dakil.notes.editor.markdown.MdBorder
 import pl.dakil.notes.editor.markdown.MdCodeBlock
 import pl.dakil.notes.editor.markdown.MdQuote
 import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdTable
 import pl.dakil.notes.editor.markdown.MdTask
+import pl.dakil.notes.editor.markdown.borderAt
+import pl.dakil.notes.editor.markdown.buttonCentre
+import pl.dakil.notes.editor.markdown.centreOf
 import pl.dakil.notes.editor.markdown.drawMarkdownDecorations
+import pl.dakil.notes.editor.markdown.gridIn
 import pl.dakil.notes.editor.markdown.rememberMarkdownDecorationPalette
 import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
 import pl.dakil.notes.ui.icons.NotesIcons
@@ -228,6 +246,11 @@ private fun MarkdownField(
     val scroll = rememberScrollState()
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
 
+    // Which table border the user has picked out, named by where its table starts in the source.
+    // Nothing clears it when the document moves under it: the border is only ever drawn against a
+    // table whose offset still matches, so a stale one is inert rather than wrong.
+    var border by remember { mutableStateOf<MdBorder?>(null) }
+
     val textStyle = if (sourceMode) {
         MonospaceStyle.copy(color = colors.onSurface)
     } else {
@@ -247,20 +270,73 @@ private fun MarkdownField(
             .focusRequester(focusRequester)
             // Top only. A bottom margin here is not a margin, it is a strip of page the text can
             // never reach — the bar below already separates the two.
-            .padding(start = 20.dp, end = 20.dp, top = 12.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 12.dp)
+            // Inside the padding, so a position here is already in the text's own coordinates.
+            // The tap is watched rather than taken: it goes on to place the caret as any other
+            // tap would, and all this adds is which border — if any — it was nearest.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val result = layout ?: return@awaitEachGesture
+                    val decorations = MarkdownRenderer.plan(state.text.toString()).decorations
+                    val at = down.position + Offset(0f, scroll.value.toFloat())
+                    val padding = BlockPadding.toPx()
+
+                    // The `+` stands on the middle of the border it belongs to, so every tap on it
+                    // is also a tap on that border. The button gets it.
+                    val open = border
+                    val centre = open?.let { decorations.buttonCentre(it, result, padding) }
+                    if (centre != null && (at - centre).getDistance() <= InsertButton.toPx() / 2f) {
+                        return@awaitEachGesture
+                    }
+
+                    // Taking the tap rather than watching it. Letting it through as well would drop
+                    // the caret into the nearest cell, and the handle Android draws under a caret
+                    // is wide enough to cover the button that is about to appear.
+                    val hit = decorations.borderAt(result, padding, BorderTouch.toPx(), at)
+                    if (hit != null) down.consume()
+
+                    // A border tap is taken outright; every other tap is only watched, and then
+                    // tidied up *after* the field has moved the caret — which is why the two wait
+                    // on opposite ends of the same dispatch.
+                    val pass = if (hit != null) PointerEventPass.Initial else PointerEventPass.Final
+                    val up = waitForUpOrCancellation(pass) ?: return@awaitEachGesture
+                    if ((up.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                        return@awaitEachGesture
+                    }
+                    if (hit != null) {
+                        up.consume()
+                        border = if (hit == open) null else hit
+                        return@awaitEachGesture
+                    }
+                    // A tap anywhere else puts the last border back the way it was, which is the
+                    // only way out of the focused state that does not need a control of its own.
+                    border = null
+                    snapCaretIntoCell(state)
+                }
+            },
         textStyle = textStyle,
         cursorBrush = SolidColor(colors.primary),
         lineLimits = TextFieldLineLimits.MultiLine(),
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-        // The fence guard belongs to the formatted view only: in source mode the backticks are on
-        // screen, and typing in front of them is something a person can mean.
-        inputTransformation = if (sourceMode) ContinueList else ContinueList.then(KeepFenceIntact),
+        // The block guards belong to the formatted view only: in source mode the backticks and the
+        // pipes are on screen, and editing them is something a person can mean. They run *before*
+        // `ContinueList`, so each one judges the user's own keystroke rather than another
+        // transformation's rewrite of it.
+        inputTransformation = if (sourceMode) {
+            ContinueList
+        } else {
+            KeepBlocksIntact.then(InsertTableRow).then(ContinueList).then(KeepFenceIntact)
+        },
         // Null in source mode: that *is* the source, unchanged and unhidden.
         outputTransformation = if (sourceMode) null else transformation,
         scrollState = scroll,
         onTextLayout = { result -> layout = result() },
         decorator = TextFieldDecorator { field ->
             val text = state.text.toString()
+            // Read here rather than in the field's body: the decoration is recomposed as the
+            // document changes anyway, and the table menu has to know which cell it would act on.
+            val caret = state.selection.start
             // Source mode shows the source, decorations and all left undrawn — a box round the
             // backticks would be claiming they are not there.
             val plan = if (sourceMode) null else MarkdownRenderer.plan(text)
@@ -273,7 +349,7 @@ private fun MarkdownField(
                         val result = layout ?: return@drawBehind
                         val decorations = plan?.decorations ?: return@drawBehind
                         translate(top = -scroll.value.toFloat()) {
-                            drawMarkdownDecorations(decorations, result, palette)
+                            drawMarkdownDecorations(decorations, result, palette, border)
                         }
                     },
             ) {
@@ -292,9 +368,29 @@ private fun MarkdownField(
                             is MdTask -> TaskCheckbox(decoration, result, scroll.value) {
                                 toggleTask(state, decoration)
                             }
+                            is MdTable -> {
+                                TableInsertButton(
+                                    table = decoration,
+                                    layout = result,
+                                    scroll = scroll.value,
+                                    focused = border,
+                                    onInsert = {
+                                        insertIntoTable(state, text, it)
+                                        border = null
+                                    },
+                                )
+                                if (caret in decoration.sourceStart..decoration.sourceEnd) {
+                                    TableMenuButton(
+                                        table = decoration,
+                                        layout = result,
+                                        scroll = scroll.value,
+                                        onAction = { applyToTable(state, text, caret, it) },
+                                    )
+                                }
+                            }
                             // The rest are shapes rather than controls, and are drawn behind the
                             // text instead of placed over it.
-                            is MdTable, is MdRule, is MdQuote -> Unit
+                            is MdRule, is MdQuote -> Unit
                         }
                     }
                 }
@@ -418,6 +514,175 @@ private fun toggleTask(state: TextFieldState, task: MdTask) {
         if (at !in 0 until length) return@edit
         if (asCharSequence()[at] !in " xX") return@edit
         replace(at, at + 1, if (task.checked) " " else "x")
+    }
+}
+
+/**
+ * The `+` that appears on a focused table border.
+ *
+ * Drawn geometry cannot be pressed — that is the trade for having real borders rather than typed
+ * ones — so the control that acts on a border is a real button parked exactly on top of it. It
+ * exists only while a border is focused, which is why one tap to pick the border and one to press
+ * the button is two taps rather than one: nothing is on screen until the user has aimed.
+ */
+/** What the table menu can do, all of it relative to the cell the caret is in. */
+private enum class TableAction(val label: String) {
+    RowAbove("Insert row above"),
+    RowBelow("Insert row below"),
+    ColumnLeft("Insert column left"),
+    ColumnRight("Insert column right"),
+    DeleteRow("Delete row"),
+    DeleteColumn("Delete column"),
+    DeleteTable("Delete table"),
+}
+
+/**
+ * The table's own menu, standing beside it while the caret is inside it.
+ *
+ * Every item names the thing it does to the cell the caret is in, which is the one framing with no
+ * ambiguity in it: a `+` on a border says where a row goes but not which row to take away, and a
+ * gesture nobody can see is not a way to delete anything. Words in a list are.
+ */
+@Composable
+private fun BoxScope.TableMenuButton(
+    table: MdTable,
+    layout: TextLayoutResult,
+    scroll: Int,
+    onAction: (TableAction) -> Unit,
+) {
+    val density = LocalDensity.current
+    val grid = table.gridIn(layout, with(density) { BlockPadding.toPx() }) ?: return
+    val header = grid.rows.getOrNull(1) ?: grid.bottom
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(
+        Modifier
+            .align(Alignment.TopStart)
+            .offset {
+                // Just clear of the table where there is room for it, and tucked back inside the
+                // right margin where there is not.
+                val limit = layout.layoutInput.constraints.maxWidth - MenuButton.toPx()
+                IntOffset(
+                    x = (grid.right + 4.dp.toPx()).coerceAtMost(limit).roundToInt(),
+                    y = ((grid.top + header) / 2f - scroll - MenuButton.toPx() / 2f).roundToInt(),
+                )
+            },
+    ) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            FilledTonalIconButton(onClick = { expanded = true }, modifier = Modifier.size(MenuButton)) {
+                Icon(
+                    imageVector = NotesIcons.Table,
+                    contentDescription = "Table options",
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for (action in TableAction.entries) {
+                if (action == TableAction.DeleteRow) HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(action.label) },
+                    onClick = {
+                        expanded = false
+                        onAction(action)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.TableInsertButton(
+    table: MdTable,
+    layout: TextLayoutResult,
+    scroll: Int,
+    focused: MdBorder?,
+    onInsert: (MdBorder) -> Unit,
+) {
+    val here = focused?.takeIf { it.table == table.sourceStart } ?: return
+    val density = LocalDensity.current
+    val grid = table.gridIn(layout, with(density) { BlockPadding.toPx() }) ?: return
+    val at = grid.centreOf(here) ?: return
+
+    // No minimum touch target: 48 dp of it would cover most of a small table, and the button is
+    // only ever on screen because the user has already aimed at the border under it.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        FilledIconButton(
+            onClick = { onInsert(here) },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset {
+                    IntOffset(
+                        x = (at.x - InsertButton.toPx() / 2f).roundToInt(),
+                        y = (at.y - scroll - InsertButton.toPx() / 2f).roundToInt(),
+                    )
+                }
+                .size(InsertButton),
+        ) {
+            Icon(
+                imageVector = NotesIcons.Add,
+                contentDescription = if (here.vertical) "Insert column" else "Insert row",
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+/** How close to a border a tap has to land, and how big the button that appears on it is. */
+private val BorderTouch = 8.dp
+private val InsertButton = 28.dp
+private val MenuButton = 28.dp
+
+/**
+ * Adds the row or column a `+` button stands for.
+ *
+ * The table is looked up in the source again rather than carried along, because between the tap
+ * that focused the border and the tap that pressed the button the document may have moved.
+ */
+/**
+ * Pulls the caret out of a cell's padding and into its text.
+ *
+ * Run after the field has placed the caret, not instead of it: where in a cell the user pointed is
+ * the field's business, and all this does is refuse to leave the cursor sitting in the blanks that
+ * hold a column's width.
+ */
+private fun snapCaretIntoCell(state: TextFieldState) {
+    val caret = state.selection
+    if (caret.length != 0) return
+    val target = MarkdownStructure.cellCaret(state.text.toString(), caret.start) ?: return
+    state.edit { selection = TextRange(target.coerceIn(0, length)) }
+}
+
+/** Carries out a menu item against the cell the caret is in. */
+private fun applyToTable(state: TextFieldState, source: String, caret: Int, action: TableAction) {
+    val cell = MarkdownStructure.cellAt(source, caret) ?: return
+    val table = cell.table
+    val edit = when (action) {
+        TableAction.RowAbove -> MarkdownStructure.addRow(source, table, cell.row)
+        TableAction.RowBelow -> MarkdownStructure.addRow(source, table, cell.row + 1)
+        TableAction.ColumnLeft -> MarkdownStructure.addColumn(source, table, cell.column)
+        TableAction.ColumnRight -> MarkdownStructure.addColumn(source, table, cell.column + 1)
+        TableAction.DeleteRow -> MarkdownStructure.removeRow(source, table, cell.row)
+        TableAction.DeleteColumn -> MarkdownStructure.removeColumn(source, table, cell.column)
+        TableAction.DeleteTable -> MarkdownStructure.removeTable(source, table)
+    }
+    state.edit {
+        replace(edit.start, edit.end, edit.text)
+        selection = TextRange(edit.caret.coerceIn(0, length))
+    }
+}
+
+private fun insertIntoTable(state: TextFieldState, source: String, border: MdBorder) {
+    val table = MarkdownStructure.tableAt(source, border.table) ?: return
+    val edit = if (border.vertical) {
+        MarkdownStructure.addColumn(source, table, border.index)
+    } else {
+        MarkdownStructure.addRow(source, table, border.index)
+    }
+    state.edit {
+        replace(edit.start, edit.end, edit.text)
+        selection = TextRange(edit.caret.coerceIn(0, length))
     }
 }
 

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 
 /**
  * The colours a block's drawn geometry is made of, resolved from the theme once.
@@ -35,6 +36,7 @@ class MarkdownDecorationPalette(
     val tableHeader: Color,
     val rule: Color,
     val quoteBar: Color,
+    val focus: Color,
     val placeholder: TextLayoutResult,
 )
 
@@ -51,6 +53,7 @@ fun rememberMarkdownDecorationPalette(): MarkdownDecorationPalette {
             tableHeader = colors.surfaceContainerHigh,
             rule = colors.outlineVariant,
             quoteBar = colors.primary.copy(alpha = 0.5f),
+            focus = colors.primary,
             placeholder = measurer.measure(
                 text = "Code",
                 style = TextStyle(
@@ -90,11 +93,12 @@ fun DrawScope.drawMarkdownDecorations(
     decorations: List<MdDecoration>,
     layout: TextLayoutResult,
     palette: MarkdownDecorationPalette,
+    focused: MdBorder? = null,
 ) {
     for (decoration in decorations) {
         when (decoration) {
             is MdCodeBlock -> drawCodeBlock(decoration, layout, palette)
-            is MdTable -> drawTable(decoration, layout, palette)
+            is MdTable -> drawTable(decoration, layout, palette, focused)
             is MdRule -> drawRule(decoration, layout, palette)
             is MdQuote -> drawQuote(decoration, layout, palette)
             // A checkbox is a control, not a shape: `TextNoteScreen` puts a real one over the blank
@@ -151,59 +155,167 @@ private fun DrawScope.drawCodeBlock(
     drawRoundRect(palette.border, Offset(0f, top), outline, radius, style = Stroke(1.dp.toPx()))
 }
 
-private fun DrawScope.drawTable(
-    table: MdTable,
-    layout: TextLayoutResult,
-    palette: MarkdownDecorationPalette,
-) {
-    if (table.rows.isEmpty()) return
-    val first = layout.lineOf(table.start)
-    val last = layout.lineOf(table.end)
-    val top = layout.getLineTop(first) - BlockPadding.toPx()
-    val bottom = layout.getLineBottom(last) + BlockPadding.toPx()
-    val stroke = 1.dp.toPx()
-    val radius = CornerRadius(6.dp.toPx())
+/**
+ * One border of one table, picked out by a tap.
+ *
+ * [table] is the table's offset in the **source**, which is what survives a redraw: the decoration
+ * itself is rebuilt from scratch every time the document changes. [index] counts borders, not
+ * columns, so border 0 is the table's own left or top edge and border *n* is its right or bottom.
+ */
+data class MdBorder(val table: Int, val vertical: Boolean, val index: Int)
 
-    val header = table.rows.first()
+/**
+ * Where a table's lines fall on screen.
+ *
+ * Measured once and used three times over — to draw the grid, to place the invisible strips that
+ * make a border tappable, and to park the `+` button on the one that was tapped. Three separate
+ * calculations of the same geometry would drift apart by a pixel and look like a bug.
+ */
+class MdTableGrid(
+    val left: Float,
+    val right: Float,
+    val top: Float,
+    val bottom: Float,
+    val columns: List<Float>,
+    val rows: List<Float>,
+)
+
+/**
+ * The grid this table wants drawn, or null when the layout cannot say yet.
+ *
+ * [padding] is how far the box reaches past its text — [BlockPadding] in pixels — passed in rather
+ * than resolved here so the composables that place controls can ask the same question a draw scope
+ * does without being one.
+ */
+fun MdTable.gridIn(layout: TextLayoutResult, padding: Float): MdTableGrid? {
+    if (rows.isEmpty()) return null
+    val first = layout.lineOf(start)
+    val last = layout.lineOf(end)
+    val top = layout.getLineTop(first) - padding
+    val bottom = layout.getLineBottom(last) + padding
+
+    val header = rows.first()
     // The outer border follows the table's own pipes where it has them: a `| a | b |` row already
     // says where its edges are, and a box drawn to the page margin instead would leave the last
     // column's rule floating short of it.
-    val left = if (table.columnStops.firstOrNull() == header.first) {
+    val left = if (columnStops.firstOrNull() == header.first) {
         layout.centerX(header.first)
     } else {
         layout.getLineLeft(first)
     }
-    val right = if (table.columnStops.lastOrNull() == header.last - 1) {
+    val right = if (columnStops.lastOrNull() == header.last - 1) {
         layout.centerX(header.last - 1)
     } else {
         layout.getLineRight(first)
     }
-    if (right <= left) return
-
-    val outline = Size(right - left, bottom - top)
-    drawRoundRect(palette.codeBackground, Offset(left, top), outline, radius)
-    clipRect(top = top, bottom = layout.getLineBottom(layout.lineOf(table.headerEnd))) {
-        drawRoundRect(palette.tableHeader, Offset(left, top), outline, radius)
-    }
-
-    for (row in table.rows.dropLast(1)) {
-        val y = layout.getLineBottom(layout.lineOf(row.last))
-        drawLine(palette.border, Offset(left, y), Offset(right, y), stroke)
-    }
+    if (right <= left) return null
 
     // Column rules only when every row fits on one line. A table too wide for the page wraps, and a
     // vertical drawn through wrapped text would cut across cells it has nothing to do with — the
     // outer box and the row rules still read as a table, so that is what a wide one degrades to.
-    val wrapped = table.rows.any { layout.lineOf(it.first) != layout.lineOf(it.last) }
-    if (!wrapped) {
-        for (stop in table.columnStops) {
-            val x = layout.centerX(stop)
-            if (x <= left + stroke || x >= right - stroke) continue
-            drawLine(palette.border, Offset(x, top), Offset(x, bottom), stroke)
-        }
+    val wrapped = rows.any { layout.lineOf(it.first) != layout.lineOf(it.last) }
+    val inner = if (wrapped) {
+        emptyList()
+    } else {
+        columnStops.map { layout.centerX(it) }.filter { it > left + 2f && it < right - 2f }
     }
 
-    drawRoundRect(palette.border, Offset(left, top), outline, radius, style = Stroke(stroke))
+    return MdTableGrid(
+        left = left,
+        right = right,
+        top = top,
+        bottom = bottom,
+        columns = listOf(left) + inner + listOf(right),
+        rows = listOf(top) + rows.dropLast(1).map { layout.getLineBottom(layout.lineOf(it.last)) } + bottom,
+    )
+}
+
+/** The middle of [border] — the one point on it that is far from every other border. */
+fun MdTableGrid.centreOf(border: MdBorder): Offset? =
+    if (border.vertical) {
+        columns.getOrNull(border.index)?.let { Offset(it, (top + bottom) / 2f) }
+    } else {
+        rows.getOrNull(border.index)?.let { Offset((left + right) / 2f, it) }
+    }
+
+/** Where the button on [border] stands, or null when the table it belonged to has moved on. */
+fun List<MdDecoration>.buttonCentre(
+    border: MdBorder,
+    layout: TextLayoutResult,
+    padding: Float,
+): Offset? {
+    val table = firstOrNull { it is MdTable && it.sourceStart == border.table } as? MdTable ?: return null
+    return table.gridIn(layout, padding)?.centreOf(border)
+}
+
+/**
+ * The border under [at], if a tap there was aiming at one.
+ *
+ * Hit-tested against the same grid the borders are drawn from rather than laid out as strips over
+ * the table: a strip wide enough to hit reliably is also wide enough to cover most of a two-row
+ * table's cells, and putting the caret in a cell has to keep working.
+ */
+fun List<MdDecoration>.borderAt(
+    layout: TextLayoutResult,
+    padding: Float,
+    tolerance: Float,
+    at: Offset,
+): MdBorder? {
+    for (decoration in this) {
+        if (decoration !is MdTable) continue
+        val grid = decoration.gridIn(layout, padding) ?: continue
+        if (at.y < grid.top - tolerance || at.y > grid.bottom + tolerance) continue
+        if (at.x < grid.left - tolerance || at.x > grid.right + tolerance) continue
+
+        // Columns before rows, so a tap on a corner takes the vertical: it is the narrower target
+        // of the two and therefore the one that was more likely aimed at.
+        grid.columns.forEachIndexed { index, x ->
+            if (abs(at.x - x) <= tolerance) return MdBorder(decoration.sourceStart, true, index)
+        }
+        grid.rows.forEachIndexed { index, y ->
+            if (abs(at.y - y) <= tolerance) return MdBorder(decoration.sourceStart, false, index)
+        }
+    }
+    return null
+}
+
+private fun DrawScope.drawTable(
+    table: MdTable,
+    layout: TextLayoutResult,
+    palette: MarkdownDecorationPalette,
+    focused: MdBorder?,
+) {
+    val grid = table.gridIn(layout, BlockPadding.toPx()) ?: return
+    val stroke = 1.dp.toPx()
+    val radius = CornerRadius(6.dp.toPx())
+    val outline = Size(grid.right - grid.left, grid.bottom - grid.top)
+
+    drawRoundRect(palette.codeBackground, Offset(grid.left, grid.top), outline, radius)
+    clipRect(top = grid.top, bottom = layout.getLineBottom(layout.lineOf(table.headerEnd))) {
+        drawRoundRect(palette.tableHeader, Offset(grid.left, grid.top), outline, radius)
+    }
+
+    // The outer four are the box itself, drawn last so its rounded corners survive.
+    for (y in grid.rows.drop(1).dropLast(1)) {
+        drawLine(palette.border, Offset(grid.left, y), Offset(grid.right, y), stroke)
+    }
+    for (x in grid.columns.drop(1).dropLast(1)) {
+        drawLine(palette.border, Offset(x, grid.top), Offset(x, grid.bottom), stroke)
+    }
+    drawRoundRect(palette.border, Offset(grid.left, grid.top), outline, radius, style = Stroke(stroke))
+
+    if (focused != null && focused.table == table.sourceStart) {
+        val wide = 2.dp.toPx()
+        if (focused.vertical) {
+            grid.columns.getOrNull(focused.index)?.let { x ->
+                drawLine(palette.focus, Offset(x, grid.top), Offset(x, grid.bottom), wide)
+            }
+        } else {
+            grid.rows.getOrNull(focused.index)?.let { y ->
+                drawLine(palette.focus, Offset(grid.left, y), Offset(grid.right, y), wide)
+            }
+        }
+    }
 }
 
 private fun DrawScope.drawRule(
@@ -234,13 +346,13 @@ private fun DrawScope.drawQuote(
     )
 }
 
-private val TextLayoutResult.length: Int get() = layoutInput.text.length
+internal val TextLayoutResult.length: Int get() = layoutInput.text.length
 
-private fun TextLayoutResult.lineOf(offset: Int): Int =
+internal fun TextLayoutResult.lineOf(offset: Int): Int =
     getLineForOffset(offset.coerceIn(0, length))
 
 /** The middle of the character at [offset] — where a rule replacing it should be drawn. */
-private fun TextLayoutResult.centerX(offset: Int): Float {
+internal fun TextLayoutResult.centerX(offset: Int): Float {
     val at = offset.coerceIn(0, length)
     if (at >= length) return getHorizontalPosition(at, true)
     val box = getBoundingBox(at)

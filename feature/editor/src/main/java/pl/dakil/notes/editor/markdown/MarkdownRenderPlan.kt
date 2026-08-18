@@ -101,6 +101,8 @@ data class MdTable(
     val headerEnd: Int,
     val rows: List<IntRange>,
     val columnStops: List<Int>,
+    val sourceStart: Int,
+    val sourceEnd: Int,
 ) : MdDecoration
 
 /** A `---` line, emptied of characters so a full-width rule can be drawn across it. */
@@ -180,6 +182,15 @@ object MarkdownRenderer {
 
     /** Beyond this a table cell is a paragraph, and padding it out would waste more than it buys. */
     private const val MAX_CELL_WIDTH = 200
+
+    /**
+     * Blank columns kept either side of a cell's text.
+     *
+     * The cell is where the caret goes, so it has to be big enough to aim at: with one space a
+     * narrow cell was a couple of millimetres wide, close enough to the border either side that a
+     * tap meant for the text picked out the border instead.
+     */
+    private const val CELL_PAD = 2
 
     // The transformation and the drawing layer both ask for the plan of the same string on the same
     // frame. Both run on the main thread, so one slot is enough to make the second call free.
@@ -303,6 +314,8 @@ object MarkdownRenderer {
             // A cell's padding is inserted at the pipe that follows it, so a stop that opened before
             // insertions would name the padding rather than the space the rule is drawn through.
             columnStops = columnStops.map { closes(edits, it) },
+            // The source span is left alone: it is how a tap on a border finds the table in the
+            // document it has to rewrite, and the document is not what is on screen.
         )
 
         is MdRule -> MdRule(closes(edits, offset))
@@ -317,7 +330,7 @@ object MarkdownRenderer {
     // ---- Lines -------------------------------------------------------------------------------
 
     /** The document split into lines once, so no pass has to go looking for newlines again. */
-    private class Lines(val source: String) {
+    internal class Lines(val source: String) {
         private val starts: IntArray
         private val ends: IntArray
         val count: Int
@@ -340,6 +353,17 @@ object MarkdownRenderer {
 
         fun start(k: Int) = starts[k]
         fun end(k: Int) = ends[k]
+
+        /** The line [offset] falls on. A newline belongs to the line it ends, not the one it opens. */
+        fun lineOf(offset: Int): Int {
+            var low = 0
+            var high = count - 1
+            while (low < high) {
+                val mid = (low + high + 1) / 2
+                if (starts[mid] <= offset) low = mid else high = mid - 1
+            }
+            return low
+        }
         fun text(k: Int): String = source.substring(starts[k], ends[k])
 
         /** The end of the line including its newline, so a whole line can be hidden without trace. */
@@ -506,13 +530,21 @@ object MarkdownRenderer {
 
         val columns = rows.maxOf { it.size }
         val widths = IntArray(columns)
+        val occupied = IntArray(columns)
         for ((index, row) in rows.withIndex()) {
             if (index == 1) continue // the delimiter row sizes itself to whatever the others need
             row.forEachIndexed { column, cell ->
                 widths[column] = maxOf(widths[column], trimmedLength(source, cell))
+                occupied[column] = maxOf(occupied[column], cell.last + 1 - cell.first)
             }
         }
-        for (column in widths.indices) widths[column] = minOf(widths[column] + 2, MAX_CELL_WIDTH)
+        for (column in widths.indices) {
+            // A column is as wide as its widest text plus its padding, but never narrower than the
+            // widest cell already is: nothing is taken away from a cell, only added to it, and a
+            // column that tried to shrink one would stop lining up with the rest.
+            val wanted = minOf(widths[column] + CELL_PAD * 2, MAX_CELL_WIDTH)
+            widths[column] = if (occupied[column] > MAX_CELL_WIDTH) 0 else maxOf(wanted, occupied[column])
+        }
 
         if (first > 0) gap(lines.start(first), edits, styles)
 
@@ -530,6 +562,9 @@ object MarkdownRenderer {
                 lines.start(k), lines.end(k),
                 if (index == 0) MdStyle.TABLE_HEADER else MdStyle.TABLE,
             )
+            // Rows were the one kind of line with no leading at all, which made a cell a hair
+            // taller than its text and no easier to hit than the border above it.
+            leading(lines, k, styles, MdStyle.LEADING)
             rowRanges += lines.start(k)..lines.end(k)
 
             var pipe = lines.start(k)
@@ -565,6 +600,8 @@ object MarkdownRenderer {
             headerEnd = lines.end(first),
             rows = rowRanges,
             columnStops = stops,
+            sourceStart = lines.start(first),
+            sourceEnd = lines.end(last),
         )
         return last + 1
     }
@@ -589,30 +626,33 @@ object MarkdownRenderer {
     }
 
     /**
-     * Rewrites one cell's whitespace so it occupies exactly [target] characters: one leading space,
-     * the content, then whatever it takes to reach the width.
+     * Pads one cell out to [target] characters — by **adding** blanks and never by moving any.
      *
-     * Both edges, not just the trailing one. Trimming only the tail cannot always reach the target —
-     * a cell written `|    a|` has no trailing spaces to give back — and one row that misses the
-     * width by a character is a column of drawn borders that no longer lines up with its text.
+     * This is the difference between a cell that behaves like a field and one that does not. A cell
+     * is padded so its column lines up, and the padding used to be a *replacement* of whatever
+     * whitespace the source held. Compose maps a caret sitting at either end of a replaced run to
+     * the far end of the replacement, so the cursor in an empty cell was drawn hard against the
+     * cell's right border, and the cursor after a word was drawn past the blanks that followed it —
+     * there was no offset in the document that meant "here, at the start of this empty cell".
+     *
+     * Inserted blanks have no such trouble: every character the user typed still maps exactly where
+     * it is, and the padding falls either side of the caret rather than swallowing it. The cost is
+     * that whitespace the author put inside a cell is theirs and stays — a cell written `|  a|`
+     * keeps both spaces — so the text in a column can sit a space off its neighbours.
      */
     private fun padCell(source: String, cell: IntRange, target: Int, edits: MutableList<MdEdit>) {
         val from = cell.first
         val to = cell.last + 1
+        val width = to - from
 
-        var contentStart = from
-        while (contentStart < to && source[contentStart] == ' ') contentStart++
-        if (contentStart == to) {
-            // A blank cell: one run of spaces, replaced wholesale.
-            if (to - from != target) edits += MdEdit(from, to, pad(target))
-            return
-        }
-        var contentEnd = to
-        while (contentEnd > contentStart && source[contentEnd - 1] == ' ') contentEnd--
+        var leading = 0
+        while (from + leading < to && source[from + leading] == ' ') leading++
 
-        if (contentStart - from != 1) edits += MdEdit(from, contentStart, " ")
-        val trailing = (target - 1 - (contentEnd - contentStart)).coerceAtLeast(0)
-        if (to - contentEnd != trailing) edits += MdEdit(contentEnd, to, pad(trailing))
+        // A cell with no room to breathe gets an indent; one that already has the space keeps it.
+        val indent = (CELL_PAD - leading).coerceAtLeast(0)
+        if (indent > 0) edits += MdEdit(from, from, pad(indent))
+        val fill = target - width - indent
+        if (fill > 0) edits += MdEdit(to, to, pad(fill))
     }
 
     private fun trimmedLength(source: String, cell: IntRange): Int =
