@@ -183,7 +183,7 @@ class MarkdownRenderPlanTest {
     @Test
     fun `a fence keeps its language as a header and drops the backticks`() {
         // The label the reader sees is the language in the source, so editing one edits the other.
-        assertEquals("  kotlin\n  val x = 1\n", render("```kotlin\nval x = 1\n```"))
+        assertEquals("kotlin\nval x = 1\n", render("```kotlin\nval x = 1\n```"))
         assertEquals(listOf("kotlin"), styled("```kotlin\nval x = 1\n```", MdStyle.FENCE_HEADER))
     }
 
@@ -205,14 +205,14 @@ class MarkdownRenderPlanTest {
         val rendered = renderRaw(source)
         // Including the blank line: a box drawn round the code has to reach the last line of it,
         // and a blank line in the middle used to break the background in half.
-        assertEquals("  \n  ab\n  \n  cd", rendered.substring(block.start, block.end))
+        assertEquals("\nab\n\ncd", rendered.substring(block.start, block.end))
     }
 
     @Test
     fun `a fence with no language leaves an empty header line to type into`() {
         // The line stays so the caret has somewhere to sit; the placeholder over it is drawn, not
         // typed, so a word entered there lands in the source as the fence's language.
-        assertEquals("  \n  val x = 1\n", renderRaw("```\nval x = 1\n```"))
+        assertEquals("\nval x = 1\n", renderRaw("```\nval x = 1\n```"))
         val block = decorations<MdCodeBlock>("```\nval x = 1\n```").single()
         assertEquals(block.headerStart, block.headerEnd)
     }
@@ -230,7 +230,7 @@ class MarkdownRenderPlanTest {
     fun `markdown inside a fence is not interpreted`() {
         // The whole point of a code block is that its contents are quoted, not parsed.
         val source = "```\n# not a heading **not bold**\n```"
-        assertEquals("\n  # not a heading **not bold**\n", render(source))
+        assertEquals("\n# not a heading **not bold**\n", render(source))
         assertEquals(emptyList<String>(), styled(source, MdStyle.BOLD))
     }
 
@@ -270,7 +270,7 @@ class MarkdownRenderPlanTest {
     @Test
     fun `an unknown language still renders, just without colour`() {
         val source = "```klingon\nnuqneH\n```"
-        assertEquals("  klingon\n  nuqneH\n", render(source))
+        assertEquals("klingon\nnuqneH\n", render(source))
         assertEquals(emptyList<String>(), styled(source, MdStyle.CODE_KEYWORD))
     }
 
@@ -373,7 +373,7 @@ class MarkdownRenderPlanTest {
         // The margin has to be a line: one line box begins exactly where the last one ended, so
         // there is no space to draw a box into. The inserted lines are kept short by their style.
         assertEquals(
-            listOf("before", "", "  ", "  x", "", "after"),
+            listOf("before", "", "", "x", "", "after"),
             renderRaw("before\n```\nx\n```\nafter").lines(),
         )
     }
@@ -381,7 +381,7 @@ class MarkdownRenderPlanTest {
     @Test
     fun `a block with nothing beside it gets no margin`() {
         // A blank line at the top of a document is not a margin, it is a blank line.
-        assertEquals(listOf("  ", "  x", ""), renderRaw("```\nx\n```").lines())
+        assertEquals(listOf("", "x", ""), renderRaw("```\nx\n```").lines())
     }
 
     @Test

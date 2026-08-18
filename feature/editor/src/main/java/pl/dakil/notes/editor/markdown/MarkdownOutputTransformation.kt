@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -14,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import pl.dakil.notes.editor.markdown.code.CodeColors
 
 /** One `SpanStyle` per [MdStyle], resolved from the Material theme once and reused per keystroke. */
 @Immutable
@@ -63,6 +65,10 @@ fun rememberMarkdownStyles(): MarkdownStyles {
         // same whether it is being edited here or displayed on a sheet.
         fun heading(size: TextUnit) = SpanStyle(fontSize = size, fontWeight = FontWeight.SemiBold)
 
+        // Dark or light is read off the surface the code is drawn on rather than passed in: this
+        // is the only place in the app that needs to know, and the scheme already says.
+        val syntax = if (colors.surface.luminance() < 0.5f) CodeColors.Dark else CodeColors.Light
+
         // Code spans keep the block's own family and size and change only colour, so a keyword and
         // the bracket beside it still line up in the monospace grid.
         fun code(color: Color, weight: FontWeight? = null, italic: FontStyle? = null) = SpanStyle(
@@ -101,14 +107,14 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                     fontWeight = FontWeight.SemiBold,
                     color = colors.primary,
                 ),
-                // Syntax colours. Deliberately few and far apart in hue: a code block in a note is
-                // read at a glance, and a dozen near-identical tints would be noise rather than
-                // information.
-                MdStyle.CODE_KEYWORD to code(colors.primary, FontWeight.SemiBold),
-                MdStyle.CODE_STRING to code(colors.tertiary),
-                MdStyle.CODE_NUMBER to code(colors.secondary),
-                MdStyle.CODE_COMMENT to code(colors.onSurfaceVariant.copy(alpha = 0.7f), italic = FontStyle.Italic),
-                MdStyle.CODE_FUNCTION to code(colors.onSurface),
+                // Syntax colours, from [CodeColors] rather than from the scheme: telling a string
+                // from a number at a glance is what they are for, and the scheme's roles are built
+                // to harmonise with each other instead.
+                MdStyle.CODE_KEYWORD to code(syntax.keyword, FontWeight.SemiBold),
+                MdStyle.CODE_STRING to code(syntax.string),
+                MdStyle.CODE_NUMBER to code(syntax.number),
+                MdStyle.CODE_COMMENT to code(syntax.comment, italic = FontStyle.Italic),
+                MdStyle.CODE_FUNCTION to code(syntax.function),
                 // Tables must be monospace or the padding that lines the columns up means nothing.
                 MdStyle.TABLE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
                 MdStyle.TABLE_HEADER to SpanStyle(

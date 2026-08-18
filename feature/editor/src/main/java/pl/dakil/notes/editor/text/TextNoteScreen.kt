@@ -46,7 +46,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +59,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -83,6 +86,7 @@ import pl.dakil.notes.editor.markdown.MdQuote
 import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdTable
 import pl.dakil.notes.editor.markdown.MdTask
+import pl.dakil.notes.editor.markdown.CodeInset
 import pl.dakil.notes.editor.markdown.borderAt
 import pl.dakil.notes.editor.markdown.buttonCentre
 import pl.dakil.notes.editor.markdown.centreOf
@@ -294,25 +298,25 @@ private fun MarkdownField(
                     // the caret into the nearest cell, and the handle Android draws under a caret
                     // is wide enough to cover the button that is about to appear.
                     val hit = decorations.borderAt(result, padding, BorderTouch.toPx(), at)
-                    if (hit != null) down.consume()
+                    if (hit == null) {
+                        // Anywhere else puts the last border back the way it was, which is the only
+                        // way out of the focused state that does not need a control of its own. The
+                        // touch itself is left alone from here: the field consumes it during the
+                        // main pass, so there is nothing left to wait for.
+                        border = null
+                        return@awaitEachGesture
+                    }
 
-                    // A border tap is taken outright; every other tap is only watched, and then
-                    // tidied up *after* the field has moved the caret — which is why the two wait
-                    // on opposite ends of the same dispatch.
-                    val pass = if (hit != null) PointerEventPass.Initial else PointerEventPass.Final
-                    val up = waitForUpOrCancellation(pass) ?: return@awaitEachGesture
+                    // A border tap is taken outright, so the caret stays where it was: letting it
+                    // through would drop the caret into the nearest cell, and the handle Android
+                    // draws under a caret is wide enough to cover the button about to appear.
+                    down.consume()
+                    val up = waitForUpOrCancellation(PointerEventPass.Initial) ?: return@awaitEachGesture
                     if ((up.position - down.position).getDistance() > viewConfiguration.touchSlop) {
                         return@awaitEachGesture
                     }
-                    if (hit != null) {
-                        up.consume()
-                        border = if (hit == open) null else hit
-                        return@awaitEachGesture
-                    }
-                    // A tap anywhere else puts the last border back the way it was, which is the
-                    // only way out of the focused state that does not need a control of its own.
-                    border = null
-                    snapCaretIntoCell(state)
+                    up.consume()
+                    border = if (hit == open) null else hit
                 }
             },
         textStyle = textStyle,
@@ -344,15 +348,29 @@ private fun MarkdownField(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .clipToBounds()
                     .drawBehind {
                         val result = layout ?: return@drawBehind
                         val decorations = plan?.decorations ?: return@drawBehind
-                        translate(top = -scroll.value.toFloat()) {
-                            drawMarkdownDecorations(decorations, result, palette, border)
+                        // Clipped by hand rather than with `clipToBounds`, and a little wider than
+                        // the text: a code block's box has to sit outside the column its code is
+                        // set in, because the code cannot be moved inwards. An indent made of
+                        // spaces is lost the moment a line wraps, and a wrapped line that starts
+                        // under the border instead of under its own first character is worse than
+                        // no padding at all. Vertically it clips exactly, so nothing a scroll has
+                        // taken off the top is painted over the bar above.
+                        clipRect(
+                            left = -CodeInset.toPx(),
+                            top = 0f,
+                            right = size.width + CodeInset.toPx(),
+                            bottom = size.height,
+                        ) {
+                            translate(top = -scroll.value.toFloat()) {
+                                drawMarkdownDecorations(decorations, result, palette, border)
+                            }
                         }
                     },
             ) {
+              Box(Modifier.fillMaxWidth().clipToBounds()) {
                 if (text.isEmpty()) {
                     Text(
                         text = "Write something…",
@@ -394,14 +412,29 @@ private fun MarkdownField(
                         }
                     }
                 }
+              }
             }
         },
     )
 
     // Only a note with nothing in it opens ready to type. Throwing the keyboard up over a note the
     // user came back to *read* costs them half the page and a tap to get it back.
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    LaunchedEffect(Unit) {
         if (state.text.isEmpty()) focusRequester.requestFocus()
+    }
+
+    // Watching the caret rather than the tap that moved it. A tap is consumed by the field on its
+    // way past, so there is no moment afterwards to correct — and this way arrow keys and a dragged
+    // handle land in a cell's text as surely as a tap does.
+    if (!sourceMode) {
+        LaunchedEffect(state) {
+            snapshotFlow { state.selection }.collect { selection ->
+                if (!selection.collapsed) return@collect
+                val target = MarkdownStructure.cellCaret(state.text.toString(), selection.start)
+                    ?: return@collect
+                state.edit { this.selection = TextRange(target.coerceIn(0, length)) }
+            }
+        }
     }
 }
 
@@ -640,20 +673,6 @@ private val MenuButton = 28.dp
  * The table is looked up in the source again rather than carried along, because between the tap
  * that focused the border and the tap that pressed the button the document may have moved.
  */
-/**
- * Pulls the caret out of a cell's padding and into its text.
- *
- * Run after the field has placed the caret, not instead of it: where in a cell the user pointed is
- * the field's business, and all this does is refuse to leave the cursor sitting in the blanks that
- * hold a column's width.
- */
-private fun snapCaretIntoCell(state: TextFieldState) {
-    val caret = state.selection
-    if (caret.length != 0) return
-    val target = MarkdownStructure.cellCaret(state.text.toString(), caret.start) ?: return
-    state.edit { selection = TextRange(target.coerceIn(0, length)) }
-}
-
 /** Carries out a menu item against the cell the caret is in. */
 private fun applyToTable(state: TextFieldState, source: String, caret: Int, action: TableAction) {
     val cell = MarkdownStructure.cellAt(source, caret) ?: return

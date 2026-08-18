@@ -166,18 +166,7 @@ object MarkdownRenderer {
      */
     private const val TASK_BLANK = "   "
 
-    /**
-     * What clears the left edge of a drawn block.
-     *
-     * Spaces rather than a `ParagraphStyle` with a `textIndent`, which is what this obviously wants
-     * to be. Compose lays each paragraph out as its own block of text, and a paragraph whose range
-     * ends on a newline — which every range over whole lines does — comes back one line taller than
-     * its text, opening a gap under every block. Two spaces of monospace are exact, predictable and
-     * carry no ink.
-     */
-    private const val INDENT = "  "
-
-    /** The same, in a proportional face, where a space is narrower. */
+    /** What clears the bar drawn beside a quotation, in a proportional face. */
     private const val QUOTE_INDENT = "   "
 
     /** Beyond this a table cell is a paragraph, and padding it out would waste more than it buys. */
@@ -186,11 +175,11 @@ object MarkdownRenderer {
     /**
      * Blank columns kept either side of a cell's text.
      *
-     * The cell is where the caret goes, so it has to be big enough to aim at: with one space a
-     * narrow cell was a couple of millimetres wide, close enough to the border either side that a
-     * tap meant for the text picked out the border instead.
+     * One, plus the space the cell's own pipe leaves: three between one cell's text and the next,
+     * which is enough to read as a gap without turning a table of short words into a table of
+     * mostly whitespace. What makes a cell easy to tap is its height, not its width.
      */
-    private const val CELL_PAD = 2
+    private const val CELL_PAD = 1
 
     // The transformation and the drawing layer both ask for the plan of the same string on the same
     // frame. Both run on the main thread, so one slot is enough to make the second call free.
@@ -414,10 +403,11 @@ object MarkdownRenderer {
             lines.end(open) - lines.text(open).substringAfter("```").trimStart().length
         }
 
-        // The backticks are replaced by the indent rather than deleted, so the header sits over the
-        // code rather than against the box's left edge — and so that a fence with no language still
-        // has somewhere for the caret to be.
-        edits += MdEdit(lines.start(open), languageStart, INDENT)
+        // The backticks go and nothing takes their place. Code is set flush with the column the
+        // block's own text starts in — its box is drawn wider than the text instead of the text
+        // being pushed inwards, because an indent spelled in spaces is lost the moment a line
+        // wraps, and a wrapped line has to line up with the one it continues.
+        edits += MdEdit(lines.start(open), languageStart, "")
         if (language.isNotEmpty()) {
             val languageEnd = languageStart + language.length
             // Trailing whitespace after the word goes too, or the header chip is drawn round a
@@ -428,7 +418,6 @@ object MarkdownRenderer {
 
         leading(lines, open, styles, MdStyle.LEADING_TIGHT)
         for (k in open + 1..lastBody) {
-            edits += MdEdit(lines.start(k), lines.start(k), INDENT)
             styles += MdStyleRange(lines.start(k), lines.end(k), MdStyle.FENCE)
             leading(lines, k, styles, MdStyle.LEADING_TIGHT)
         }

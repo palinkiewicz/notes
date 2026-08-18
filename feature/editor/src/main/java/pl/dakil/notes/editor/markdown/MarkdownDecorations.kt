@@ -79,6 +79,16 @@ fun rememberMarkdownDecorationPalette(): MarkdownDecorationPalette {
 val BlockPadding = 3.dp
 
 /**
+ * How far a code block's box reaches past the text on either side.
+ *
+ * The block's internal horizontal padding, drawn rather than typed. Code sits in the same column as
+ * everything else in the document — an indent made of spaces would be dropped by every wrapped
+ * line — so the padding has to come from the box being wider than its contents. `TextNoteScreen`
+ * clips the decoration layer to exactly this much overhang.
+ */
+val CodeInset = 8.dp
+
+/**
  * Draws the shapes a Markdown document asks for, behind its text.
  *
  * Everything here is measured from the field's own [TextLayoutResult], so a box lands on the lines
@@ -119,13 +129,15 @@ private fun DrawScope.drawCodeBlock(
     val bottom = layout.getLineBottom(last) + BlockPadding.toPx()
     val headerBottom = layout.getLineBottom(first)
     val radius = CornerRadius(10.dp.toPx())
-    val outline = Size(size.width, bottom - top)
+    val inset = CodeInset.toPx()
+    val corner = Offset(-inset, top)
+    val outline = Size(size.width + inset * 2, bottom - top)
 
-    drawRoundRect(palette.codeBackground, Offset(0f, top), outline, radius)
+    drawRoundRect(palette.codeBackground, corner, outline, radius)
     // The header takes the block's own rounded corners by being the same shape, drawn again and
     // clipped to the top band — cheaper and more exact than a path with two corners rounded.
     clipRect(top = top, bottom = headerBottom) {
-        drawRoundRect(palette.codeHeader, Offset(0f, top), outline, radius)
+        drawRoundRect(palette.codeHeader, corner, outline, radius)
     }
 
     if (block.headerEnd > block.headerStart) {
@@ -148,11 +160,11 @@ private fun DrawScope.drawCodeBlock(
 
     drawLine(
         color = palette.border,
-        start = Offset(0f, headerBottom),
-        end = Offset(size.width, headerBottom),
+        start = Offset(-inset, headerBottom),
+        end = Offset(size.width + inset, headerBottom),
         strokeWidth = 1.dp.toPx(),
     )
-    drawRoundRect(palette.border, Offset(0f, top), outline, radius, style = Stroke(1.dp.toPx()))
+    drawRoundRect(palette.border, corner, outline, radius, style = Stroke(1.dp.toPx()))
 }
 
 /**
