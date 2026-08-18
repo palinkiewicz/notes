@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.editor.markdown.MarkdownRenderer
@@ -10,6 +11,7 @@ import pl.dakil.notes.editor.markdown.MdQuote
 import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdStyle
 import pl.dakil.notes.editor.markdown.MdTable
+import pl.dakil.notes.editor.markdown.MdTask
 
 /**
  * What the WYSIWYG editor actually shows.
@@ -114,10 +116,28 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
-    fun `a task shows a box, and a done task is struck through`() {
-        assertEquals("☐  buy milk", render("- [ ] buy milk"))
-        assertEquals("☑  buy milk", render("- [x] buy milk"))
+    fun `a task marker becomes the blank its checkbox stands in`() {
+        // Nothing is spelled out where the box goes. It is a real control, floated over this gap,
+        // so all the text has to do is leave room for one.
+        assertEquals("   buy milk", render("- [ ] buy milk"))
+        assertEquals("   buy milk", render("- [x] buy milk"))
         assertEquals(listOf("buy milk"), styled("- [x] buy milk", MdStyle.STRIKE))
+    }
+
+    @Test
+    fun `a task names the one character a tap has to flip`() {
+        val open = decorations<MdTask>("- [ ] buy milk").single()
+        assertFalse(open.checked)
+        assertEquals(0, open.offset)
+        assertEquals(' ', "- [ ] buy milk"[open.sourceMark])
+
+        // Any of the markers CommonMark allows, upper or lower case, and indented.
+        val source = "  * [X] buy milk"
+        val done = decorations<MdTask>(source).single()
+        assertTrue(done.checked)
+        assertEquals('X', source[done.sourceMark])
+        // The user's own indent is not syntax and stays; the box stands after it.
+        assertEquals(2, done.offset)
     }
 
     // ---- Quotes --------------------------------------------------------------------------------
@@ -481,6 +501,9 @@ class MarkdownRenderPlanTest {
 
             is MdRule -> listOf(decoration.offset)
             is MdQuote -> listOf(decoration.start, decoration.end)
+            // `sourceMark` is left out on purpose: it is an offset into the source, and holding it
+            // to the rendered length is exactly the mistake this test would be there to catch.
+            is MdTask -> listOf(decoration.offset)
         }
     }
 

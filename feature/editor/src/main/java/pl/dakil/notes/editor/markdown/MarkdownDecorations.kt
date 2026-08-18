@@ -97,6 +97,9 @@ fun DrawScope.drawMarkdownDecorations(
             is MdTable -> drawTable(decoration, layout, palette)
             is MdRule -> drawRule(decoration, layout, palette)
             is MdQuote -> drawQuote(decoration, layout, palette)
+            // A checkbox is a control, not a shape: `TextNoteScreen` puts a real one over the blank
+            // the plan left for it, so there is nothing to draw here.
+            is MdTask -> Unit
         }
     }
 }

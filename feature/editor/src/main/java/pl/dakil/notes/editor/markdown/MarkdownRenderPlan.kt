@@ -32,8 +32,11 @@ enum class MdStyle {
     /** A table's header row. */
     TABLE_HEADER,
 
-    /** A substituted glyph — a bullet, a checkbox — rather than the user's own text. */
+    /** A substituted glyph — a bullet — rather than the user's own text. */
     MARKER,
+
+    /** The blank a checkbox stands in: monospace, so its width is known before the box is placed. */
+    TASK_BOX,
 
     /**
      * Extra leading, worn by the newline that ends a line.
@@ -107,6 +110,16 @@ data class MdRule(val offset: Int) : MdDecoration
 data class MdQuote(val start: Int, val end: Int) : MdDecoration
 
 /**
+ * A task item's checkbox.
+ *
+ * [offset] is the blank the box stands in, in transformed coordinates like every other decoration.
+ * [sourceMark] is not: it is the **source** offset of the single character between the brackets,
+ * which is what a tap rewrites. Flipping one character rather than the line leaves the caret, the
+ * undo history and the rest of the user's markup exactly where they were.
+ */
+data class MdTask(val offset: Int, val checked: Boolean, val sourceMark: Int) : MdDecoration
+
+/**
  * A recipe for turning Markdown source into what the reader sees.
  *
  * [edits] are in **source** coordinates, ascending and disjoint. Everything else is already in
@@ -138,9 +151,18 @@ data class MarkdownRenderPlan(
 object MarkdownRenderer {
 
     private const val BULLET_GLYPH = "•  "
-    private const val TASK_OPEN = "☐  "
-    private const val TASK_DONE = "☑  "
     private const val IMAGE_GLYPH = "🖼 "
+
+    /**
+     * What stands in the text where a checkbox goes.
+     *
+     * Nothing is spelled out there — the box is a real control floated over this blank — so all the
+     * run has to do is be wide enough to hold one. Three monospace spaces at 14 sp is a shade over
+     * 25 dp, which clears a 24 dp checkbox with a little to spare, and grows rather than shrinks
+     * when the user scales their fonts up. Proportional spaces are a third as wide and the box
+     * would sit on the first word.
+     */
+    private const val TASK_BLANK = "   "
 
     /**
      * What clears the left edge of a drawn block.
@@ -286,6 +308,10 @@ object MarkdownRenderer {
         is MdRule -> MdRule(closes(edits, offset))
 
         is MdQuote -> copy(start = closes(edits, start), end = closes(edits, end))
+
+        // `sourceMark` is deliberately left alone: it names a character in the document, not on the
+        // screen, and mapping it would point the toggle at whatever the renderer put there instead.
+        is MdTask -> copy(offset = closes(edits, offset))
     }
 
     // ---- Lines -------------------------------------------------------------------------------
@@ -631,8 +657,11 @@ object MarkdownRenderer {
             val markerStart = start + match.groupValues[1].length
             val textStart = end - match.groupValues[3].length
             val done = match.groupValues[2].equals("x", ignoreCase = true)
-            edits += MdEdit(markerStart, textStart, if (done) TASK_DONE else TASK_OPEN)
-            styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
+            // The whole marker becomes blank space, and a real checkbox is put over it. A glyph
+            // would be the easy answer and cannot be ticked: the user asked for a control.
+            edits += MdEdit(markerStart, textStart, TASK_BLANK)
+            styles += MdStyleRange(markerStart, textStart, MdStyle.TASK_BOX)
+            decorations += MdTask(markerStart, done, start + match.groups[2]!!.range.first)
             if (done) styles += MdStyleRange(textStart, end, MdStyle.STRIKE)
             scanInline(text, textStart, end, edits, styles)
             return

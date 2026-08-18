@@ -19,12 +19,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.then
 import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -32,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +54,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -60,6 +65,10 @@ import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownOutputTransformation
 import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MdCodeBlock
+import pl.dakil.notes.editor.markdown.MdQuote
+import pl.dakil.notes.editor.markdown.MdRule
+import pl.dakil.notes.editor.markdown.MdTable
+import pl.dakil.notes.editor.markdown.MdTask
 import pl.dakil.notes.editor.markdown.drawMarkdownDecorations
 import pl.dakil.notes.editor.markdown.rememberMarkdownDecorationPalette
 import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
@@ -278,8 +287,14 @@ private fun MarkdownField(
                 field()
                 layout?.let { result ->
                     plan?.decorations?.forEach { decoration ->
-                        if (decoration is MdCodeBlock) {
-                            CopyCodeButton(decoration, result, text, scroll.value)
+                        when (decoration) {
+                            is MdCodeBlock -> CopyCodeButton(decoration, result, text, scroll.value)
+                            is MdTask -> TaskCheckbox(decoration, result, scroll.value) {
+                                toggleTask(state, decoration)
+                            }
+                            // The rest are shapes rather than controls, and are drawn behind the
+                            // text instead of placed over it.
+                            is MdTable, is MdRule, is MdQuote -> Unit
                         }
                     }
                 }
@@ -340,6 +355,69 @@ private fun BoxScope.CopyCodeButton(
             modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * A task item's checkbox, floated over the blank the plan left for it.
+ *
+ * The stock Material control rather than a glyph or something drawn: it is a checkbox, and it has
+ * to tick, animate and answer TalkBack like every other checkbox in the app.
+ */
+@Composable
+private fun BoxScope.TaskCheckbox(
+    task: MdTask,
+    layout: TextLayoutResult,
+    scroll: Int,
+    onToggle: () -> Unit,
+) {
+    val at = task.offset.coerceIn(0, layout.layoutInput.text.length)
+    val line = layout.getLineForOffset(at)
+
+    // The 48 dp minimum touch target is right for a button standing on its own and wrong for a
+    // control sitting inside a line of text: it would reach a line above and a line below and eat
+    // the taps meant to put a caret there. What is left is the checkbox's own 24 dp — tapped
+    // exactly where it is seen.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        Checkbox(
+            checked = task.checked,
+            onCheckedChange = { onToggle() },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset {
+                    val top = layout.getLineTop(line)
+                    val height = layout.getLineBottom(line) - top
+                    IntOffset(
+                        // Backing out the control's own padding puts the box itself, rather than
+                        // its bounds, against the left edge of the blank.
+                        x = (layout.getHorizontalPosition(at, true) - CheckboxPadding.toPx())
+                            .roundToInt(),
+                        y = (top - scroll + (height - CheckboxTarget.toPx()) / 2f).roundToInt(),
+                    )
+                }
+                .size(CheckboxTarget),
+        )
+    }
+}
+
+/** What a Material checkbox measures with its own padding, and how much of that padding is its. */
+private val CheckboxTarget = 24.dp
+private val CheckboxPadding = 2.dp
+
+/**
+ * Flips the one character between a task's brackets.
+ *
+ * A single-character replacement rather than a rewritten line, so the caret, the undo history and
+ * every other character the user wrote are left alone. What is there is checked before it is
+ * replaced: the layout the tap was aimed with can be a frame behind the text, and a stale offset
+ * has to miss rather than overwrite whatever moved into its place.
+ */
+private fun toggleTask(state: TextFieldState, task: MdTask) {
+    state.edit {
+        val at = task.sourceMark
+        if (at !in 0 until length) return@edit
+        if (asCharSequence()[at] !in " xX") return@edit
+        replace(at, at + 1, if (task.checked) " " else "x")
     }
 }
 

@@ -128,6 +128,9 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                     color = colors.onSurface,
                 ),
                 MdStyle.MARKER to SpanStyle(color = colors.primary),
+                // Carries no ink — it is the hole a checkbox is floated into — so all it does is
+                // hold a predictable width open. See `TASK_BLANK`.
+                MdStyle.TASK_BOX to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
                 // Leading, worn by a line's terminating newline. A line takes the height of the
                 // tallest thing on it, so an oversized newline is space below the line and nothing
                 // else — no glyph to draw, no width, and a taller line keeps its own height.
