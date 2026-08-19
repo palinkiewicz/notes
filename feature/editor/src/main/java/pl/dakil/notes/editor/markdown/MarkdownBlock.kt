@@ -177,13 +177,7 @@ private fun RenderBlock(
     when (block) {
         is MdBlock.Heading -> Text(
             text = InlineParser.render(block.text, theme),
-            style = when (block.level) {
-                1 -> typography.headlineMedium
-                2 -> typography.headlineSmall
-                3 -> typography.titleLarge
-                4 -> typography.titleMedium
-                else -> typography.titleSmall
-            },
+            style = headingStyle(block.level, typography),
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
 
@@ -194,12 +188,18 @@ private fun RenderBlock(
 
         is MdBlock.BulletItem -> Row(Modifier.padding(start = (block.indent * 16).dp)) {
             Text("• ", style = typography.bodyLarge, color = colors.primary)
-            Text(InlineParser.render(block.text, theme), style = typography.bodyLarge)
+            Text(
+                text = InlineParser.render(block.text, theme),
+                style = headingStyle(block.heading, typography),
+            )
         }
 
         is MdBlock.OrderedItem -> Row(Modifier.padding(start = (block.indent * 16).dp)) {
             Text("${block.number}. ", style = typography.bodyLarge, color = colors.primary)
-            Text(InlineParser.render(block.text, theme), style = typography.bodyLarge)
+            Text(
+                text = InlineParser.render(block.text, theme),
+                style = headingStyle(block.heading, typography),
+            )
         }
 
         is MdBlock.TaskItem -> Row(
@@ -210,7 +210,10 @@ private fun RenderBlock(
                 checked = block.checked,
                 onCheckedChange = if (readOnly) null else { _ -> onToggleTask(block.line) },
             )
-            Text(InlineParser.render(block.text, theme), style = typography.bodyLarge)
+            Text(
+                text = InlineParser.render(block.text, theme),
+                style = headingStyle(block.heading, typography),
+            )
         }
 
         is MdBlock.Quote -> Row(Modifier.padding(vertical = 4.dp)) {
@@ -293,6 +296,17 @@ private fun RenderBlock(
         MdBlock.Blank -> Spacer(Modifier.padding(2.dp))
     }
 }
+
+/** The face a heading of [level] is set in; level 0 is not a heading and stays body text. */
+private fun headingStyle(level: Int, typography: androidx.compose.material3.Typography): TextStyle =
+    when (level) {
+        0 -> typography.bodyLarge
+        1 -> typography.headlineMedium
+        2 -> typography.headlineSmall
+        3 -> typography.titleLarge
+        4 -> typography.titleMedium
+        else -> typography.titleSmall
+    }
 
 @Composable
 fun rememberInlineTheme(): InlineTheme {

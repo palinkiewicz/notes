@@ -278,6 +278,22 @@ object NotesIcons {
         )
     }
 
+    /** Rules pushed right, with an arrow pointing the way they went: nest this item. */
+    val IndentIncrease: ImageVector by lazy {
+        strokedIcon(
+            "IndentIncrease",
+            "M10.5 5 h10 M10.5 12 h10 M10.5 19 h10 M3.5 8.5 L7 12 L3.5 15.5",
+        )
+    }
+
+    /** The same, pointing back out. */
+    val IndentDecrease: ImageVector by lazy {
+        strokedIcon(
+            "IndentDecrease",
+            "M10.5 5 h10 M10.5 12 h10 M10.5 19 h10 M7 8.5 L3.5 12 L7 15.5",
+        )
+    }
+
     /** A curly opening quote over a rule. */
     val Quote: ImageVector by lazy {
         strokedIcon(

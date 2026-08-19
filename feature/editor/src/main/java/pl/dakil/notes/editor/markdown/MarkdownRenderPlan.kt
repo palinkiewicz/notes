@@ -35,6 +35,9 @@ enum class MdStyle {
     /** A substituted glyph — a bullet — rather than the user's own text. */
     MARKER,
 
+    /** A nested list item's indent: monospace, so one level is always the same step. */
+    INDENT,
+
     /** The blank a checkbox stands in: monospace, so its width is known before the box is placed. */
     TASK_BOX,
 
@@ -166,6 +169,9 @@ object MarkdownRenderer {
      */
     private const val TASK_BLANK = "   "
 
+    /** One level of list nesting, in the monospace face [MdStyle.INDENT] sets. */
+    private const val INDENT_BLANK = "   "
+
     /** What clears the bar drawn beside a quotation, in a proportional face. */
     private const val QUOTE_INDENT = "   "
 
@@ -220,6 +226,81 @@ object MarkdownRenderer {
         lastPlan = result
         return result
     }
+
+    /**
+     * What [markdown] reads as on screen: every edit applied, nothing styled.
+     *
+     * The same string the text field is showing, worked out without a field or a layout — which is
+     * what lets a copy be checked against what was on screen before it is turned back into source.
+     */
+    fun render(markdown: String): String {
+        val out = StringBuilder(markdown)
+        for (edit in plan(markdown).edits.asReversed()) out.replace(edit.start, edit.end, edit.replacement)
+        return out.toString()
+    }
+
+    /**
+     * Where `[start, end)` of [markdown] lands on screen, as a half-open `(from, to)`.
+     *
+     * Each end is mapped the way that keeps the answer honest about what is *inside* the range:
+     * text inserted at the start falls outside it, text inserted at the end falls outside it too.
+     * A range made only of hidden characters therefore comes back empty rather than merely short.
+     */
+    fun renderedRange(markdown: String, start: Int, end: Int): Pair<Int, Int> {
+        val edits = plan(markdown).edits
+        val from = transformedOffset(edits, start.coerceIn(0, markdown.length), includeInsertionAt = true)
+        val to = transformedOffset(edits, end.coerceIn(0, markdown.length), includeInsertionAt = false)
+        return from to maxOf(from, to)
+    }
+
+    /**
+     * Whether `[start, end)` of [markdown] covers anything the reader can actually see.
+     *
+     * The question a text field cannot be asked directly, and the one that says whether a range is a
+     * selection a person made or one the field invented. A caret resting against hidden syntax is
+     * reported back in source coordinates as the *whole* hidden run — a range several characters
+     * wide that is nothing at all on screen — and treating that as a deliberate selection is what
+     * used to let a backspace beside a code block quietly eat its closing fence.
+     */
+    fun coversVisibleText(markdown: String, start: Int, end: Int): Boolean {
+        val (from, to) = renderedRange(markdown, minOf(start, end), maxOf(start, end))
+        return to > from
+    }
+
+    /**
+     * Whether anything in `[start, end)` is struck out of the rendering entirely.
+     *
+     * "Struck out" is narrower than "rewritten": a bullet's `- ` becomes a glyph and a checkbox's
+     * `[ ]` becomes a blank, and both are on screen for the user to aim a key at. Only a run that
+     * renders to nothing at all can be deleted without anything appearing to happen, and that is the
+     * only kind a keystroke has to be protected from.
+     */
+    fun hidesAnythingIn(markdown: String, start: Int, end: Int): Boolean {
+        val edits = plan(markdown).edits
+        return (start.coerceAtLeast(0) until end.coerceAtMost(markdown.length)).any { isHidden(edits, it) }
+    }
+
+    /**
+     * The last character in `[from, at)` the reader can see, or null when there is none.
+     *
+     * What a backspace pressed at [at] actually meant. A field deleting backwards across hidden
+     * syntax cannot tell the syntax from the letter beside it and takes a run of both: backspacing
+     * at the end of `` `text` `` deleted the letter, the closing backtick *and* the space after it,
+     * so the span silently stopped being one. It also left the document two characters shorter than
+     * the keyboard had accounted for, and a keyboard that has miscounted will index past the end of
+     * the text on its very next command — which is the crash behind this.
+     */
+    fun lastVisibleBefore(markdown: String, from: Int, at: Int): Int? {
+        val edits = plan(markdown).edits
+        for (i in (at.coerceAtMost(markdown.length) - 1) downTo from.coerceAtLeast(0)) {
+            if (!isHidden(edits, i)) return i
+        }
+        return null
+    }
+
+    /** Whether the character at [at] is inside a run the plan replaces with nothing at all. */
+    private fun isHidden(edits: List<MdEdit>, at: Int): Boolean =
+        edits.any { it.replacement.isEmpty() && at >= it.start && at < it.end }
 
     /**
      * Where [offset] in the source ends up once [edits] are applied.
@@ -683,7 +764,7 @@ object MarkdownRenderer {
 
         // Tasks before bullets: a task item is a bullet whose text happens to start with `[ ]`.
         MarkdownParser.TASK.matchEntire(line)?.let { match ->
-            val markerStart = start + match.groupValues[1].length
+            val markerStart = indentTo(lines, k, match.groupValues[1], edits, styles)
             val textStart = end - match.groupValues[3].length
             val done = match.groupValues[2].equals("x", ignoreCase = true)
             // The whole marker becomes blank space, and a real checkbox is put over it. A glyph
@@ -691,27 +772,28 @@ object MarkdownRenderer {
             edits += MdEdit(markerStart, textStart, TASK_BLANK)
             styles += MdStyleRange(markerStart, textStart, MdStyle.TASK_BOX)
             decorations += MdTask(markerStart, done, start + match.groups[2]!!.range.first)
-            if (done) styles += MdStyleRange(textStart, end, MdStyle.STRIKE)
-            scanInline(text, textStart, end, edits, styles)
+            val body = planHeading(text, textStart, end, edits, styles)
+            if (done) styles += MdStyleRange(body, end, MdStyle.STRIKE)
+            scanInline(text, body, end, edits, styles)
             return
         }
 
         MarkdownParser.BULLET.matchEntire(line)?.let { match ->
-            val markerStart = start + match.groupValues[1].length
+            val markerStart = indentTo(lines, k, match.groupValues[1], edits, styles)
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(markerStart, textStart, BULLET_GLYPH)
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, textStart, end, edits, styles)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles)
             return
         }
 
         // The number is not syntax to be hidden — it is what the reader is meant to see — so it is
         // only tinted, never removed.
         MarkdownParser.ORDERED.matchEntire(line)?.let { match ->
-            val markerStart = start + match.groupValues[1].length
+            val markerStart = indentTo(lines, k, match.groupValues[1], edits, styles)
             val textStart = end - match.groupValues[3].length
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, textStart, end, edits, styles)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles)
             return
         }
 
@@ -729,6 +811,54 @@ object MarkdownRenderer {
         }
 
         scanInline(text, start, end, edits, styles)
+    }
+
+    /**
+     * Widens a list item's indent to something the eye can count, and returns where its marker is.
+     *
+     * Two source spaces per level is what the parser counts in and what other Markdown tools write,
+     * and two proportional spaces on screen is a few pixels — a nested item looked all but flush
+     * with its parent. The source keeps its two; the reader gets a monospace blank wide enough to
+     * read as a step, which is the same trick a task item's checkbox blank uses.
+     */
+    private fun indentTo(
+        lines: Lines,
+        k: Int,
+        indent: String,
+        edits: MutableList<MdEdit>,
+        styles: MutableList<MdStyleRange>,
+    ): Int {
+        val start = lines.start(k)
+        val markerStart = start + indent.length
+        // A tab is one level wherever it appears; spaces come in pairs. An odd space left over is
+        // someone's own spacing and is left exactly as they typed it.
+        val depth = indent.sumOf { if (it == '\t') 2 else 1 } / 2
+        if (depth == 0) return markerStart
+        edits += MdEdit(start, markerStart, INDENT_BLANK.repeat(depth))
+        styles += MdStyleRange(start, markerStart, MdStyle.INDENT)
+        return markerStart
+    }
+
+    /**
+     * Renders a heading that opens `[from, to)` — a list item's own heading — and returns where its
+     * text starts.
+     *
+     * `- # Alpha` is a list item containing a heading, which is what CommonMark says it is. The
+     * hashes are hidden exactly as they are on a heading of its own, so what the reader sees is a
+     * bullet beside big text rather than a bullet beside a hash.
+     */
+    private fun planHeading(
+        text: String,
+        from: Int,
+        to: Int,
+        edits: MutableList<MdEdit>,
+        styles: MutableList<MdStyleRange>,
+    ): Int {
+        val match = MarkdownParser.HEADING.matchEntire(text.substring(from, to)) ?: return from
+        val textStart = to - match.groupValues[2].length
+        edits += MdEdit(from, textStart, "")
+        styles += MdStyleRange(textStart, to, headingStyle(match.groupValues[1].length))
+        return textStart
     }
 
     /**

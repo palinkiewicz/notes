@@ -14,17 +14,52 @@ object MarkdownActions {
     /**
      * Wraps the selection in [marker], or unwraps it when it is already wrapped.
      *
-     * Works on the **length of the marker run** around the selection rather than on whether the
-     * exact marker string is there, and that is what lets styles stack. In Markdown one asterisk is
+     * The selection is first cut into the *prose* it covers — one span per line, each starting after
+     * whatever block markers that line carries. Inline syntax cannot cross a line break and cannot
+     * contain a bullet: dragging over two list items and pressing strikethrough used to produce
+     * `- ~~alpha\n- beta~~`, which is not a strikethrough at all but two literal pairs of tildes on
+     * screen, and dragging over a single whole item produced `~~- alpha~~`, which silently stopped
+     * being a list item. Wrapping each line's prose on its own is what makes the button mean the
+     * same thing inside a list as it does in a paragraph.
+     */
+    fun toggleWrap(text: String, start: Int, end: Int, marker: String): Result {
+        val spans = proseSpans(text, start, end)
+        if (spans.size == 1) {
+            val span = spans.single()
+            return wrapSpan(text, span.from, span.to, marker)
+        }
+
+        // Already on everywhere means the button is being pressed to turn it off; anything less is
+        // a press to turn it on, and the lines that already have it are left alone.
+        val on = spans.all { encloses(text, it.from, it.to, marker) }
+        var out = text
+        for (span in spans.reversed()) {
+            if (encloses(text, span.from, span.to, marker) != on) continue
+            out = wrapSpan(out, span.from, span.to, marker).text
+        }
+        // The selection is put back over the whole prose of every line it covered rather than over
+        // the words alone. Anything narrower would leave one end inside a pair of markers and the
+        // other outside it, and the next press would read that as "not wrapped" and wrap it again.
+        val lines = proseSpans(out, spans.first().from, spans.last().to + (out.length - text.length))
+        return Result(
+            text = out,
+            selectionStart = lines.first().from.coerceIn(0, out.length),
+            selectionEnd = lines.last().to.coerceIn(0, out.length),
+        )
+    }
+
+    /**
+     * The one-line case: toggle [marker] around exactly `[from, to)`.
+     *
+     * Works on the **length of the marker run** around the span rather than on whether the exact
+     * marker string is there, and that is what lets styles stack. In Markdown one asterisk is
      * italic and two are bold, so `***word***` is both — three asterisks is not "a bold marker with
      * a stray asterisk", it is one run carrying two styles. Matching the literal string instead made
      * the italic button read the `**` of an already-bold word as its own marker and *remove* it, so
      * bolding then italicising gave a word that was only italic. Each button now toggles its own
      * width in and out of the run and leaves the rest of it alone.
      */
-    fun toggleWrap(text: String, start: Int, end: Int, marker: String): Result {
-        val from = minOf(start, end).coerceIn(0, text.length)
-        val to = maxOf(start, end).coerceIn(0, text.length)
+    private fun wrapSpan(text: String, from: Int, to: Int, marker: String): Result {
         val width = marker.length
         val symbol = marker[0]
 
@@ -34,20 +69,14 @@ object MarkdownActions {
             runForward(text, from, symbol, to),
             runBackward(text, to, symbol, from),
         )
-        if (to - from >= width * 2 && inside >= width) {
-            return toggleWrap(text, from + inside, to - inside, marker)
+        // Strictly wider than the markers it is peeling off, or there is nothing between them to
+        // peel: a selection of exactly `**` used to recurse onto a range that ran backwards.
+        if (to - from > inside * 2 && inside >= width) {
+            return wrapSpan(text, from + inside, to - inside, marker)
                 .let { Result(it.text, it.selectionStart - inside, it.selectionEnd + inside) }
         }
 
-        val run = minOf(
-            runBackward(text, from, symbol, 0),
-            runForward(text, to, symbol, text.length),
-        )
-        // A run of 3 is bold *and* italic, so italic is on when the run is odd and bold when it is
-        // at least two. Anything wider than one style's own width belongs to another button.
-        val alreadyOn = if (width == 1) run % 2 == 1 else run >= width
-
-        if (alreadyOn) {
+        if (isWrapped(text, from, to, marker)) {
             val out = text.removeRange(to, to + width).removeRange(from - width, from)
             return Result(out, from - width, to - width)
         }
@@ -57,6 +86,71 @@ object MarkdownActions {
         // With nothing selected the caret lands between the markers, ready to type.
         return Result(out, from + width, from + width + selected.length)
     }
+
+    /**
+     * Whether `[from, to)` carries [marker], with the markers on either side of it or within it.
+     *
+     * The question the multi-line case asks, because a span there is a whole line of prose and a
+     * whole line of prose *contains* its own markers. [isWrapped] answers the narrower question
+     * [wrapSpan] needs — markers strictly outside — and cannot be widened to this without making its
+     * unwrap step reach for characters that are inside the span rather than beside it.
+     */
+    private fun encloses(text: String, from: Int, to: Int, marker: String): Boolean {
+        if (isWrapped(text, from, to, marker)) return true
+        val symbol = marker[0]
+        val inside = minOf(
+            runForward(text, from, symbol, to),
+            runBackward(text, to, symbol, from),
+        )
+        return if (marker.length == 1) inside % 2 == 1 else inside >= marker.length
+    }
+
+    /** Whether `[from, to)` is already sitting inside a run of [marker] wide enough to count. */
+    private fun isWrapped(text: String, from: Int, to: Int, marker: String): Boolean {
+        val symbol = marker[0]
+        val run = minOf(
+            runBackward(text, from, symbol, 0),
+            runForward(text, to, symbol, text.length),
+        )
+        // A run of 3 is bold *and* italic, so italic is on when the run is odd and bold when it is
+        // at least two. Anything wider than one style's own width belongs to another button.
+        return if (marker.length == 1) run % 2 == 1 else run >= marker.length
+    }
+
+    /**
+     * The prose `[start, end)` covers, one span per line, each clear of that line's block markers.
+     *
+     * Never empty: a caret with nothing selected still has to produce one span, so that pressing
+     * bold on a bare caret leaves it between two fresh markers ready to type into.
+     */
+    private fun proseSpans(text: String, start: Int, end: Int): List<Span> {
+        val from = minOf(start, end).coerceIn(0, text.length)
+        val to = maxOf(start, end).coerceIn(0, text.length)
+
+        val spans = ArrayList<Span>()
+        var lineStart = lineStartAt(text, from)
+        while (lineStart <= to) {
+            val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
+            val body = lineStart + prefixOf(text.substring(lineStart, lineEnd)).length
+            val spanFrom = maxOf(from, body)
+            val spanTo = minOf(to, lineEnd)
+            if (spanFrom < spanTo) spans += Span(spanFrom, spanTo)
+            if (lineEnd >= text.length) break
+            lineStart = lineEnd + 1
+        }
+        if (spans.isNotEmpty()) return spans
+
+        // Nothing but markers and line breaks was covered — a bare caret, most often. It belongs on
+        // its own line's prose, so the markers land after the bullet rather than in front of it.
+        val lineEnd = text.indexOf('\n', from).let { if (it < 0) text.length else it }
+        val body = lineStartAt(text, from)
+            .let { it + prefixOf(text.substring(it, lineEnd)).length }
+        val at = from.coerceIn(minOf(body, lineEnd), lineEnd)
+        return listOf(Span(at, at))
+    }
+
+    /** Half-open `[from, to)`, because an empty one at a caret is a span this has to be able to name. */
+    private data class Span(val from: Int, val to: Int)
 
     /** How many [symbol] characters run backwards from [at], stopping at [limit]. */
     private fun runBackward(text: String, at: Int, symbol: Char, limit: Int): Int {
@@ -77,7 +171,7 @@ object MarkdownActions {
         val from = minOf(start, end).coerceIn(0, text.length)
         val to = maxOf(start, end).coerceIn(0, text.length)
 
-        val lineStart = text.lastIndexOf('\n', (from - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+        val lineStart = lineStartAt(text, from)
         val lineEnd = text.indexOf('\n', to).let { if (it < 0) text.length else it }
 
         val region = text.substring(lineStart, lineEnd)
@@ -105,7 +199,7 @@ object MarkdownActions {
 
     private fun insertAtLineStart(text: String, start: Int, prefix: String): Result {
         val caret = start.coerceIn(0, text.length)
-        val lineStart = text.lastIndexOf('\n', (caret - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+        val lineStart = lineStartAt(text, caret)
         val out = text.replaceRange(lineStart, lineStart, prefix)
         return Result(out, caret + prefix.length, caret + prefix.length)
     }
@@ -115,93 +209,252 @@ object MarkdownActions {
     /**
      * What a whole line is, as far as the formatting bar is concerned.
      *
-     * Only one of these can be true of a line at a time, which is why they are a menu rather than a
-     * row of toggles — and why [setBlockStyle] *sets* rather than toggling: picking "Heading 2" on a
-     * quote has to produce a heading, not a quoted heading.
+     * These are **two** menus rather than one, and which one a style belongs to is [axis]. A line's
+     * paragraph style and its list marker are independent things — `- # Alpha` is a bulleted
+     * heading, which is what CommonMark says it is and what every other Markdown reader draws —
+     * so picking Heading 2 on a list item has to keep the bullet, and pressing the bullet button on
+     * a heading has to keep the heading. Treating all of these as one menu is what used to make
+     * either choice silently throw the other away.
      */
-    enum class BlockStyle(val prefix: String) {
-        PARAGRAPH(""),
-        H1("# "),
-        H2("## "),
-        H3("### "),
-        H4("#### "),
-        H5("##### "),
-        H6("###### "),
-        QUOTE("> "),
-        BULLET("- "),
-        TASK("- [ ] "),
-        ORDERED("1. "),
+    enum class BlockStyle(val prefix: String, val axis: Axis) {
+        PARAGRAPH("", Axis.PARAGRAPH),
+        H1("# ", Axis.PARAGRAPH),
+        H2("## ", Axis.PARAGRAPH),
+        H3("### ", Axis.PARAGRAPH),
+        H4("#### ", Axis.PARAGRAPH),
+        H5("##### ", Axis.PARAGRAPH),
+        H6("###### ", Axis.PARAGRAPH),
+        QUOTE("> ", Axis.PARAGRAPH),
+        BULLET("- ", Axis.LIST),
+        TASK("- [ ] ", Axis.LIST),
+        ORDERED("1. ", Axis.LIST);
+
+        /** Which of the two menus this style is an item of. */
+        enum class Axis { PARAGRAPH, LIST }
+
+        internal val headingLevel: Int get() = prefix.count { it == '#' }
     }
 
-    /** Replaces whatever block prefix each selected line has with [style]'s. */
-    fun setBlockStyle(text: String, start: Int, end: Int, style: BlockStyle): Result {
+    /** One indent step of a nested list: two spaces, which is the depth the parser counts in. */
+    const val INDENT = "  "
+
+    /**
+     * Sets [style] on every selected line, leaving the other menu's choice alone.
+     *
+     * A heading keeps whatever list marker the line had; a list marker keeps whatever heading it
+     * had. Only "Body" clears both, because that is the one item that means "no markup here".
+     */
+    fun setBlockStyle(text: String, start: Int, end: Int, style: BlockStyle): Result =
+        editPrefixes(text, start, end) { prefix, index ->
+            when (style) {
+                // The one item that empties the line outright, which is what people reach for it to
+                // do — the list buttons are how a list alone is taken off.
+                BlockStyle.PARAGRAPH -> LinePrefix(prefix.indent, "", "", "")
+                BlockStyle.QUOTE -> prefix.copy(quote = "> ", heading = "")
+                // A numbered list across several lines has to actually count, or every line reads
+                // "1." once the source is shown.
+                BlockStyle.ORDERED -> prefix.copy(list = "${index + 1}. ")
+                BlockStyle.BULLET, BlockStyle.TASK -> prefix.copy(list = style.prefix)
+                else -> prefix.copy(heading = style.prefix, quote = "")
+            }
+        }
+
+    /** Takes [style] off every selected line, leaving the other menu's choice alone. */
+    private fun clearBlockStyle(text: String, start: Int, end: Int, style: BlockStyle): Result =
+        editPrefixes(text, start, end) { prefix, _ ->
+            when (style.axis) {
+                BlockStyle.Axis.LIST -> prefix.copy(list = "")
+                BlockStyle.Axis.PARAGRAPH -> prefix.copy(heading = "", quote = "")
+            }
+        }
+
+    /**
+     * The most specific thing [text]'s line at [offset] is, for the bar's label.
+     *
+     * A bulleted heading answers "heading": the heading is the part that changes how the line
+     * *reads*, and the bullet button beside the label is already lit to say the rest.
+     */
+    fun blockStyleAt(text: String, offset: Int): BlockStyle =
+        paragraphStyleAt(text, offset).takeIf { it != BlockStyle.PARAGRAPH }
+            ?: listStyleAt(text, offset)
+            ?: BlockStyle.PARAGRAPH
+
+    /** What the paragraph menu should show as checked: a heading, a quote, or plain body text. */
+    fun paragraphStyleAt(text: String, offset: Int): BlockStyle {
+        val prefix = prefixOf(lineAt(text, offset))
+        return when {
+            prefix.heading.isNotEmpty() ->
+                BlockStyle.entries.first { it.axis == BlockStyle.Axis.PARAGRAPH && it.headingLevel == prefix.headingLevel }
+
+            prefix.quote.isNotEmpty() -> BlockStyle.QUOTE
+            else -> BlockStyle.PARAGRAPH
+        }
+    }
+
+    /** Which list button should be lit for [text]'s line at [offset], or null for no list at all. */
+    fun listStyleAt(text: String, offset: Int): BlockStyle? = listStyleOf(prefixOf(lineAt(text, offset)).list)
+
+    /**
+     * Toggles [style] on the selected lines: applies it, or takes it back off when every line
+     * already has it.
+     */
+    fun toggleBlockStyle(text: String, start: Int, end: Int, style: BlockStyle): Result {
+        val allMatch = linesIn(text, start, end).all { prefixOf(it).has(style) }
+        return if (allMatch) clearBlockStyle(text, start, end, style) else setBlockStyle(text, start, end, style)
+    }
+
+    // ---- Indentation ---------------------------------------------------------------------------
+
+    /** Pushes every selected list item one level deeper. Lines that are not list items are left. */
+    fun indentList(text: String, start: Int, end: Int): Result =
+        editPrefixes(text, start, end) { prefix, _ ->
+            if (prefix.list.isEmpty()) prefix else prefix.copy(indent = prefix.indent + INDENT)
+        }
+
+    /** Pulls every selected list item one level back out, and takes no marker off doing it. */
+    fun outdentList(text: String, start: Int, end: Int): Result =
+        editPrefixes(text, start, end) { prefix, _ ->
+            if (prefix.list.isEmpty()) prefix else prefix.copy(indent = prefix.indent.dropIndent())
+        }
+
+    /** Whether anything in the selection is a list item at all, so the buttons can be disabled. */
+    fun canIndent(text: String, start: Int, end: Int): Boolean =
+        linesIn(text, start, end).any { prefixOf(it).list.isNotEmpty() }
+
+    /** Whether anything in the selection is a list item that is currently indented. */
+    fun canOutdent(text: String, start: Int, end: Int): Boolean =
+        linesIn(text, start, end).any { prefixOf(it).let { p -> p.list.isNotEmpty() && p.indent.isNotEmpty() } }
+
+    /**
+     * Where the list marker on the line holding [offset] ends, or null when there is not one.
+     *
+     * This is the position a bullet's own keys act at: a space typed here indents the item rather
+     * than pushing its first word along, and a backspace pulls it back out rather than eating a
+     * marker the formatted view is not even showing.
+     */
+    fun listMarkerEnd(text: String, offset: Int): Int? {
+        val at = offset.coerceIn(0, text.length)
+        val lineStart = lineStartAt(text, at)
+        val prefix = prefixOf(lineAt(text, at))
+        return if (prefix.list.isEmpty()) null else lineStart + prefix.length
+    }
+
+    /**
+     * What a backspace pressed at the end of a list marker should leave behind.
+     *
+     * One indent level at a time, and only once the item is back at the margin does the marker
+     * itself go — which is the order every other editor unwinds a list in, and the only one where
+     * a single key both un-nests and un-lists without ever doing both at once.
+     */
+    fun unindentOrUnlist(text: String, offset: Int): Result =
+        editPrefixes(text, offset, offset) { prefix, _ ->
+            when {
+                prefix.list.isEmpty() -> prefix
+                prefix.indent.isNotEmpty() -> prefix.copy(indent = prefix.indent.dropIndent())
+                else -> prefix.copy(list = "")
+            }
+        }
+
+    // ---- Line prefixes -------------------------------------------------------------------------
+
+    /**
+     * The block markers a line opens with, kept apart rather than lumped together.
+     *
+     * Markdown spells them in this order — indent, quote, list marker, heading — and a line may
+     * carry any combination of them. Parsing them into separate fields is what lets the bar change
+     * one without disturbing the others.
+     */
+    internal data class LinePrefix(
+        val indent: String,
+        val quote: String,
+        val list: String,
+        val heading: String,
+    ) {
+        val length: Int get() = indent.length + quote.length + list.length + heading.length
+        val headingLevel: Int get() = heading.count { it == '#' }
+
+        override fun toString(): String = indent + quote + list + heading
+
+        fun has(style: BlockStyle): Boolean = when (style) {
+            BlockStyle.PARAGRAPH -> heading.isEmpty() && quote.isEmpty() && list.isEmpty()
+            BlockStyle.QUOTE -> quote.isNotEmpty()
+            BlockStyle.BULLET, BlockStyle.TASK, BlockStyle.ORDERED -> listStyleOf(list) == style
+            else -> heading.isNotEmpty() && headingLevel == style.headingLevel
+        }
+    }
+
+    internal fun prefixOf(line: String): LinePrefix {
+        val indent = line.takeWhile { it == ' ' || it == '\t' }
+        var rest = line.substring(indent.length)
+        val quote = QUOTE_PREFIX.find(rest)?.value.orEmpty()
+        rest = rest.substring(quote.length)
+        // Tasks before bullets: a task marker is a bullet with a box after it, so the shorter
+        // pattern would match first and leave the box behind as prose.
+        val list = (TASK_PREFIX.find(rest) ?: BULLET_PREFIX.find(rest) ?: ORDERED_PREFIX.find(rest))
+            ?.value.orEmpty()
+        rest = rest.substring(list.length)
+        return LinePrefix(indent, quote, list, HEADING_PREFIX.find(rest)?.value.orEmpty())
+    }
+
+    private fun listStyleOf(marker: String): BlockStyle? = when {
+        marker.isEmpty() -> null
+        TASK_PREFIX.matches(marker) -> BlockStyle.TASK
+        ORDERED_PREFIX.matches(marker) -> BlockStyle.ORDERED
+        else -> BlockStyle.BULLET
+    }
+
+    private fun String.dropIndent(): String = when {
+        endsWith('\t') -> dropLast(1)
+        else -> dropLast(minOf(INDENT.length, length))
+    }
+
+    /**
+     * Rewrites the prefix of every line the selection touches.
+     *
+     * The single place any block-level button reaches the document through, so "what happens to the
+     * caret" is decided once. Both ends move by their own line's delta, which keeps a caret among
+     * the words rather than throwing it to the start of the line.
+     */
+    private fun editPrefixes(
+        text: String,
+        start: Int,
+        end: Int,
+        transform: (LinePrefix, Int) -> LinePrefix,
+    ): Result {
         val from = minOf(start, end).coerceIn(0, text.length)
         val to = maxOf(start, end).coerceIn(0, text.length)
         val lineStart = lineStartAt(text, from)
         val lineEnd = text.indexOf('\n', to).let { if (it < 0) text.length else it }
 
         val region = text.substring(lineStart, lineEnd)
-        val updated = region.split('\n').mapIndexed { i, line ->
-            val indent = line.takeWhile { it == ' ' || it == '\t' }
-            // A numbered list across several lines has to actually count, or every line reads "1."
-            // once the source is shown.
-            val prefix = if (style == BlockStyle.ORDERED) "${i + 1}. " else style.prefix
-            indent + prefix + line.drop(indent.length).removeBlockPrefix()
+        val updated = region.split('\n').mapIndexed { index, line ->
+            val prefix = prefixOf(line)
+            transform(prefix, index).toString() + line.substring(prefix.length)
         }.joinToString("\n")
 
         val out = text.replaceRange(lineStart, lineEnd, updated)
-        // Both ends shift by the first line's own delta, so a caret keeps its place in the words
-        // rather than jumping to the start of the line.
         val firstDelta = updated.substringBefore('\n').length - region.substringBefore('\n').length
         return Result(
             text = out,
-            selectionStart = (from + firstDelta).coerceIn(0, out.length),
-            selectionEnd = (to + updated.length - region.length).coerceIn(0, out.length),
+            selectionStart = (from + firstDelta).coerceIn(lineStart, out.length),
+            selectionEnd = (to + updated.length - region.length).coerceIn(lineStart, out.length),
         )
     }
 
-    /** The style [text]'s line at [offset] currently has, for the menu's checked item. */
-    fun blockStyleAt(text: String, offset: Int): BlockStyle {
-        val lineStart = lineStartAt(text, offset.coerceIn(0, text.length))
-        val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
-        val body = text.substring(lineStart, lineEnd).trimStart()
-        return when {
-            TASK_PREFIX.containsMatchIn(body) -> BlockStyle.TASK
-            body.startsWith("###### ") -> BlockStyle.H6
-            body.startsWith("##### ") -> BlockStyle.H5
-            body.startsWith("#### ") -> BlockStyle.H4
-            body.startsWith("### ") -> BlockStyle.H3
-            body.startsWith("## ") -> BlockStyle.H2
-            body.startsWith("# ") -> BlockStyle.H1
-            body.startsWith("> ") || body == ">" -> BlockStyle.QUOTE
-            BULLET_PREFIX.containsMatchIn(body) -> BlockStyle.BULLET
-            ORDERED_PREFIX.containsMatchIn(body) -> BlockStyle.ORDERED
-            else -> BlockStyle.PARAGRAPH
-        }
-    }
-
-    /**
-     * Toggles [style] on the selected lines: applies it, or clears back to a paragraph when every
-     * line already has it.
-     */
-    fun toggleBlockStyle(text: String, start: Int, end: Int, style: BlockStyle): Result {
+    /** The whole lines `[start, end)` reaches into. */
+    private fun linesIn(text: String, start: Int, end: Int): List<String> {
         val from = minOf(start, end).coerceIn(0, text.length)
         val to = maxOf(start, end).coerceIn(0, text.length)
         val lineStart = lineStartAt(text, from)
         val lineEnd = text.indexOf('\n', to).let { if (it < 0) text.length else it }
+        return text.substring(lineStart, lineEnd).split('\n')
+    }
 
-        var offset = lineStart
-        var allMatch = true
-        while (offset <= lineEnd) {
-            if (blockStyleAt(text, offset) != style) {
-                allMatch = false
-                break
-            }
-            val newline = text.indexOf('\n', offset)
-            if (newline < 0 || newline >= lineEnd) break
-            offset = newline + 1
-        }
-        return setBlockStyle(text, start, end, if (allMatch) BlockStyle.PARAGRAPH else style)
+    private fun lineAt(text: String, offset: Int): String {
+        val at = offset.coerceIn(0, text.length)
+        val lineStart = lineStartAt(text, at)
+        val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
+        return text.substring(lineStart, lineEnd)
     }
 
     // ---- Insertions -------------------------------------------------------------------------
@@ -256,8 +509,16 @@ object MarkdownActions {
      * that is occasionally optimistic about a half-typed span.
      */
     fun activeInlineMarkers(text: String, start: Int, end: Int): Set<String> {
-        val from = minOf(start, end).coerceIn(0, text.length)
-        val to = maxOf(start, end).coerceIn(0, text.length)
+        val spans = proseSpans(text, start, end)
+        // Lit only when every line of the selection has it, matching what pressing the button would
+        // then do: a selection where one item is struck through and one is not is not "struck".
+        if (spans.size > 1) {
+            return INLINE_MARKERS.filterTo(HashSet()) { marker ->
+                spans.all { encloses(text, it.from, it.to, marker) }
+            }
+        }
+        val from = spans.single().from
+        val to = spans.single().to
         val active = HashSet<String>()
 
         for (marker in INLINE_MARKERS) {
@@ -297,17 +558,17 @@ object MarkdownActions {
         return count
     }
 
-    private fun lineStartAt(text: String, offset: Int): Int =
-        text.lastIndexOf('\n', (offset - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
-
-    /** Strips whatever block marker a line starts with, leaving its prose. */
-    private fun String.removeBlockPrefix(): String {
-        TASK_PREFIX.find(this)?.let { return substring(it.value.length) }
-        HEADING_PREFIX.find(this)?.let { return substring(it.value.length) }
-        QUOTE_PREFIX.find(this)?.let { return substring(it.value.length) }
-        BULLET_PREFIX.find(this)?.let { return substring(it.value.length) }
-        ORDERED_PREFIX.find(this)?.let { return substring(it.value.length) }
-        return this
+    /**
+     * Where the line holding [offset] starts.
+     *
+     * Offset zero is its own case rather than a search: `lastIndexOf` takes its bound inclusively,
+     * so a document that opens with a blank line answered "line 1 starts at 1" for a caret sitting
+     * at 0 — a line start *past* the caret, which every caller then handed to `substring` as a
+     * range that ran backwards.
+     */
+    private fun lineStartAt(text: String, offset: Int): Int {
+        if (offset <= 0) return 0
+        return text.lastIndexOf('\n', offset - 1).let { if (it < 0) 0 else it + 1 }
     }
 
     private val HEADING_PREFIX = Regex("^#{1,6}\\s+")

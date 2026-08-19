@@ -136,8 +136,10 @@ class MarkdownRenderPlanTest {
         val done = decorations<MdTask>(source).single()
         assertTrue(done.checked)
         assertEquals('X', source[done.sourceMark])
-        // The user's own indent is not syntax and stays; the box stands after it.
-        assertEquals(2, done.offset)
+        // A nested item's indent is redrawn as one monospace step per level — two source spaces
+        // are a few pixels of proportional space, which read as no nesting at all — so the box
+        // stands after that step rather than after the two characters that spell it.
+        assertEquals(3, done.offset)
     }
 
     // ---- Quotes --------------------------------------------------------------------------------

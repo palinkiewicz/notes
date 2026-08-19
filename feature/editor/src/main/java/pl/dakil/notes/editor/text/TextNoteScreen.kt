@@ -272,9 +272,15 @@ private fun MarkdownField(
         modifier = modifier
             .fillMaxSize()
             .focusRequester(focusRequester)
-            // Top only. A bottom margin here is not a margin, it is a strip of page the text can
-            // never reach — the bar below already separates the two.
-            .padding(start = 20.dp, end = 20.dp, top = 12.dp)
+            // Copy and cut have to carry the Markdown away rather than the rendering of it.
+            .markdownClipboard(state)
+            // Sides only. There is no top padding because there is nothing to pad against: every
+            // line already carries [MdStyle.LEADING] on its terminator, and a line takes the height
+            // of the tallest thing on it — so the first line arrives with air above it whether or
+            // not this asks for any, and asking anyway put a visible gap under the app bar. A
+            // bottom margin would not be a margin either, but a strip of page the text can never
+            // reach; the bar below already separates the two.
+            .padding(horizontal = 20.dp)
             // Inside the padding, so a position here is already in the text's own coordinates.
             // The tap is watched rather than taken: it goes on to place the caret as any other
             // tap would, and all this adds is which border — if any — it was nearest.
@@ -328,9 +334,10 @@ private fun MarkdownField(
         // `ContinueList`, so each one judges the user's own keystroke rather than another
         // transformation's rewrite of it.
         inputTransformation = if (sourceMode) {
-            ContinueList
+            ListIndent.then(ContinueList)
         } else {
-            KeepBlocksIntact.then(InsertTableRow).then(ContinueList).then(KeepFenceIntact)
+            KeepBlocksIntact.then(ListIndent).then(InsertTableRow).then(ContinueList)
+                .then(KeepFenceIntact)
         },
         // Null in source mode: that *is* the source, unchanged and unhidden.
         outputTransformation = if (sourceMode) null else transformation,

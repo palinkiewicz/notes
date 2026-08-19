@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.editor.markdown.MarkdownActions
@@ -27,6 +28,38 @@ class MarkdownBlockActionsTest {
         // A menu, not a stack: picking Heading 2 on a quote gives a heading, not a quoted heading.
         val result = MarkdownActions.setBlockStyle("> quoted", 0, 0, BlockStyle.H2)
         assertEquals("## quoted", result.text)
+    }
+
+    @Test
+    fun `a heading keeps the list marker it was applied to`() {
+        // `- # Alpha` is what CommonMark calls a bulleted heading, and it renders as one wherever
+        // the file is opened. Picking H2 used to throw the bullet away, which is not what anybody
+        // means by "make this line a heading".
+        assertEquals("- ## hello", MarkdownActions.setBlockStyle("- hello", 4, 4, BlockStyle.H2).text)
+        assertEquals("1. ## hello", MarkdownActions.setBlockStyle("1. hello", 5, 5, BlockStyle.H2).text)
+        assertEquals(
+            "  - [ ] ### hello",
+            MarkdownActions.setBlockStyle("  - [ ] hello", 9, 9, BlockStyle.H3).text,
+        )
+    }
+
+    @Test
+    fun `a list marker keeps the heading it was applied to`() {
+        assertEquals("- ## hello", MarkdownActions.toggleBlockStyle("## hello", 4, 4, BlockStyle.BULLET).text)
+        // And taking the list back off leaves the heading standing.
+        assertEquals(
+            "## hello",
+            MarkdownActions.toggleBlockStyle("- ## hello", 6, 6, BlockStyle.BULLET).text,
+        )
+    }
+
+    @Test
+    fun `a bulleted heading is reported to both menus at once`() {
+        val source = "- # Alpha"
+        // The bar's label names the heading, because that is what changed how the line reads.
+        assertEquals(BlockStyle.H1, MarkdownActions.blockStyleAt(source, 5))
+        assertEquals(BlockStyle.H1, MarkdownActions.paragraphStyleAt(source, 5))
+        assertEquals(BlockStyle.BULLET, MarkdownActions.listStyleAt(source, 5))
     }
 
     @Test
@@ -80,6 +113,46 @@ class MarkdownBlockActionsTest {
     fun `a task item is reported as a task rather than a bullet`() {
         // It matches the bullet pattern too, so the order the two are tested in is load-bearing.
         assertEquals(BlockStyle.TASK, MarkdownActions.blockStyleAt("- [ ] buy milk", 8))
+    }
+
+    // ---- Indentation --------------------------------------------------------------------------
+
+    @Test
+    fun `indenting moves list items and leaves everything else alone`() {
+        val source = "- milk\nplain\n- eggs"
+        val result = MarkdownActions.indentList(source, 0, source.length)
+        assertEquals("  - milk\nplain\n  - eggs", result.text)
+        assertEquals(source, MarkdownActions.outdentList(result.text, 0, result.text.length).text)
+    }
+
+    @Test
+    fun `outdenting never takes a marker off`() {
+        // The marker goes only on a backspace, and only once there is no nesting left to undo.
+        assertEquals("- milk", MarkdownActions.outdentList("- milk", 0, 6).text)
+    }
+
+    @Test
+    fun `the indent buttons know when they would do nothing`() {
+        assertTrue(MarkdownActions.canIndent("- milk", 0, 6))
+        assertFalse(MarkdownActions.canIndent("plain", 0, 5))
+        assertFalse(MarkdownActions.canOutdent("- milk", 0, 6))
+        assertTrue(MarkdownActions.canOutdent("  - milk", 0, 8))
+    }
+
+    @Test
+    fun `backspace at a marker unwinds one level at a time and then unlists`() {
+        // Where the caret is: between the marker and the label, on every one of these.
+        assertEquals(6, MarkdownActions.listMarkerEnd("    - milk", 6))
+        assertEquals(null, MarkdownActions.listMarkerEnd("plain", 3))
+
+        val once = MarkdownActions.unindentOrUnlist("    - milk", 6)
+        assertEquals("  - milk", once.text)
+        val twice = MarkdownActions.unindentOrUnlist(once.text, 4)
+        assertEquals("- milk", twice.text)
+        val thrice = MarkdownActions.unindentOrUnlist(twice.text, 2)
+        assertEquals("milk", thrice.text)
+        // And the caret stays on the label rather than jumping anywhere.
+        assertEquals(0, thrice.selectionStart)
     }
 
     // ---- Insertions ---------------------------------------------------------------------------
@@ -151,6 +224,33 @@ class MarkdownBlockActionsTest {
         // selected just the word.
         val result = MarkdownActions.toggleWrap("**word**", 0, 8, "**")
         assertEquals("word", result.text)
+    }
+
+    @Test
+    fun `an inline style wraps each list item's own words`() {
+        // Dragging over two items and pressing strikethrough used to give `- ~~alpha\n- beta~~`,
+        // which renders as two literal pairs of tildes: inline syntax does not cross a line break.
+        val source = "- alpha\n- beta"
+        val struck = MarkdownActions.toggleWrap(source, 2, source.length, "~~")
+        assertEquals("- ~~alpha~~\n- ~~beta~~", struck.text)
+        // And pressing it again with the selection it left behind takes it off both.
+        val plain = MarkdownActions.toggleWrap(struck.text, struck.selectionStart, struck.selectionEnd, "~~")
+        assertEquals(source, plain.text)
+    }
+
+    @Test
+    fun `an inline style never swallows a list marker`() {
+        // Selecting a whole item used to give `~~- alpha~~`, which stops being a list item at all.
+        assertEquals("- ~~alpha~~", MarkdownActions.toggleWrap("- alpha", 0, 7, "~~").text)
+        assertEquals("1. ~~one~~", MarkdownActions.toggleWrap("1. one", 0, 6, "~~").text)
+        assertEquals("# ~~Title~~", MarkdownActions.toggleWrap("# Title", 0, 7, "~~").text)
+    }
+
+    @Test
+    fun `a caret in a list still opens a pair of markers to type into`() {
+        val result = MarkdownActions.toggleWrap("- alpha", 4, 4, "**")
+        assertEquals("- al****pha", result.text)
+        assertEquals(6, result.selectionStart)
     }
 
     @Test

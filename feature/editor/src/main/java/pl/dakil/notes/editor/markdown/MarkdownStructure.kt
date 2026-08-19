@@ -93,6 +93,10 @@ object MarkdownStructure {
                 // Standing on the line below a block and pressing backspace takes the block. It is
                 // the only gesture that can: everything that spells the block out is hidden.
                 if (above == block.lastLine) return MdBackspace.Remove(block.start, caret)
+                // A block with nothing in it has no content to protect, and refusing every key
+                // pressed inside one left the user with a box they could not get rid of: the fence
+                // is invisible, so there is nothing to select and nothing to delete by hand.
+                if (isEmpty(lines, block)) return MdBackspace.Remove(block.start, block.end)
                 // A newline *inside* a block is load-bearing — except between two lines of code,
                 // where joining them is an ordinary edit to ordinary text.
                 val body = block.kind == MdBlockKind.FENCE &&
@@ -319,6 +323,24 @@ object MarkdownStructure {
 
     /** How many characters a fence marker is: the run of backticks the regex insists on. */
     private const val FENCE_MARKER = 3
+
+    /**
+     * Whether [block] holds nothing at all — no code, no formula, not even a language.
+     *
+     * Only fences and formulas can be empty in a way the reader would notice: a table always has its
+     * header text and a rule is a rule. Asked so that a backspace inside an empty block can mean
+     * "take this away" rather than being refused for the sake of syntax nobody can see.
+     */
+    private fun isEmpty(lines: MarkdownRenderer.Lines, block: MdBlockSpan): Boolean {
+        if (block.kind != MdBlockKind.FENCE && block.kind != MdBlockKind.MATH) return false
+        if (block.kind == MdBlockKind.FENCE &&
+            MarkdownParser.FENCE.matchEntire(lines.text(block.firstLine))?.groupValues?.get(1)?.isNotEmpty() == true
+        ) {
+            return false
+        }
+        val lastBody = if (block.closed) block.lastLine - 1 else block.lastLine
+        return (block.firstLine + 1..lastBody).all { lines.text(it).isBlank() }
+    }
 
     private fun blocks(lines: MarkdownRenderer.Lines): List<MdBlockSpan> {
         val out = ArrayList<MdBlockSpan>()

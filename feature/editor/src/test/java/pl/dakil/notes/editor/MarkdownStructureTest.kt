@@ -1,8 +1,11 @@
 package pl.dakil.notes.editor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MarkdownStructure
 import pl.dakil.notes.editor.markdown.MdBackspace
 import pl.dakil.notes.editor.markdown.MdBlockKind
@@ -308,6 +311,60 @@ class MarkdownStructureTest {
             listOf(MdBlockKind.RULE, MdBlockKind.FENCE, MdBlockKind.TABLE),
             MarkdownStructure.blocks(source).map { it.kind },
         )
+    }
+
+    @Test
+    fun `backspace inside an empty code block removes the block`() {
+        // The one place refusing was worse than allowing: a fence with nothing in it shows the user
+        // an empty box and no characters, so there is nothing to select and nothing to delete by
+        // hand. Every key they pressed inside it was refused and the box stayed for ever.
+        val source = "Hello\n```\n\n```\n\n"
+        val caret = source.indexOf("```") + 4
+        assertEquals(MdBackspace.Remove(6, 15), MarkdownStructure.backspaceAt(source, caret))
+    }
+
+    @Test
+    fun `backspace inside a code block that has code in it protects the fence`() {
+        val source = "Hello\n```\nselect 1\n```\n"
+        assertEquals(MdBackspace.Refuse, MarkdownStructure.backspaceAt(source, source.indexOf("select")))
+    }
+
+    @Test
+    fun `a code block with a language is not empty even with no code`() {
+        // The language word is content the user typed, and losing it to a stray backspace would be
+        // the same surprise this is meant to prevent.
+        val source = "Hello\n```sql\n\n```\n"
+        assertEquals(MdBackspace.Refuse, MarkdownStructure.backspaceAt(source, source.indexOf("```sql") + 7))
+    }
+
+    @Test
+    fun `a backspace beside hidden inline syntax means the letter, not the syntax`() {
+        // What the field actually deletes for one backspace at the end of `text` is the letter, the
+        // closing backtick *and* the space after it — the caret sits among all three and the mapping
+        // cannot tell them apart. The span stopped being a span, and the document came out two
+        // characters shorter than the keyboard had counted on.
+        val source = "Some `text` here"
+        assertTrue(MarkdownRenderer.hidesAnythingIn(source, 9, 12))
+        assertEquals(9, MarkdownRenderer.lastVisibleBefore(source, 9, 10))
+        // The same at the other edge: the space in front of the span goes, the backtick stays.
+        assertEquals(4, MarkdownRenderer.lastVisibleBefore(source, 4, 6))
+        assertEquals(7, MarkdownRenderer.lastVisibleBefore("a **bold** b", 5, 8))
+    }
+
+    @Test
+    fun `a marker that is redrawn rather than hidden is still the user's to delete`() {
+        // A bullet becomes a glyph and a checkbox becomes a blank: both are on screen, so a
+        // backspace aimed at one means it, and the list keys downstream are what handle it.
+        assertFalse(MarkdownRenderer.hidesAnythingIn("- milk", 0, 2))
+        assertFalse(MarkdownRenderer.hidesAnythingIn("- [ ] milk", 0, 6))
+        assertFalse(MarkdownRenderer.hidesAnythingIn("1. milk", 0, 3))
+    }
+
+    @Test
+    fun `a run that is nothing but hidden syntax has no letter to keep`() {
+        // A heading's hashes are hidden whole, so there is no narrower deletion to make and the
+        // caller falls back to what the field was going to do.
+        assertNull(MarkdownRenderer.lastVisibleBefore("# Title", 0, 2))
     }
 
     private fun apply(source: String, edit: MdEditAt): String =

@@ -14,9 +14,18 @@ package pl.dakil.notes.editor.markdown
 sealed interface MdBlock {
     data class Heading(val level: Int, val text: String) : MdBlock
     data class Paragraph(val text: String) : MdBlock
-    data class BulletItem(val text: String, val indent: Int) : MdBlock
-    data class OrderedItem(val text: String, val indent: Int, val number: Int) : MdBlock
-    data class TaskItem(val text: String, val indent: Int, val checked: Boolean, val line: Int) : MdBlock
+    // `heading` is 0 for an ordinary item. A list item may contain a heading — `- # Alpha` is what
+    // CommonMark says a bulleted heading is — so the two are separate fields rather than separate
+    // block kinds; every list item can carry one.
+    data class BulletItem(val text: String, val indent: Int, val heading: Int = 0) : MdBlock
+    data class OrderedItem(val text: String, val indent: Int, val number: Int, val heading: Int = 0) : MdBlock
+    data class TaskItem(
+        val text: String,
+        val indent: Int,
+        val checked: Boolean,
+        val line: Int,
+        val heading: Int = 0,
+    ) : MdBlock
     data class Quote(val text: String) : MdBlock
     data class CodeFence(val language: String, val code: String) : MdBlock
     data class MathBlock(val latex: String) : MdBlock
@@ -98,11 +107,13 @@ object MarkdownParser {
             // Task items must be tested before plain bullets, since they are a bullet subtype.
             val task = TASK.matchEntire(line)
             if (task != null) {
+                val body = headingIn(task.groupValues[3])
                 out += MdBlock.TaskItem(
-                    text = task.groupValues[3],
+                    text = body.second,
                     indent = task.groupValues[1].length / 2,
                     checked = task.groupValues[2].lowercase() == "x",
                     line = i,
+                    heading = body.first,
                 )
                 i++
                 continue
@@ -110,17 +121,20 @@ object MarkdownParser {
 
             val bullet = BULLET.matchEntire(line)
             if (bullet != null) {
-                out += MdBlock.BulletItem(bullet.groupValues[2], bullet.groupValues[1].length / 2)
+                val body = headingIn(bullet.groupValues[2])
+                out += MdBlock.BulletItem(body.second, bullet.groupValues[1].length / 2, body.first)
                 i++
                 continue
             }
 
             val ordered = ORDERED.matchEntire(line)
             if (ordered != null) {
+                val body = headingIn(ordered.groupValues[3])
                 out += MdBlock.OrderedItem(
-                    text = ordered.groupValues[3],
+                    text = body.second,
                     indent = ordered.groupValues[1].length / 2,
                     number = ordered.groupValues[2].toIntOrNull() ?: 1,
+                    heading = body.first,
                 )
                 i++
                 continue
@@ -164,6 +178,12 @@ object MarkdownParser {
         }
 
         return out
+    }
+
+    /** A list item's own heading level and the text after it, or level 0 and the text as it was. */
+    private fun headingIn(text: String): Pair<Int, String> {
+        val match = HEADING.matchEntire(text) ?: return 0 to text
+        return match.groupValues[1].length to match.groupValues[2]
     }
 
     private fun startsNewBlock(line: String): Boolean =

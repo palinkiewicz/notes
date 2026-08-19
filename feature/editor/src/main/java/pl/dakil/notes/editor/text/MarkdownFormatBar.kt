@@ -139,6 +139,18 @@ private fun FormatControls(
         MarkdownActions.activeInlineMarkers(source, selection.start, selection.end)
     }
     val block = remember(source, selection) { MarkdownActions.blockStyleAt(source, selection.start) }
+    // The two menus are read separately, because a line can be in both at once: `- # Alpha` lights
+    // H1 in the popup *and* the bullet button beside it.
+    val paragraph = remember(source, selection) {
+        MarkdownActions.paragraphStyleAt(source, selection.start)
+    }
+    val list = remember(source, selection) { MarkdownActions.listStyleAt(source, selection.start) }
+    val nestable = remember(source, selection) {
+        MarkdownActions.canIndent(source, selection.start, selection.end)
+    }
+    val nested = remember(source, selection) {
+        MarkdownActions.canOutdent(source, selection.start, selection.end)
+    }
 
     FormatButton(
         label = block.label,
@@ -152,12 +164,10 @@ private fun FormatControls(
                 for (style in BLOCK_CHOICES) {
                     BlockChoice(
                         style = style,
-                        selected = style == block,
+                        selected = style == paragraph,
                         onClick = {
                             onPopupChange(null)
-                            state.applyAction { text, start, end ->
-                                MarkdownActions.setBlockStyle(text, start, end, style)
-                            }
+                            state.applyBlockToggle(style)
                         },
                     )
                 }
@@ -200,26 +210,38 @@ private fun FormatControls(
     IconFormatButton(
         icon = NotesIcons.BulletList,
         description = "Bulleted list",
-        selected = block == BlockStyle.BULLET,
+        selected = list == BlockStyle.BULLET,
         onClick = { state.applyBlockToggle(BlockStyle.BULLET) },
     )
     IconFormatButton(
         icon = NotesIcons.NumberedList,
         description = "Numbered list",
-        selected = block == BlockStyle.ORDERED,
+        selected = list == BlockStyle.ORDERED,
         onClick = { state.applyBlockToggle(BlockStyle.ORDERED) },
     )
     IconFormatButton(
         icon = NotesIcons.TaskList,
         description = "Task list",
-        selected = block == BlockStyle.TASK,
+        selected = list == BlockStyle.TASK,
         onClick = { state.applyBlockToggle(BlockStyle.TASK) },
     )
+    // Greyed rather than hidden: a control that comes and goes as the caret moves is one the user
+    // has to hunt for, and "you cannot nest this line" is worth saying.
     IconFormatButton(
-        icon = NotesIcons.Quote,
-        description = "Quote",
-        selected = block == BlockStyle.QUOTE,
-        onClick = { state.applyBlockToggle(BlockStyle.QUOTE) },
+        icon = NotesIcons.IndentDecrease,
+        description = "Decrease indent",
+        enabled = nested,
+        onClick = {
+            state.applyAction { text, start, end -> MarkdownActions.outdentList(text, start, end) }
+        },
+    )
+    IconFormatButton(
+        icon = NotesIcons.IndentIncrease,
+        description = "Increase indent",
+        enabled = nestable,
+        onClick = {
+            state.applyAction { text, start, end -> MarkdownActions.indentList(text, start, end) }
+        },
     )
 
     Separator(placement)
@@ -245,7 +267,13 @@ private fun FormatControls(
     )
 }
 
-/** The block styles offered in the popup, in the order a writer reaches for them. */
+/**
+ * The paragraph styles offered in the popup, in the order a writer reaches for them.
+ *
+ * Quote lives here rather than out on the bar with the list buttons: it is a *paragraph* style, it
+ * cannot be true at the same time as a heading, and a menu of things that exclude each other is
+ * exactly what this popup is. It also buys back a slot on a bar that had run out of them.
+ */
 private val BLOCK_CHOICES = listOf(
     BlockStyle.PARAGRAPH,
     BlockStyle.H1,
@@ -254,6 +282,7 @@ private val BLOCK_CHOICES = listOf(
     BlockStyle.H4,
     BlockStyle.H5,
     BlockStyle.H6,
+    BlockStyle.QUOTE,
 )
 
 private val BlockStyle.label: String
@@ -301,12 +330,14 @@ private fun IconFormatButton(
     icon: ImageVector,
     description: String,
     selected: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     FormatButton(
         label = description,
         description = description,
         selected = selected,
+        enabled = enabled,
         onClick = onClick,
         content = { Icon(icon, contentDescription = null) },
     )
@@ -326,6 +357,7 @@ private fun FormatButton(
     selected: Boolean,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
+    enabled: Boolean = true,
     popup: @Composable () -> Unit = {},
 ) {
     TooltipBox(
@@ -342,13 +374,15 @@ private fun FormatButton(
                     if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
                     else Modifier
                 )
-                .clickable(onClick = onClick, onClickLabel = description),
+                .clickable(enabled = enabled, onClick = onClick, onClickLabel = description),
             contentAlignment = Alignment.Center,
         ) {
             CompositionLocalProvider(
-                LocalContentColor provides
-                    if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                LocalContentColor provides when {
+                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    selected -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 content = content,
             )
             popup()

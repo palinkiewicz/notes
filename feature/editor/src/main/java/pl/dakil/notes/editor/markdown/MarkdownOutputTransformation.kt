@@ -20,7 +20,10 @@ import pl.dakil.notes.editor.markdown.code.CodeColors
 /** One `SpanStyle` per [MdStyle], resolved from the Material theme once and reused per keystroke. */
 @Immutable
 data class MarkdownStyles(private val byStyle: Map<MdStyle, SpanStyle>) {
-    fun spanFor(style: MdStyle): SpanStyle = byStyle.getValue(style)
+    // Unstyled rather than absent for a style nobody has given a span to: a new [MdStyle] with no
+    // entry here is a paragraph that looks plain, which is a bug someone will notice and fix, and
+    // not a note that cannot be opened.
+    fun spanFor(style: MdStyle): SpanStyle = byStyle[style] ?: SpanStyle()
 }
 
 /**
@@ -134,6 +137,9 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                     color = colors.onSurface,
                 ),
                 MdStyle.MARKER to SpanStyle(color = colors.primary),
+                // Monospace for the same reason the checkbox blank is: a nesting level has to be
+                // the same step every time, whatever the item's first character happens to be.
+                MdStyle.INDENT to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
                 // Carries no ink — it is the hole a checkbox is floated into — so all it does is
                 // hold a predictable width open. See `TASK_BLANK`.
                 MdStyle.TASK_BOX to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
