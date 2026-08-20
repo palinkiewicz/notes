@@ -1,0 +1,319 @@
+package pl.dakil.notes.ink
+
+import pl.dakil.notes.model.BlendId
+import pl.dakil.notes.model.ShapeSpec
+import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.ToolId
+import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+
+/**
+ * Turning a [ShapeSpec] into points, and dragging it by one of them.
+ *
+ * Two jobs that have to agree with each other: the handles are the vertices of the outline, so the
+ * apex the user grabs is the apex that moves.
+ */
+
+// ---- Handles -----------------------------------------------------------------------------------
+
+/** How many apexes this shape can be dragged by. */
+fun ShapeSpec.handleCount(): Int = when (this) {
+    is ShapeSpec.Line -> 2
+    is ShapeSpec.Poly -> vertexCount
+    is ShapeSpec.Rect -> 4
+    is ShapeSpec.Ngon -> sides
+    is ShapeSpec.Ellipse -> 4
+}
+
+/** Writes handle [i] into `out[0]`, `out[1]`. Takes an array so a hit scan allocates nothing. */
+fun ShapeSpec.handleInto(i: Int, out: FloatArray) {
+    when (this) {
+        is ShapeSpec.Line -> {
+            out[0] = if (i == 0) x0 else x1
+            out[1] = if (i == 0) y0 else y1
+        }
+        is ShapeSpec.Poly -> {
+            out[0] = xs[i]
+            out[1] = ys[i]
+        }
+        is ShapeSpec.Rect -> {
+            val sx = if (i == 1 || i == 2) hw else -hw
+            val sy = if (i == 2 || i == 3) hh else -hh
+            rotateInto(sx, sy, rot, cx, cy, out)
+        }
+        is ShapeSpec.Ngon -> {
+            val a = rot + i * TWO_PI / sides
+            rotateInto(r * cos(a), r * sin(a), 0f, cx, cy, out)
+        }
+        is ShapeSpec.Ellipse -> {
+            val sx = when (i) { 0 -> rx; 2 -> -rx; else -> 0f }
+            val sy = when (i) { 1 -> ry; 3 -> -ry; else -> 0f }
+            rotateInto(sx, sy, rot, cx, cy, out)
+        }
+    }
+}
+
+fun ShapeSpec.handleX(i: Int): Float = FloatArray(2).also { handleInto(i, it) }[0]
+
+fun ShapeSpec.handleY(i: Int): Float = FloatArray(2).also { handleInto(i, it) }[1]
+
+/**
+ * The handle nearest ([x], [y]) — the apex the pen is resting on when a shape is recognised.
+ *
+ * The pen is at the end of the stroke, which for a closed shape is where it started, so this
+ * reliably picks the corner the user drew last rather than an arbitrary one.
+ */
+fun ShapeSpec.nearestHandle(x: Float, y: Float): Int {
+    val p = FloatArray(2)
+    var best = 0
+    var bestDistSq = Float.MAX_VALUE
+    for (i in 0 until handleCount()) {
+        handleInto(i, p)
+        val dx = p[0] - x
+        val dy = p[1] - y
+        val d = dx * dx + dy * dy
+        if (d < bestDistSq) {
+            bestDistSq = d
+            best = i
+        }
+    }
+    return best
+}
+
+/**
+ * Returns this shape with handle [i] dragged to ([x], [y]).
+ *
+ * Every kind pins something and lets the rest follow, because a handle that only translated one
+ * vertex would make a square stop being a square the instant it was adjusted. What is pinned is
+ * chosen to be the thing the user is not touching: the opposite corner for a rectangle, the centre
+ * for a regular polygon. `equilateral` shapes stay equilateral — it records intent, not a
+ * measurement, so a square the user drew as a square keeps its corners at 90° while resized.
+ */
+fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
+    is ShapeSpec.Line ->
+        if (i == 0) copy(x0 = x, y0 = y) else copy(x1 = x, y1 = y)
+
+    is ShapeSpec.Poly -> {
+        val nx = xs.copyOf()
+        val ny = ys.copyOf()
+        nx[i] = x
+        ny[i] = y
+        ShapeSpec.Poly(nx, ny)
+    }
+
+    is ShapeSpec.Rect -> {
+        val pinned = FloatArray(2).also { handleInto((i + 2) % 4, it) }
+        val ux = cos(rot)
+        val uy = sin(rot)
+        val dx = x - pinned[0]
+        val dy = y - pinned[1]
+        // Distances along the rectangle's own axes, so dragging stays square to the shape however
+        // it is rotated.
+        var du = dx * ux + dy * uy
+        var dv = -dx * uy + dy * ux
+        if (equilateral) {
+            // Split the difference rather than following one axis: the diagonal tracks the pen
+            // instead of snapping to whichever component happens to be larger.
+            val s = (abs(du) + abs(dv)) * 0.5f
+            du = if (du < 0f) -s else s
+            dv = if (dv < 0f) -s else s
+        }
+        val halfU = du * 0.5f
+        val halfV = dv * 0.5f
+        ShapeSpec.Rect(
+            cx = pinned[0] + halfU * ux - halfV * uy,
+            cy = pinned[1] + halfU * uy + halfV * ux,
+            hw = max(abs(halfU), MIN_EXTENT),
+            hh = max(abs(halfV), MIN_EXTENT),
+            rot = rot,
+            equilateral = equilateral,
+        )
+    }
+
+    is ShapeSpec.Ngon -> {
+        val dx = x - cx
+        val dy = y - cy
+        val radius = hypot(dx, dy)
+        if (radius < MIN_EXTENT) this else ShapeSpec.Ngon(
+            cx = cx,
+            cy = cy,
+            r = radius,
+            // Setting rotation from the dragged vertex is what makes the gesture feel direct: the
+            // vertex stays under the pen, so the polygon spins as well as resizes.
+            rot = atan2(dy, dx) - i * TWO_PI / sides,
+            sides = sides,
+        )
+    }
+
+    is ShapeSpec.Ellipse -> {
+        val pinned = FloatArray(2).also { handleInto((i + 2) % 4, it) }
+        if (equilateral) {
+            // A circle has no meaningful axes, so treat the drag as a diameter: the new circle
+            // passes through the pinned point and the pen.
+            val radius = max(hypot(x - pinned[0], y - pinned[1]) * 0.5f, MIN_EXTENT)
+            ShapeSpec.Ellipse(
+                cx = (pinned[0] + x) * 0.5f,
+                cy = (pinned[1] + y) * 0.5f,
+                rx = radius, ry = radius, rot = rot, equilateral = true,
+            )
+        } else {
+            val ux = cos(rot)
+            val uy = sin(rot)
+            val alongX = if (i == 0 || i == 2) ux else -uy
+            val alongY = if (i == 0 || i == 2) uy else ux
+            val along = (x - pinned[0]) * alongX + (y - pinned[1]) * alongY
+            val radius = max(abs(along) * 0.5f, MIN_EXTENT)
+            ShapeSpec.Ellipse(
+                cx = pinned[0] + along * 0.5f * alongX,
+                cy = pinned[1] + along * 0.5f * alongY,
+                rx = if (i == 0 || i == 2) radius else rx,
+                ry = if (i == 1 || i == 3) radius else ry,
+                rot = rot,
+                equilateral = false,
+            )
+        }
+    }
+}
+
+// ---- Outline -----------------------------------------------------------------------------------
+
+/**
+ * Fills [into] with the shape's centreline, closed for everything but a line.
+ *
+ * ### Why corners are emitted three times
+ *
+ * `StrokeRenderer` connects samples with quadratics through their midpoints, which is right for
+ * handwriting and wrong for a square: a four-point square would render with its corners rounded off
+ * by half the sample spacing. Repeating a vertex collapses the control polygon onto it, so the
+ * curve passes exactly through the corner and leaves it in a straight line. Curves are not
+ * duplicated — there the smoothing is doing what it is for.
+ *
+ * ### Why edges are dense
+ *
+ * Two points would draw a straight edge perfectly well, but `HitTester.strokesInPolygon` decides
+ * selection by testing every point of a stroke, so a sparse shape could be lassoed by a loop that
+ * only contains its corners.
+ */
+fun ShapeSpec.outlineInto(into: StrokeOutline) {
+    into.clear()
+    when (this) {
+        is ShapeSpec.Line -> {
+            val spacing = spacingFor(hypot(x1 - x0, y1 - y0))
+            into.add(x0, y0)
+            addEdge(into, x0, y0, x1, y1, spacing)
+            into.add(x1, y1)
+        }
+        is ShapeSpec.Ellipse -> addEllipse(into)
+        else -> addPolygon(into)
+    }
+}
+
+/** Builds the committed stroke for this shape, at a single constant [width]. */
+fun ShapeSpec.toStroke(
+    tool: ToolId,
+    color: Int,
+    width: Float,
+    blend: BlendId,
+    into: StrokeOutline = StrokeOutline(),
+): Stroke {
+    outlineInto(into)
+    val n = into.count
+    val xs = FloatArray(n)
+    val ys = FloatArray(n)
+    for (i in 0 until n) {
+        xs[i] = into.x(i)
+        ys[i] = into.y(i)
+    }
+    // No width factors: a snapped shape is drawn at one weight, which also means the renderer skips
+    // tessellation and hands it straight to the platform stroker.
+    return Stroke(tool, color, width, blend, xs, ys, shape = this)
+}
+
+private fun ShapeSpec.addPolygon(into: StrokeOutline) {
+    val n = handleCount()
+    val p = FloatArray(2)
+    var perimeter = 0f
+    val vx = FloatArray(n)
+    val vy = FloatArray(n)
+    for (i in 0 until n) {
+        handleInto(i, p)
+        vx[i] = p[0]
+        vy[i] = p[1]
+    }
+    for (i in 0 until n) {
+        val j = (i + 1) % n
+        perimeter += hypot(vx[j] - vx[i], vy[j] - vy[i])
+    }
+    val spacing = spacingFor(perimeter)
+
+    for (i in 0 until n) {
+        val j = (i + 1) % n
+        repeat(CORNER_REPEATS) { into.add(vx[i], vy[i]) }
+        addEdge(into, vx[i], vy[i], vx[j], vy[j], spacing)
+    }
+    // Close on the first vertex, repeated so the join is as sharp as every other corner.
+    repeat(CORNER_REPEATS) { into.add(vx[0], vy[0]) }
+}
+
+private fun ShapeSpec.Ellipse.addEllipse(into: StrokeOutline) {
+    val big = max(rx, ry)
+    // Step angle chosen so the sagitta — the gap between the chord and the true arc — stays under
+    // half a coordinate quantisation step, which is the point at which it stops being visible.
+    val steps = if (big <= SAGITTA) MIN_ELLIPSE_STEPS else {
+        val byError = ceil(PI / acos(1f - min(SAGITTA / big, 0.5f))).toInt()
+        byError.coerceIn(MIN_ELLIPSE_STEPS, MAX_ELLIPSE_STEPS)
+    }
+    val cosR = cos(rot)
+    val sinR = sin(rot)
+    for (i in 0..steps) {
+        val a = i * TWO_PI / steps
+        val ex = rx * cos(a)
+        val ey = ry * sin(a)
+        into.add(cx + ex * cosR - ey * sinR, cy + ex * sinR + ey * cosR)
+    }
+}
+
+/** Adds the interior points of the segment, exclusive of both ends. */
+private fun addEdge(into: StrokeOutline, x0: Float, y0: Float, x1: Float, y1: Float, spacing: Float) {
+    val length = hypot(x1 - x0, y1 - y0)
+    val steps = (length / spacing).toInt()
+    for (k in 1 until steps) {
+        val t = k / steps.toFloat()
+        into.add(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+    }
+}
+
+/** Edge sampling step, opened up on a very large shape so the point budget is never blown. */
+private fun spacingFor(totalLength: Float): Float =
+    max(EDGE_SPACING_PT, totalLength / MAX_OUTLINE_POINTS)
+
+private fun rotateInto(x: Float, y: Float, rot: Float, cx: Float, cy: Float, out: FloatArray) {
+    if (rot == 0f) {
+        out[0] = cx + x
+        out[1] = cy + y
+        return
+    }
+    val c = cos(rot)
+    val s = sin(rot)
+    out[0] = cx + x * c - y * s
+    out[1] = cy + x * s + y * c
+}
+
+internal const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
+private const val PI = kotlin.math.PI.toFloat()
+
+/** Nothing smaller than this is a shape; it also keeps a collapsed drag out of the maths. */
+private const val MIN_EXTENT = 0.5f
+private const val EDGE_SPACING_PT = 1.5f
+private const val MAX_OUTLINE_POINTS = 1024
+private const val CORNER_REPEATS = 3
+private const val SAGITTA = 0.5f / 32f
+private const val MIN_ELLIPSE_STEPS = 24
+private const val MAX_ELLIPSE_STEPS = 512

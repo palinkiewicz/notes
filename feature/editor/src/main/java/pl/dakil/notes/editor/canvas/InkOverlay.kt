@@ -1,19 +1,23 @@
 package pl.dakil.notes.editor.canvas
 
+import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.RequestDisallowInterceptTouchEvent
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.platform.LocalHapticFeedback
 import pl.dakil.notes.ink.InputIntent
 import pl.dakil.notes.ink.InputRouter
 import pl.dakil.notes.ink.StrokeBuilder
@@ -62,6 +66,12 @@ interface InkCallbacks {
  * `ACTION_CANCEL` and stops dispatching for the rest of the stream. The visible result is a stroke
  * that puts down a single dot and dies.
  *
+ * ### Why auto-shape needs a timer
+ *
+ * The snap is triggered by holding the pen *still*, and Android sends no move events while a
+ * pointer is stationary — the very silence that has to be detected arrives as nothing at all. A
+ * short polling job therefore runs between pen-down and pen-up, and only then.
+ *
  * [RequestDisallowInterceptTouchEvent] is the documented way out, and it is the exact analogue of
  * the `ViewGroup` call of the same name: once the router says this pointer is drawing, moves are
  * dispatched *and consumed* in the tunnelling pass, so no ancestor can take the stroke away. The
@@ -87,6 +97,7 @@ fun InkOverlay(
     val builder = remember { StrokeBuilder() }
     val router = remember { InputRouter(inputConfig) }
     val lasso = remember { LassoBuffer() }
+    val shape = remember { ShapeController() }
     val inkVersion = remember { mutableIntStateOf(0) }
     val disallowIntercept = remember { RequestDisallowInterceptTouchEvent() }
 
@@ -96,6 +107,25 @@ fun InkOverlay(
     val pageCount = sheet.pageCount()
 
     router.config = inputConfig
+
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    // Re-read through rememberUpdatedState so the running ticker always sees the current tool and
+    // settings; it was started at pen-down and outlives any recomposition since.
+    val onTick by rememberUpdatedState {
+        val found = shape.tick(
+            nowMs = SystemClock.uptimeMillis(),
+            holdMs = inputConfig.autoShapeHoldMs,
+            builder = builder,
+            toolSpec = currentTool,
+        )
+        if (found) {
+            // The stroke has just changed under the user's hand while they are looking at the pen,
+            // not the screen. A tick tells them it happened.
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            inkVersion.intValue++
+        }
+    }
 
     val paintOrder = remember(sheet, documentVersion) { sheet.blocksInPaintOrder() }
 
@@ -111,10 +141,16 @@ fun InkOverlay(
                 router = router,
                 builder = builder,
                 lasso = lasso,
+                shape = shape,
                 tool = currentTool,
                 config = inputConfig,
                 callbacks = currentCallbacks,
                 toDocument = toDoc,
+                // A resting pen wanders by a roughly fixed distance on the glass whatever the page
+                // is magnified to, so the tolerance is a screen distance divided back out of the
+                // zoom — the same reasoning as the lasso marquee's line width below.
+                dwellTolerance = { DWELL_TOLERANCE_PT / zoom().coerceAtLeast(MIN_ZOOM) },
+                startTicking = { shape.startTicking(scope) { onTick() } },
                 invalidate = { inkVersion.intValue++ },
                 claim = disallowIntercept,
             )
@@ -124,7 +160,10 @@ fun InkOverlay(
         inkVersion.intValue
 
         val toStripPx = { y: Float -> SheetPainter.documentYToStripPx(y, format, ptToPx, paged) }
-        val wet = !builder.isEmpty && currentTool.tool.isDrawing
+        // While a shape is live it *is* the stroke under the pen; the builder still holds the
+        // free-hand path it replaced, which must not be drawn underneath it.
+        val live = shape.spec
+        val wet = live == null && !builder.isEmpty && currentTool.tool.isDrawing
 
         with(renderer) {
             if (!paged) {
@@ -135,6 +174,10 @@ fun InkOverlay(
                     drawStrokes(block.strokes, ptToPx, toStripPx)
                 }
                 if (wet) drawWetStroke(builder, ptToPx, toStripPx)
+                if (live != null) drawShapePreview(
+                    shape.outline, ptToPx, toStripPx,
+                    shape.previewWidth, shape.previewColor, shape.previewBlend,
+                )
             } else {
                 // One clipped pass per page. A stroke drawn across a page break is a single
                 // continuous stroke in the document — that is the right model, since the break is
@@ -152,6 +195,10 @@ fun InkOverlay(
                             drawStrokes(block.strokes, ptToPx, toStripPx, 1f, docTop, docBottom)
                         }
                         if (wet) drawWetStroke(builder, ptToPx, toStripPx)
+                        if (live != null) drawShapePreview(
+                            shape.outline, ptToPx, toStripPx,
+                            shape.previewWidth, shape.previewColor, shape.previewBlend,
+                        )
                     }
                 }
             }
@@ -224,10 +271,13 @@ private fun handleEvent(
     router: InputRouter,
     builder: StrokeBuilder,
     lasso: LassoBuffer,
+    shape: ShapeController,
     tool: ToolSpec,
     config: InputConfig,
     callbacks: InkCallbacks,
     toDocument: (Float, Float) -> PointF,
+    dwellTolerance: () -> Float,
+    startTicking: () -> Unit,
     invalidate: () -> Unit,
     claim: (Boolean) -> Unit,
 ): Boolean {
@@ -247,7 +297,12 @@ private fun handleEvent(
             // finger that is not there, reads as multi-touch, and is sent to pan — which is to say
             // one pan with finger-drawing off would disable finger-drawing until the note was
             // reopened.
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) router.cancel()
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                router.cancel()
+                // Same reasoning: a gesture whose ACTION_UP never arrived would otherwise leave a
+                // shape live and its ticker running into the next stroke.
+                shape.reset()
+            }
 
             val index = event.actionIndex
             val screen = MotionEventBridge.sampleOf(event, index)
@@ -267,11 +322,17 @@ private fun handleEvent(
             if (decision.revoked.isNotEmpty()) {
                 builder.reset()
                 lasso.reset()
+                shape.reset()
             }
 
             when (decision.intent) {
                 is InputIntent.Draw -> {
-                    beginAction(builder, lasso, tool, config, sampleAt(index))
+                    val sample = sampleAt(index)
+                    beginAction(builder, lasso, tool, config, sample)
+                    if (config.autoShapeEnabled && tool.tool.isDrawing) {
+                        shape.begin(sample.x, sample.y, sample.timeMs)
+                        startTicking()
+                    }
                     // From here the stroke is ours: ancestors may not intercept the moves.
                     claim(true)
                 }
@@ -279,6 +340,7 @@ private fun handleEvent(
                     // A second finger means pan/zoom. Release the claim so the gesture detector
                     // beneath can pick the pinch up, and report the revoked stroke gone.
                     claim(false)
+                    shape.reset()
                     if (decision.revoked.isNotEmpty()) invalidate()
                     return false
                 }
@@ -307,8 +369,17 @@ private fun handleEvent(
                             if (eraseStep(builder, sample, tool, callbacks)) redraw = true
                         ToolId.LASSO ->
                             if (lasso.add(sample.x, sample.y)) redraw = true
-                        else ->
+                        // Once a shape has been recognised the pen is no longer drawing: it is
+                        // holding the apex it snapped on, and moving adjusts the shape.
+                        else -> if (shape.isLive) {
+                            if (shape.drag(sample.x, sample.y)) redraw = true
+                        } else {
                             if (builder.add(sample)) redraw = true
+                            shape.onSample(
+                                sample.x, sample.y, sample.timeMs,
+                                builder.pointCount, dwellTolerance(),
+                            )
+                        }
                     }
                 }
             }
@@ -324,10 +395,11 @@ private fun handleEvent(
             // resting on the glass lifting off mid-word.
             if (event.actionMasked == MotionEvent.ACTION_UP || !router.isDrawing) claim(false)
             if (intent is InputIntent.Draw) {
-                finishAction(builder, lasso, tool, sampleAt(index), callbacks)
+                finishAction(builder, lasso, shape, tool, sampleAt(index), callbacks)
                 invalidate()
                 return true
             }
+            shape.stopTicking()
             return false
         }
 
@@ -335,6 +407,7 @@ private fun handleEvent(
             router.cancel()
             builder.reset()
             lasso.reset()
+            shape.reset()
             claim(false)
             invalidate()
             return false
@@ -389,13 +462,16 @@ private fun eraseStep(
     return true
 }
 
+@Suppress("LongParameterList")
 private fun finishAction(
     builder: StrokeBuilder,
     lasso: LassoBuffer,
+    shape: ShapeController,
     tool: ToolSpec,
     sample: PointerSample,
     callbacks: InkCallbacks,
 ) {
+    shape.stopTicking()
     when (tool.tool) {
         ToolId.LASSO -> {
             if (lasso.count >= 3) callbacks.onLassoCommitted(lasso.xs, lasso.ys, lasso.count)
@@ -403,14 +479,26 @@ private fun finishAction(
         }
         ToolId.ERASER_STROKE, ToolId.ERASER_POINT -> builder.reset()
         else -> {
-            val stroke = builder.finish(sample)
+            // A snapped shape supersedes the stroke it was recognised from; the builder still
+            // holds that stroke, and finishing it too would commit both.
+            val stroke = shape.commit() ?: builder.finish(sample)
             builder.reset()
+            shape.reset()
             // A tap with a pen in hand is a full stop, not a request for the keyboard: the gesture
             // only reached here because the router already decided this pointer was drawing.
             if (stroke != null) callbacks.onStrokeCommitted(stroke)
         }
     }
 }
+
+/**
+ * How far the pen may wander and still count as held, in document points at 100% zoom.
+ *
+ * About two thirds of a millimetre on the glass — enough to absorb the tremor of a hand resting
+ * against a tablet, tight enough that slowing down at a corner is not mistaken for stopping.
+ */
+private const val DWELL_TOLERANCE_PT = 2f
+private const val MIN_ZOOM = 0.05f
 
 /** Growable buffer for the lasso outline, in document coordinates. */
 class LassoBuffer {

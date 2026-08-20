@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.model.PressureCurve
+import kotlin.math.roundToInt
 
 /**
  * The power-user surface.
@@ -113,6 +114,34 @@ fun SettingsScreen(settings: SettingsRepository) {
             )
 
             PressureCurvePicker(current, settings)
+
+            ListItem(
+                headlineContent = { Text("Auto-shape") },
+                supportingContent = {
+                    Text(
+                        "Hold the pen still at the end of a stroke to snap it to a line, square, " +
+                            "circle or polygon. Lift normally and the stroke is left as drawn.",
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = current.input.autoShapeEnabled,
+                        onCheckedChange = settings::setAutoShape,
+                    )
+                },
+            )
+
+            // Only worth showing once the feature it tunes is on.
+            if (current.input.autoShapeEnabled) {
+                SettingSlider(
+                    title = "Hold to snap",
+                    detail = "How long the pen must rest before a shape is guessed.",
+                    value = current.input.autoShapeHoldMs.toFloat(),
+                    range = 250f..1000f,
+                    format = { "${it.roundToInt()} ms" },
+                    onChange = { settings.setAutoShapeHoldMs(it.roundToInt().toLong()) },
+                )
+            }
 
             HorizontalDivider()
             SectionHeader("Appearance")

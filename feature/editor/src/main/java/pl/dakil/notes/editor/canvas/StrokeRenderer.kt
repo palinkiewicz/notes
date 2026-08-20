@@ -129,6 +129,39 @@ class StrokeRenderer {
         )
     }
 
+    /**
+     * Draws the shape currently under the pen, straight from the controller's outline buffer.
+     *
+     * A recognised shape has one weight throughout, so this is the same cheap constant-width path
+     * the wet stroke uses — and unlike the wet stroke, it is exactly how the shape will be rendered
+     * once committed, because the committed stroke carries no width variation either.
+     */
+    @Suppress("LongParameterList")
+    fun DrawScope.drawShapePreview(
+        outline: StrokeOutline,
+        ptToPx: Float,
+        toStripPx: (Float) -> Float,
+        width: Float,
+        color: Int,
+        blend: BlendId,
+    ) {
+        val n = outline.count
+        if (n < 2) return
+        path.reset()
+        path.moveTo(outline.x(0) * ptToPx, toStripPx(outline.y(0)))
+        appendSmoothed(n, { outline.x(it) }, { outline.y(it) }, ptToPx, toStripPx)
+        drawPath(
+            path = path,
+            color = Color(color),
+            style = DrawStroke(
+                width = width * ptToPx,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
+            blendMode = blend.toBlendMode(),
+        )
+    }
+
     private fun buildCenterlinePath(stroke: Stroke, ptToPx: Float, toStripPx: (Float) -> Float) {
         path.reset()
         path.moveTo(stroke.xs[0] * ptToPx, toStripPx(stroke.ys[0]))

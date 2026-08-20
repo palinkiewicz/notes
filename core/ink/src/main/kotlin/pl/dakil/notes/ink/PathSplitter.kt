@@ -107,6 +107,9 @@ object PathSplitter {
             widthFactors = stroke.widthFactors?.copyOfRange(from, to),
             tilts = stroke.tilts?.copyOfRange(from, to),
             times = stroke.times?.copyOfRange(from, to),
+            // A rubbed-out circle is an arc, not a circle. Note that both entry points hand back
+            // the original instance when nothing was hit, so an untouched shape keeps its spec.
+            shape = null,
         )
     }
 

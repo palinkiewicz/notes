@@ -73,6 +73,8 @@ class SettingsRepository(context: Context) {
                 y2 = prefs.getFloat(KEY_CURVE_Y2, PressureCurve.LINEAR.y2),
             ),
             minPressure = prefs.getFloat(KEY_MIN_PRESSURE, 0f),
+            autoShapeEnabled = prefs.getBoolean(KEY_AUTO_SHAPE, true),
+            autoShapeHoldMs = prefs.getLong(KEY_AUTO_SHAPE_HOLD, 500L),
         ),
         theme = ThemeMode.entries.getOrElse(prefs.getInt(KEY_THEME, 0)) { ThemeMode.SYSTEM },
         toolbarPosition = ToolbarPosition.entries
@@ -100,6 +102,10 @@ class SettingsRepository(context: Context) {
     fun setSmoothingScale(value: Float) = prefs.edit().putFloat(KEY_SMOOTHING_SCALE, value).apply()
 
     fun setMinPressure(value: Float) = prefs.edit().putFloat(KEY_MIN_PRESSURE, value).apply()
+
+    fun setAutoShape(enabled: Boolean) = prefs.edit().putBoolean(KEY_AUTO_SHAPE, enabled).apply()
+
+    fun setAutoShapeHoldMs(value: Long) = prefs.edit().putLong(KEY_AUTO_SHAPE_HOLD, value).apply()
 
     fun setPressureCurve(curve: PressureCurve) = prefs.edit()
         .putFloat(KEY_CURVE_X1, curve.x1)
@@ -223,6 +229,8 @@ class SettingsRepository(context: Context) {
         const val KEY_CURVE_Y1 = "input.curveY1"
         const val KEY_CURVE_X2 = "input.curveX2"
         const val KEY_CURVE_Y2 = "input.curveY2"
+        const val KEY_AUTO_SHAPE = "input.autoShape"
+        const val KEY_AUTO_SHAPE_HOLD = "input.autoShapeHoldMs"
 
         const val KEY_THEME = "ui.theme"
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"

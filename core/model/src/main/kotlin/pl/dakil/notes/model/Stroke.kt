@@ -67,6 +67,15 @@ class Stroke(
     val tilts: FloatArray? = null,
     /** Milliseconds since the first sample of the stroke. */
     val times: IntArray? = null,
+    /**
+     * What this stroke *is*, when it came from shape recognition rather than free drawing.
+     *
+     * Null for ordinary ink, which is almost every stroke. It is metadata, not geometry: [xs] and
+     * [ys] already trace the shape, so a build that ignores this renders exactly the same picture.
+     * Keeping it lets a shape stay re-editable instead of decaying into an anonymous polyline the
+     * moment it is committed.
+     */
+    val shape: ShapeSpec? = null,
 ) {
     init {
         require(xs.size == ys.size) { "Stroke coordinate arrays must be the same length" }
@@ -116,7 +125,11 @@ class Stroke(
 
     /** Returns a copy sharing the point arrays, used by recolour and tool-change edits. */
     fun withStyle(color: Int = this.color, width: Float = this.width, blend: BlendId = this.blend): Stroke =
-        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times)
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape)
+
+    /** Returns a copy carrying [shape], sharing the point arrays. Used when loading a note. */
+    fun withShape(shape: ShapeSpec?): Stroke =
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape)
 
     /** Returns a copy with every point mapped through [m]. Used by lasso move/scale/rotate. */
     fun transformed(m: Affine): Stroke {
@@ -130,7 +143,9 @@ class Stroke(
         }
         // Uniform scale factor, so a scaled selection keeps its visual stroke weight.
         val scale = kotlin.math.sqrt(kotlin.math.abs(m.a * m.d - m.b * m.c))
-        return Stroke(tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times)
+        // A sheared square is a parallelogram, which no ShapeSpec can describe; transformedBy says
+        // so by returning null, and the result is honest ink rather than a shape that lies.
+        return Stroke(tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times, shape?.transformedBy(m))
     }
 
     /**
@@ -236,6 +251,9 @@ class Stroke(
             widthFactors = if (source.widthFactors != null) factors.copyOf(size) else null,
             tilts = if (source.tilts != null) tilts.copyOf(size) else null,
             times = if (source.times != null) times.copyOf(size) else null,
+            // Half a square is not a square. Note that clippedToBand returns the original instance
+            // when the band contains the whole stroke, so an uncut shape keeps its spec.
+            shape = null,
         )
 
         /** Longest side of the piece's bounding box, in points. */

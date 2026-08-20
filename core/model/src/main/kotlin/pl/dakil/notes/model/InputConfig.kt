@@ -62,6 +62,19 @@ data class InputConfig(
     val pressureCurve: PressureCurve = PressureCurve.LINEAR,
     /** Ignore stylus samples below this pressure, suppressing the tail of a lifted pen. */
     val minPressure: Float = 0.0f,
+    /**
+     * Hold the pen still at the end of a stroke to snap it to a square, circle or polygon.
+     *
+     * On by default: the trigger is a deliberate dwell, so a stroke that simply ends never snaps,
+     * and someone who does not know the feature exists will never meet it by accident.
+     */
+    val autoShapeEnabled: Boolean = true,
+    /**
+     * How long the pen must be held still before recognition runs.
+     *
+     * Long enough not to fire during a pause mid-stroke, short enough not to feel like a wait.
+     */
+    val autoShapeHoldMs: Long = 500L,
 )
 
 /**

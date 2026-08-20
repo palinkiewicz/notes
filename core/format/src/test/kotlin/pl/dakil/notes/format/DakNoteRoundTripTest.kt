@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.model.Affine
@@ -17,6 +18,7 @@ import pl.dakil.notes.model.PagePattern
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PatternType
 import pl.dakil.notes.model.Rect
+import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
@@ -328,6 +330,111 @@ class DakNoteRoundTripTest {
             it.withSheet(it.sheet.copy(contentHeight = it.sheet.format.height * 2.5f))
         }
         assertEquals(3, roundTrip(note).sheet.pageCount())
+    }
+
+    // ---- Recognised shapes -----------------------------------------------------------------------
+
+    /** A note whose ink layer holds one plain stroke and one snapped shape. */
+    private fun noteWithShape(spec: ShapeSpec = ShapeSpec.Ngon(120f, 300f, 48f, 0.31f, 5)): Note {
+        val note = sampleNote()
+        val ink = note.sheet.inkLayers().single()
+        val shaped = Stroke(
+            ToolId.PEN, 0xFF1B1B1F.toInt(), 2.5f, BlendId.NORMAL,
+            floatArrayOf(100f, 140f, 120f, 100f), floatArrayOf(100f, 100f, 140f, 100f),
+            shape = spec,
+        )
+        return note.copy(sheet = note.sheet.copy(blocks = listOf(ink.copy(strokes = ink.strokes + shaped))))
+    }
+
+    @Test
+    fun `a recognised shape survives a round trip`() {
+        for (spec in listOf(
+            ShapeSpec.Line(10f, 20f, 300f, 40f),
+            ShapeSpec.Poly(floatArrayOf(0f, 90f, 40f), floatArrayOf(0f, 10f, 80f)),
+            ShapeSpec.Rect(200f, 200f, 50f, 50f, 0.4f, equilateral = true),
+            ShapeSpec.Ngon(120f, 300f, 48f, 0.31f, 7),
+            ShapeSpec.Ellipse(100f, 100f, 60f, 30f, 0.2f, equilateral = false),
+        )) {
+            val strokes = roundTrip(noteWithShape(spec)).sheet.inkLayers().single().strokes
+            assertEquals("$spec", spec, strokes.last().shape)
+            assertNull("plain ink must not acquire a shape", strokes.first().shape)
+        }
+    }
+
+    @Test
+    fun `a note with no shapes is written exactly as it was before shapes existed`() {
+        // The key is optional and absent by default, so adding the feature must not rewrite every
+        // existing note on first save — which is the whole point of an optional key over a
+        // migration, and what keeps file sync quiet.
+        val descriptor = inkDescriptorOf(DakNoteWriter.toByteArray(sampleNote()))
+        assertFalse("shapes", "shapes" in descriptor)
+    }
+
+    @Test
+    fun `a note written before shapes existed opens with plain strokes`() {
+        val entries = entriesOf(DakNoteWriter.toByteArray(noteWithShape()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        val stripped = (sheet.array("blocks")!!.items).map { (it as JsonObject).without("shapes") }
+        entries["sheet.json"] = JsonWriter.write(sheet.with("blocks", JsonArray(stripped)))
+            .toByteArray(Charsets.UTF_8)
+
+        val note = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+        val strokes = note.sheet.inkLayers().single().strokes
+        assertEquals("the ink itself is unaffected", 3, strokes.size)
+        assertNull(strokes.last().shape)
+    }
+
+    @Test
+    fun `a shape record naming a stroke of the wrong length is discarded`() {
+        // Strokes are identified by their position in the layer, so an older build erasing one
+        // shifts every later index. The recorded point count is what catches that: the shape is
+        // dropped and the stroke stays honest ink, rather than being described as something it is
+        // not. Simulated here by pointing the record at a stroke of a different length.
+        val entries = entriesOf(DakNoteWriter.toByteArray(noteWithShape()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        val patched = (sheet.array("blocks")!!.items).map { item ->
+            val o = item as JsonObject
+            val shapes = o.array("shapes") ?: return@map o
+            o.with("shapes", JsonArray(shapes.items.map { (it as JsonObject).with("i", 0) }))
+        }
+        entries["sheet.json"] = JsonWriter.write(sheet.with("blocks", JsonArray(patched)))
+            .toByteArray(Charsets.UTF_8)
+
+        val strokes = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+            .sheet.inkLayers().single().strokes
+        assertNull("stroke 0 is three points long, the record claims four", strokes[0].shape)
+    }
+
+    @Test
+    fun `a shape kind from a future release is ignored rather than guessed at`() {
+        val entries = entriesOf(DakNoteWriter.toByteArray(noteWithShape()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        val patched = (sheet.array("blocks")!!.items).map { item ->
+            val o = item as JsonObject
+            val shapes = o.array("shapes") ?: return@map o
+            o.with("shapes", JsonArray(shapes.items.map { (it as JsonObject).with("kind", "spline") }))
+        }
+        entries["sheet.json"] = JsonWriter.write(sheet.with("blocks", JsonArray(patched)))
+            .toByteArray(Charsets.UTF_8)
+
+        val strokes = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+            .sheet.inkLayers().single().strokes
+        assertNull(strokes.last().shape)
+        assertEquals("the ink is still there", 4, strokes.last().pointCount)
+    }
+
+    @Test
+    fun `saving a note that contains a shape twice produces identical bytes`() {
+        val first = DakNoteWriter.toByteArray(noteWithShape())
+        val second = DakNoteWriter.toByteArray(DakNoteReader.read(ByteArrayInputStream(first)))
+        assertArrayEquals(first, second)
+    }
+
+    private fun inkDescriptorOf(bytes: ByteArray): JsonObject {
+        val sheet = JsonReader.parseObject(entriesOf(bytes)["sheet.json"]!!.toString(Charsets.UTF_8))
+        return sheet.array("blocks")!!.items
+            .map { it as JsonObject }
+            .first { it.string("type") == "ink" }
     }
 
     // ---- Forward compatibility -------------------------------------------------------------------

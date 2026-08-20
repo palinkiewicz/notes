@@ -6,9 +6,12 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * A closed outline polygon, as interleaved x/y pairs in [points], valid for `2 * count` entries.
+ * A polyline, as interleaved x/y pairs in [points], valid for `2 * count` entries.
  *
- * Reused across calls so tessellating the visible strokes each frame does not allocate.
+ * Reused across calls so tessellating the visible strokes each frame does not allocate. Two
+ * producers fill it: [Tessellator], for which it is a closed fillable contour, and `ShapeSpec`
+ * outlining, for which it is a centreline. Both want the same thing — a growable primitive buffer
+ * that survives between frames — so they share one rather than keeping a copy each.
  */
 class StrokeOutline(initialCapacity: Int = 256) {
     var points: FloatArray = FloatArray(initialCapacity * 2)
