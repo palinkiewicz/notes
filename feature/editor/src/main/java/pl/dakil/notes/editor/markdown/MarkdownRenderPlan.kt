@@ -42,19 +42,27 @@ enum class MdStyle {
     TASK_BOX,
 
     /**
-     * Extra leading, worn by the newline that ends a line.
+     * Extra leading, worn by the newline that ends a line inside a drawn block.
      *
-     * A line is as tall as the tallest thing on it, and a newline is a thing on a line. So the way
-     * to give a document more air — without a `ParagraphStyle`, which cannot be used here — is to
-     * make every line terminator taller than the text it follows. It is purely additive: a heading
-     * already taller than this keeps its own height, and nothing is ever squeezed.
+     * A line is as tall as the tallest thing on it, and a newline is a thing on a line, so an
+     * oversized terminator buys the line it ends a little more room. What it does *not* buy is
+     * space between one paragraph and the next: the room lands on the terminator's own visual
+     * line, which on a line that wrapped is the last of several — so used as paragraph spacing it
+     * put the gap in the middle of a wrapped list item instead of after it. Only blocks wear it
+     * now, where every row is a line of its own and there is no wrapping to be caught out by.
      */
-    LEADING,
-
-    /** The same, tighter, inside a block that is meant to read densely. */
     LEADING_TIGHT,
 
-    /** A blank line standing between a block and its neighbour. */
+    /** The same again, sized to hold a table's rows off the rules drawn between them. */
+    LEADING_CELL,
+
+    /** A blank line standing between one paragraph and the next. */
+    PARAGRAPH_GAP,
+
+    /** The same, narrower, between two items of the same list. */
+    LIST_GAP,
+
+    /** The same, wider, where either side of it is a drawn block. */
     BLOCK_GAP,
 }
 
@@ -175,15 +183,29 @@ object MarkdownRenderer {
     /** What clears the bar drawn beside a quotation, in a proportional face. */
     private const val QUOTE_INDENT = "   "
 
+    /**
+     * What holds a fenced block's code off the box drawn round it.
+     *
+     * One column of the block's own monospace face, which is about eight dp — the same step, in the
+     * same face, that the blank left by a row's opening pipe holds a table's first cell off *its*
+     * box. That is what puts a code block and a table at one indent: both boxes are drawn flush
+     * with the column the document is set in, and both hold their contents a column inside it.
+     *
+     * The cost is a code line long enough to wrap: its continuation loses the indent and starts
+     * against the border. Nothing typed can survive a wrap, and a box drawn wide enough to give the
+     * continuation room is a box hanging out past every other block on the page.
+     */
+    private const val CODE_INDENT = " "
+
     /** Beyond this a table cell is a paragraph, and padding it out would waste more than it buys. */
     private const val MAX_CELL_WIDTH = 200
 
     /**
-     * Blank columns kept either side of a cell's text.
+     * The blank column kept past the end of a cell's text.
      *
-     * One, plus the space the cell's own pipe leaves: three between one cell's text and the next,
-     * which is enough to read as a gap without turning a table of short words into a table of
-     * mostly whitespace. What makes a cell easy to tap is its height, not its width.
+     * One, which is what makes a cell's padding the same on both sides. Its rules are drawn down
+     * the *left* edge of the blank each pipe became, so the cell to the right of one starts a full
+     * column in from it — and this is what buys the cell to the left of one the same column back.
      */
     private const val CELL_PAD = 1
 
@@ -198,10 +220,13 @@ object MarkdownRenderer {
         val edits = ArrayList<MdEdit>()
         val styles = ArrayList<MdStyleRange>()
         val decorations = ArrayList<MdDecoration>()
+        val gaps = ArrayList<MdStyleRange>()
         val lines = Lines(markdown)
+        val units = units(lines)
 
         var k = 0
         while (k < lines.count) {
+            gapBefore(lines, units, k, edits, gaps)
             k = when {
                 MarkdownParser.FENCE.matchEntire(lines.text(k)) != null ->
                     planFence(markdown, lines, k, edits, styles, decorations)
@@ -219,7 +244,12 @@ object MarkdownRenderer {
 
         val result = MarkdownRenderPlan(
             edits = edits,
-            styles = styles.map { it.mapped(edits) },
+            // The gaps go on last so that nothing overrides them. A line's own style opens *before*
+            // whatever was inserted at its first offset — that is what gets a cell's padding set in
+            // the cell's face — and the blank line above a list item is inserted at exactly that
+            // offset, so the item's monospace blank reached back over the gap and made it as tall
+            // as a line of code. Applied afterwards, the gap's own size is the one that stands.
+            styles = (styles + gaps).map { it.mapped(edits) },
             decorations = decorations.map { it.mapped(edits) },
         )
         lastSource = markdown
@@ -338,17 +368,125 @@ object MarkdownRenderer {
     }
 
     /**
-     * Puts a blank line at [anchor] to hold a block off whatever is next to it.
+     * Puts a blank line at [anchor] to hold whatever starts there off what came before it.
      *
-     * A real inserted newline, kept short by the style on it. The alternative — drawing the box
-     * smaller than the lines it covers — has nothing to give: one line box begins exactly where the
-     * last one ended, so any margin has to be a line.
+     * A real inserted newline, kept short by the style on it. The alternative — leaning on the
+     * terminator of the line above, as this used to — cannot be aimed: the space it makes lands on
+     * that terminator's own visual line, which is the last line of a paragraph that wrapped, so the
+     * gap opened *inside* a long list item rather than after it. A line of its own always falls
+     * between the two paragraphs, however either of them wraps.
      */
-    private fun gap(anchor: Int, edits: MutableList<MdEdit>, styles: MutableList<MdStyleRange>) {
+    private fun gap(
+        anchor: Int,
+        style: MdStyle,
+        edits: MutableList<MdEdit>,
+        gaps: MutableList<MdStyleRange>,
+    ) {
         edits += MdEdit(anchor, anchor, "\n")
         // Zero characters of source, which maps to exactly the newline just inserted: the start of
         // a style range falls before an insertion at its offset and the end falls after it.
-        styles += MdStyleRange(anchor, anchor, MdStyle.BLOCK_GAP)
+        gaps += MdStyleRange(anchor, anchor, style)
+    }
+
+    /** What every line of a drawn block belongs to, and the one unit that never absorbs a gap. */
+    private const val BLOCK_UNIT = "block"
+
+    /**
+     * What a list item's unit begins with, whatever marker follows.
+     *
+     * Items of one list are still a list — they are spaced closer to each other than to anything
+     * around them — but not one paragraph: a list of one-line items set solid reads as a block of
+     * text rather than as a list of things.
+     */
+    private const val LIST_UNIT = "list "
+
+    /**
+     * What each line belongs to, for the sole purpose of deciding what goes above it.
+     *
+     * Two lines carrying the same unit are one paragraph and get no space between them; that is
+     * what makes a list read as a list rather than as a stack of one-line paragraphs. Ordinary
+     * lines each get a unit of their own, so no two of them ever match.
+     */
+    private fun units(lines: Lines): Array<String> {
+        val out = Array(lines.count) { "" }
+
+        var k = 0
+        while (k < lines.count) {
+            val line = lines.text(k)
+            // The same order [plan] dispatches in, or a line would be spaced as one thing and
+            // rendered as another — `- - -` is a rule, not the first item of a list.
+            k = when {
+                MarkdownParser.FENCE.matchEntire(line) != null -> {
+                    var close = k + 1
+                    while (close < lines.count && MarkdownParser.FENCE.matchEntire(lines.text(close)) == null) close++
+                    block(out, k, close)
+                }
+
+                line.trim() == "$$" -> {
+                    var close = k + 1
+                    while (close < lines.count && lines.text(close).trim() != "$$") close++
+                    block(out, k, close)
+                }
+
+                lines.startsTable(k) -> {
+                    var last = k + 1
+                    while (last + 1 < lines.count && lines.text(last + 1).contains('|')) last++
+                    block(out, k, last)
+                }
+
+                MarkdownParser.RULE.matches(line) -> block(out, k, k)
+
+                else -> {
+                    // Keyed on the marker, because that is what CommonMark calls a list: `- a`
+                    // followed by `1. b` is two lists, and two lists want a space between them.
+                    out[k] = when {
+                        MarkdownParser.TASK.matchEntire(line) != null ||
+                            MarkdownParser.BULLET.matchEntire(line) != null ->
+                            "$LIST_UNIT${line.trimStart().first()}"
+
+                        MarkdownParser.ORDERED.matchEntire(line) != null -> "${LIST_UNIT}1"
+                        MarkdownParser.QUOTE.matchEntire(line) != null -> "quote"
+                        else -> "line $k"
+                    }
+                    k + 1
+                }
+            }
+        }
+        return out
+    }
+
+    /** Marks `[first, last]` as one block and returns the line after it. */
+    private fun block(out: Array<String>, first: Int, last: Int): Int {
+        val end = minOf(last, out.size - 1)
+        for (k in first..end) out[k] = BLOCK_UNIT
+        return end + 1
+    }
+
+    /**
+     * Opens whatever space belongs above line [k].
+     *
+     * Nothing above the first line of the document: a blank line at the top of a note is not a
+     * margin, it is a blank line.
+     */
+    private fun gapBefore(
+        lines: Lines,
+        units: Array<String>,
+        k: Int,
+        edits: MutableList<MdEdit>,
+        gaps: MutableList<MdStyleRange>,
+    ) {
+        if (k == 0) return
+        val above = units[k - 1]
+        val here = units[k]
+        val style = when {
+            above == BLOCK_UNIT || here == BLOCK_UNIT -> MdStyle.BLOCK_GAP
+            above != here -> MdStyle.PARAGRAPH_GAP
+            // The same unit twice over: two items of one list, or two lines of one quotation. A
+            // quotation is prose and is set solid; a list is a column of separate things.
+            here.startsWith(LIST_UNIT) -> MdStyle.LIST_GAP
+            else -> return
+        }
+        gap(lines.start(k), style, edits, gaps)
     }
 
     /** The transformed offset text inserted here should fall *after* — an opening edge. */
@@ -476,19 +614,14 @@ object MarkdownRenderer {
         val lastBody = minOf(close, lines.count) - 1
         val hasBody = lastBody >= open + 1
 
-        if (open > 0) gap(lines.start(open), edits, styles)
-
         val languageStart = if (language.isEmpty()) {
             lines.end(open)
         } else {
             lines.end(open) - lines.text(open).substringAfter("```").trimStart().length
         }
 
-        // The backticks go and nothing takes their place. Code is set flush with the column the
-        // block's own text starts in — its box is drawn wider than the text instead of the text
-        // being pushed inwards, because an indent spelled in spaces is lost the moment a line
-        // wraps, and a wrapped line has to line up with the one it continues.
-        edits += MdEdit(lines.start(open), languageStart, "")
+        // The backticks become the indent that holds the code off the box drawn round it.
+        edits += MdEdit(lines.start(open), languageStart, CODE_INDENT)
         if (language.isNotEmpty()) {
             val languageEnd = languageStart + language.length
             // Trailing whitespace after the word goes too, or the header chip is drawn round a
@@ -499,6 +632,9 @@ object MarkdownRenderer {
 
         leading(lines, open, styles, MdStyle.LEADING_TIGHT)
         for (k in open + 1..lastBody) {
+            edits += MdEdit(lines.start(k), lines.start(k), CODE_INDENT)
+            // The range opens before that insertion, so the indent is set in the block's own face
+            // and comes out the same width on every line whatever the line starts with.
             styles += MdStyleRange(lines.start(k), lines.end(k), MdStyle.FENCE)
             leading(lines, k, styles, MdStyle.LEADING_TIGHT)
         }
@@ -506,12 +642,7 @@ object MarkdownRenderer {
         // Tokens after the block styles, so their colours win where the two overlap.
         if (hasBody) highlight(source, language, lines.start(open + 1), lines.end(lastBody), styles)
 
-        if (close < lines.count) {
-            edits += MdEdit(lines.start(close), lines.endInclusive(close), "")
-            if (lines.endInclusive(close) < lines.source.length) {
-                gap(lines.endInclusive(close), edits, styles)
-            }
-        }
+        if (close < lines.count) edits += MdEdit(lines.start(close), lines.endInclusive(close), "")
 
         decorations += MdCodeBlock(
             start = lines.start(open),
@@ -542,7 +673,7 @@ object MarkdownRenderer {
         edits += MdEdit(lines.start(open), lines.endInclusive(open), "")
         for (k in open + 1 until minOf(close, lines.count)) {
             styles += MdStyleRange(lines.start(k), lines.end(k), MdStyle.MATH)
-            leading(lines, k, styles, MdStyle.LEADING)
+            leading(lines, k, styles, MdStyle.LEADING_TIGHT)
         }
         if (close < lines.count) edits += MdEdit(lines.start(close), lines.endInclusive(close), "")
         return close + 1
@@ -578,8 +709,12 @@ object MarkdownRenderer {
      * Cells are still padded to a common width — nothing but monospace padding can make columns line
      * up, because it is the *text* that has to line up. What is gone is every character pretending
      * to be a border: each `|` becomes a single space, one-for-one so that every offset inside the
-     * table survives, and the delimiter row is hidden outright. Real lines are drawn down the middle
-     * of those spaces and under the header, from [MdTable].
+     * table survives, and the delimiter row is hidden outright. Real lines are drawn down the left
+     * edge of those spaces and under the header, from [MdTable].
+     *
+     * The box therefore sits exactly on the column the document is set in — the blank a row's own
+     * opening pipe left behind is what holds the first cell off it. A code block is indented to
+     * match, by one column of the same monospace face; see `CODE_INDENT`.
      *
      * The cost is that alignment colons are unreachable in the formatted view. They are pure
      * formatting, they are still in the source, and source mode still shows them.
@@ -600,23 +735,19 @@ object MarkdownRenderer {
 
         val columns = rows.maxOf { it.size }
         val widths = IntArray(columns)
-        val occupied = IntArray(columns)
         for ((index, row) in rows.withIndex()) {
             if (index == 1) continue // the delimiter row sizes itself to whatever the others need
             row.forEachIndexed { column, cell ->
-                widths[column] = maxOf(widths[column], trimmedLength(source, cell))
-                occupied[column] = maxOf(occupied[column], cell.last + 1 - cell.first)
+                widths[column] = maxOf(widths[column], renderedWidth(source, cell))
             }
         }
+        // A column is its widest cell plus one blank column. Every cell's own leading blanks are
+        // struck out, so each starts exactly one column in from the rule to its left, and the
+        // trailing blank leaves the widest of them exactly one column short of the rule to its
+        // right. Padding is only ever added, never taken away, so nothing is squeezed by this.
         for (column in widths.indices) {
-            // A column is as wide as its widest text plus its padding, but never narrower than the
-            // widest cell already is: nothing is taken away from a cell, only added to it, and a
-            // column that tried to shrink one would stop lining up with the rest.
-            val wanted = minOf(widths[column] + CELL_PAD * 2, MAX_CELL_WIDTH)
-            widths[column] = if (occupied[column] > MAX_CELL_WIDTH) 0 else maxOf(wanted, occupied[column])
+            widths[column] = if (widths[column] > MAX_CELL_WIDTH) 0 else widths[column] + CELL_PAD
         }
-
-        if (first > 0) gap(lines.start(first), edits, styles)
 
         val rowRanges = ArrayList<IntRange>(rows.size - 1)
         val stops = ArrayList<Int>()
@@ -632,9 +763,10 @@ object MarkdownRenderer {
                 lines.start(k), lines.end(k),
                 if (index == 0) MdStyle.TABLE_HEADER else MdStyle.TABLE,
             )
-            // Rows were the one kind of line with no leading at all, which made a cell a hair
-            // taller than its text and no easier to hit than the border above it.
-            leading(lines, k, styles, MdStyle.LEADING)
+            // Rows were the one kind of line with no leading at all, which made a cell exactly as
+            // tall as its text: no padding above or below it, and no easier to hit than the rule
+            // drawn across the top of it.
+            leading(lines, k, styles, MdStyle.LEADING_CELL)
             rowRanges += lines.start(k)..lines.end(k)
 
             var pipe = lines.start(k)
@@ -648,17 +780,13 @@ object MarkdownRenderer {
                 }
                 if (column < row.size && pipe == row[column].first) {
                     val cell = row[column]
-                    padCell(source, cell, widths.getOrElse(column) { trimmedLength(source, cell) + 2 }, edits)
+                    padCell(source, cell, widths.getOrElse(column) { renderedWidth(source, cell) }, edits)
                     pipe = cell.last + 1
                     column++
                     continue
                 }
                 pipe++
             }
-        }
-
-        if (lines.endInclusive(last) < lines.source.length) {
-            gap(lines.endInclusive(last), edits, styles)
         }
 
         decorations += MdTable(
@@ -696,37 +824,53 @@ object MarkdownRenderer {
     }
 
     /**
-     * Pads one cell out to [target] characters — by **adding** blanks and never by moving any.
+     * Renders one cell [target] characters wide: its own blanks struck off both ends, the shortfall
+     * added back after the text.
      *
-     * This is the difference between a cell that behaves like a field and one that does not. A cell
-     * is padded so its column lines up, and the padding used to be a *replacement* of whatever
-     * whitespace the source held. Compose maps a caret sitting at either end of a replaced run to
-     * the far end of the replacement, so the cursor in an empty cell was drawn hard against the
-     * cell's right border, and the cursor after a word was drawn past the blanks that followed it —
-     * there was no offset in the document that meant "here, at the start of this empty cell".
+     * Whatever a cell was written with — `| a |`, `|a|`, `|   a  |` — reads the same, which is what
+     * lets the rules be drawn a fixed distance from the text rather than at whatever distance the
+     * author happened to type. One blank column is what is left on each side, and one column of the
+     * table's monospace face is about eight dp. It also leaves nowhere inside a cell for a caret to
+     * hide: there is no offset past the end of the text that is on screen to be tapped.
      *
-     * Inserted blanks have no such trouble: every character the user typed still maps exactly where
-     * it is, and the padding falls either side of the caret rather than swallowing it. The cost is
-     * that whitespace the author put inside a cell is theirs and stays — a cell written `|  a|`
-     * keeps both spaces — so the text in a column can sit a space off its neighbours.
+     * The shortfall is *added* rather than substituted, which is the difference between a cell that
+     * behaves like a field and one that does not. Compose maps a caret sitting in a replaced run to
+     * the far end of the replacement, so a cell padded by replacement drew its cursor hard against
+     * the right border with no offset in the document meaning "here, at the start". Blanks struck
+     * out have the opposite pull — every offset inside them maps to where the text is — so both
+     * ends of a cell hold a caret exactly where it was put.
      */
     private fun padCell(source: String, cell: IntRange, target: Int, edits: MutableList<MdEdit>) {
-        val from = cell.first
-        val to = cell.last + 1
-        val width = to - from
+        val text = textIn(source, cell)
+        if (text.first > cell.first) edits += MdEdit(cell.first, text.first, "")
+        if (text.last + 1 <= cell.last) edits += MdEdit(text.last + 1, cell.last + 1, "")
 
-        var leading = 0
-        while (from + leading < to && source[from + leading] == ' ') leading++
-
-        // A cell with no room to breathe gets an indent; one that already has the space keeps it.
-        val indent = (CELL_PAD - leading).coerceAtLeast(0)
-        if (indent > 0) edits += MdEdit(from, from, pad(indent))
-        val fill = target - width - indent
-        if (fill > 0) edits += MdEdit(to, to, pad(fill))
+        val fill = target - (text.last + 1 - text.first)
+        if (fill > 0) edits += MdEdit(cell.last + 1, cell.last + 1, pad(fill))
     }
 
-    private fun trimmedLength(source: String, cell: IntRange): Int =
-        source.substring(cell.first, cell.last + 1).trim().length
+    /**
+     * The part of a cell that stays on screen: everything but the blanks at either end.
+     *
+     * A cell of nothing but blanks keeps one of them. A run struck out whole has no offset inside
+     * it for a caret to rest at, and the inside of an empty cell is exactly where a caret goes.
+     */
+    private fun textIn(source: String, cell: IntRange): IntRange {
+        val to = cell.last + 1
+        var from = cell.first
+        while (from < to && source[from] == ' ') from++
+        if (from >= to) return cell.first..cell.first.coerceAtMost(cell.last)
+        var end = to
+        while (end > from && source[end - 1] == ' ') end--
+        return from..(end - 1)
+    }
+
+    /** How wide a cell ends up on screen before its column is squared off. */
+    private fun renderedWidth(source: String, cell: IntRange): Int {
+        if (cell.isEmpty()) return 0
+        val text = textIn(source, cell)
+        return text.last + 1 - text.first
+    }
 
     private fun pad(n: Int): String = if (n <= 0) "" else " ".repeat(n)
 
@@ -743,7 +887,6 @@ object MarkdownRenderer {
         val start = lines.start(k)
         val end = lines.end(k)
         val line = lines.text(k)
-        leading(lines, k, styles, MdStyle.LEADING)
         if (line.isBlank()) return
 
         // The line is emptied rather than filled with dashes: a rule is drawn across the whole page

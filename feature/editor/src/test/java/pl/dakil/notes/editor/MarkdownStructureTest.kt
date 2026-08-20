@@ -114,8 +114,8 @@ class MarkdownStructureTest {
         val row = apply(source, second).lastIndexOf('\n') + 1
 
         // The caret lands in the cell under the one it was in, where that cell's text starts.
-        assertEquals(6, second.caret - row)
-        assertEquals(2, first.caret - row)
+        assertEquals(5, second.caret - row)
+        assertEquals(1, first.caret - row)
     }
 
     @Test
@@ -201,8 +201,9 @@ class MarkdownStructureTest {
     @Test
     fun `an empty cell takes the caret at its left edge`() {
         val source = "|     | b |\n| --- | --- |"
-        // One space in from the pipe, which is where a cell's text starts.
-        assertEquals(2, MarkdownStructure.cellCaret(source, 4))
+        // Hard against the pipe, which is where a cell's text starts: the blanks an author left
+        // inside one are struck out of the rendering and the padding is drawn instead.
+        assertEquals(1, MarkdownStructure.cellCaret(source, 4))
     }
 
     @Test

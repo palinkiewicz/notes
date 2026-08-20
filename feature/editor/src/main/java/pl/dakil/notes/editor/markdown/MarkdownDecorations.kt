@@ -67,26 +67,41 @@ fun rememberMarkdownDecorationPalette(): MarkdownDecorationPalette {
 }
 
 /**
- * How far a drawn block reaches above its first line and below its last.
+ * How far a code block reaches above its first line and below its last.
  *
- * Its internal padding, in other words. The lines themselves are packed tight — a code block is
- * meant to look dense — so the air has to come from the box being drawn slightly larger than the
- * text it holds. Kept small deliberately: there is no gap between one line box and the next, so
- * every pixel of this is drawn over the line above, and a block written directly under a paragraph
- * would otherwise clip its last row of glyphs. The header strip is measured against this too, so
- * the button floated into it knows where the strip's top edge is.
+ * Its vertical padding, drawn rather than typed: the lines of a block are packed tight, so the air
+ * round the code has to come from the box being larger than the text it holds. There is no gap
+ * between one line box and the next, so every pixel of this is painted over the line above — which
+ * is why a block always has a blank line of its own above and below it. The header strip is
+ * measured against this too, so the button floated into it knows where its top edge is.
  */
-val BlockPadding = 3.dp
+val BlockPadding = 4.dp
 
 /**
- * How far a code block's box reaches past the text on either side.
+ * How far drawn block geometry is allowed to reach past the text column.
  *
- * The block's internal horizontal padding, drawn rather than typed. Code sits in the same column as
- * everything else in the document — an indent made of spaces would be dropped by every wrapped
- * line — so the padding has to come from the box being wider than its contents. `TextNoteScreen`
- * clips the decoration layer to exactly this much overhang.
+ * A border's own stroke width and nothing more. Every block — a code block, a table — is drawn
+ * flush with the column the document is set in, which is what puts them all at one indent, and the
+ * air inside each comes from its contents being held a column off its own border. `TextNoteScreen`
+ * clips the decoration layer to this much overhang, which is what keeps a one-dp outline from
+ * being shaved in half at the margins.
  */
-val CodeInset = 8.dp
+val BlockBleed = 1.dp
+
+/**
+ * How far a table's rules are dropped past the line boxes they divide.
+ *
+ * A cell's height is its line's height, and a line's spare room lands above the text rather than
+ * below it — that is where font metrics put it, and a text field offers no say in the matter. Left
+ * alone, every cell would carry all eight dp of its padding on top and none at all underneath.
+ * Moving every rule down by half of it hands that surplus to the row above, and each cell ends up
+ * with the same air over its text as under it.
+ *
+ * Two rather than the four the padding is: a line's surplus is not all of it above the text, and
+ * this is half of what is actually there — measured on screen, because the split follows the
+ * ascent and descent of whatever face the cell is set in.
+ */
+val CellDrop = 2.dp
 
 /**
  * Draws the shapes a Markdown document asks for, behind its text.
@@ -129,9 +144,8 @@ private fun DrawScope.drawCodeBlock(
     val bottom = layout.getLineBottom(last) + BlockPadding.toPx()
     val headerBottom = layout.getLineBottom(first)
     val radius = CornerRadius(10.dp.toPx())
-    val inset = CodeInset.toPx()
-    val corner = Offset(-inset, top)
-    val outline = Size(size.width + inset * 2, bottom - top)
+    val corner = Offset(0f, top)
+    val outline = Size(size.width, bottom - top)
 
     drawRoundRect(palette.codeBackground, corner, outline, radius)
     // The header takes the block's own rounded corners by being the same shape, drawn again and
@@ -160,8 +174,8 @@ private fun DrawScope.drawCodeBlock(
 
     drawLine(
         color = palette.border,
-        start = Offset(-inset, headerBottom),
-        end = Offset(size.width + inset, headerBottom),
+        start = Offset(0f, headerBottom),
+        end = Offset(size.width, headerBottom),
         strokeWidth = 1.dp.toPx(),
     )
     drawRoundRect(palette.border, corner, outline, radius, style = Stroke(1.dp.toPx()))
@@ -195,28 +209,28 @@ class MdTableGrid(
 /**
  * The grid this table wants drawn, or null when the layout cannot say yet.
  *
- * [padding] is how far the box reaches past its text — [BlockPadding] in pixels — passed in rather
- * than resolved here so the composables that place controls can ask the same question a draw scope
- * does without being one.
+ * [drop] is how far every horizontal rule is moved down past the line box above it — [CellDrop] in
+ * pixels — passed in rather than resolved here so the composables that place controls can ask the
+ * same question a draw scope does without being one.
  */
-fun MdTable.gridIn(layout: TextLayoutResult, padding: Float): MdTableGrid? {
+fun MdTable.gridIn(layout: TextLayoutResult, drop: Float): MdTableGrid? {
     if (rows.isEmpty()) return null
     val first = layout.lineOf(start)
     val last = layout.lineOf(end)
-    val top = layout.getLineTop(first) - padding
-    val bottom = layout.getLineBottom(last) + padding
+    val top = layout.getLineTop(first) + drop
+    val bottom = layout.getLineBottom(last) + drop
 
     val header = rows.first()
     // The outer border follows the table's own pipes where it has them: a `| a | b |` row already
-    // says where its edges are, and a box drawn to the page margin instead would leave the last
-    // column's rule floating short of it.
+    // says where its edges are, and the blank each of those pipes left behind is what holds the
+    // cells beside it a column clear of the border.
     val left = if (columnStops.firstOrNull() == header.first) {
-        layout.centerX(header.first)
+        layout.leftX(header.first)
     } else {
         layout.getLineLeft(first)
     }
     val right = if (columnStops.lastOrNull() == header.last - 1) {
-        layout.centerX(header.last - 1)
+        layout.leftX(header.last - 1)
     } else {
         layout.getLineRight(first)
     }
@@ -229,7 +243,7 @@ fun MdTable.gridIn(layout: TextLayoutResult, padding: Float): MdTableGrid? {
     val inner = if (wrapped) {
         emptyList()
     } else {
-        columnStops.map { layout.centerX(it) }.filter { it > left + 2f && it < right - 2f }
+        columnStops.map { layout.leftX(it) }.filter { it > left + 2f && it < right - 2f }
     }
 
     return MdTableGrid(
@@ -238,7 +252,9 @@ fun MdTable.gridIn(layout: TextLayoutResult, padding: Float): MdTableGrid? {
         top = top,
         bottom = bottom,
         columns = listOf(left) + inner + listOf(right),
-        rows = listOf(top) + rows.dropLast(1).map { layout.getLineBottom(layout.lineOf(it.last)) } + bottom,
+        rows = listOf(top) +
+            rows.dropLast(1).map { layout.getLineBottom(layout.lineOf(it.last)) + drop } +
+            bottom,
     )
 }
 
@@ -254,10 +270,10 @@ fun MdTableGrid.centreOf(border: MdBorder): Offset? =
 fun List<MdDecoration>.buttonCentre(
     border: MdBorder,
     layout: TextLayoutResult,
-    padding: Float,
+    drop: Float,
 ): Offset? {
     val table = firstOrNull { it is MdTable && it.sourceStart == border.table } as? MdTable ?: return null
-    return table.gridIn(layout, padding)?.centreOf(border)
+    return table.gridIn(layout, drop)?.centreOf(border)
 }
 
 /**
@@ -269,13 +285,13 @@ fun List<MdDecoration>.buttonCentre(
  */
 fun List<MdDecoration>.borderAt(
     layout: TextLayoutResult,
-    padding: Float,
+    drop: Float,
     tolerance: Float,
     at: Offset,
 ): MdBorder? {
     for (decoration in this) {
         if (decoration !is MdTable) continue
-        val grid = decoration.gridIn(layout, padding) ?: continue
+        val grid = decoration.gridIn(layout, drop) ?: continue
         if (at.y < grid.top - tolerance || at.y > grid.bottom + tolerance) continue
         if (at.x < grid.left - tolerance || at.x > grid.right + tolerance) continue
 
@@ -297,7 +313,7 @@ private fun DrawScope.drawTable(
     palette: MarkdownDecorationPalette,
     focused: MdBorder?,
 ) {
-    val grid = table.gridIn(layout, BlockPadding.toPx()) ?: return
+    val grid = table.gridIn(layout, CellDrop.toPx()) ?: return
     val stroke = 1.dp.toPx()
     val radius = CornerRadius(6.dp.toPx())
     val outline = Size(grid.right - grid.left, grid.bottom - grid.top)
@@ -363,10 +379,16 @@ internal val TextLayoutResult.length: Int get() = layoutInput.text.length
 internal fun TextLayoutResult.lineOf(offset: Int): Int =
     getLineForOffset(offset.coerceIn(0, length))
 
-/** The middle of the character at [offset] — where a rule replacing it should be drawn. */
-internal fun TextLayoutResult.centerX(offset: Int): Float {
+/**
+ * The leading edge of the character at [offset] — where a rule replacing it should be drawn.
+ *
+ * The leading edge rather than the middle, so that the blank a pipe became falls entirely on one
+ * side of the rule. That blank is the padding of the cell to the right of it; the blank column
+ * kept past the end of every cell's text is the padding of the cell to the left. Drawn down the
+ * middle, each side would get half a column and a cell would look like it began with a space.
+ */
+internal fun TextLayoutResult.leftX(offset: Int): Float {
     val at = offset.coerceIn(0, length)
     if (at >= length) return getHorizontalPosition(at, true)
-    val box = getBoundingBox(at)
-    return (box.left + box.right) / 2f
+    return getBoundingBox(at).left
 }

@@ -412,12 +412,14 @@ object MarkdownStructure {
     /**
      * Where the cell containing [offset] can be typed in.
      *
-     * The start is past the opening pipe and the space that follows it — where a padded cell's text
-     * begins — unless the cell is too narrow for that, in which case it is the cell's own end.
+     * The start is the first character past the opening pipe, which is where a cell's text begins:
+     * the renderer strikes out whatever blanks the author left at either end and draws the padding
+     * instead. Counting the old leading space in as well put the caret of an empty cell a whole
+     * column further in than its text would be — a cell that looked like it already held a space.
      */
     private fun cellRange(row: String, offset: Int): IntRange {
         val (open, close) = pipesAround(row, offset)
-        return minOf(open + 2, close)..close
+        return minOf(open + 1, close)..close
     }
 
     /** Everything between the pipes: the cell's text and whatever blanks pad it out. */

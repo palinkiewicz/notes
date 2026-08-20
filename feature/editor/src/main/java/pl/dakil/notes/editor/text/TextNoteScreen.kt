@@ -82,11 +82,13 @@ import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MarkdownStructure
 import pl.dakil.notes.editor.markdown.MdBorder
 import pl.dakil.notes.editor.markdown.MdCodeBlock
+import pl.dakil.notes.editor.markdown.MdDecoration
 import pl.dakil.notes.editor.markdown.MdQuote
 import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdTable
 import pl.dakil.notes.editor.markdown.MdTask
-import pl.dakil.notes.editor.markdown.CodeInset
+import pl.dakil.notes.editor.markdown.CellDrop
+import pl.dakil.notes.editor.markdown.BlockBleed
 import pl.dakil.notes.editor.markdown.borderAt
 import pl.dakil.notes.editor.markdown.buttonCentre
 import pl.dakil.notes.editor.markdown.centreOf
@@ -231,6 +233,25 @@ fun TextNoteScreen(
     }
 }
 
+/**
+ * A layout, and the document it was measured from.
+ *
+ * Kept as one value because using either without the other is a bug: every decoration is placed by
+ * asking the layout where an offset of the *plan* landed, and the two are only ever in step when
+ * they came from the same string. The plan is worked out here rather than in the decorator so that
+ * the renderer's one-slot cache is still warm from the transformation that laid this text out.
+ */
+private class MeasuredMarkdown(
+    val layout: TextLayoutResult,
+    val source: String,
+    sourceMode: Boolean,
+) {
+    // Source mode shows the source, decorations and all left undrawn — a box round the backticks
+    // would be claiming they are not there.
+    val decorations: List<MdDecoration> =
+        if (sourceMode) emptyList() else MarkdownRenderer.plan(source).decorations
+}
+
 @Composable
 private fun MarkdownField(
     viewModel: TextNoteViewModel,
@@ -241,14 +262,14 @@ private fun MarkdownField(
     val colors = MaterialTheme.colorScheme
     val styles = rememberMarkdownStyles()
     val palette = rememberMarkdownDecorationPalette()
-    val transformation = remember(styles) { MarkdownOutputTransformation(styles) }
+    val transformation = remember(styles, sourceMode) { MarkdownOutputTransformation(styles, !sourceMode) }
     val focusRequester = remember { FocusRequester() }
 
     // The field's own scroller, held here rather than left internal: the decorator wraps the
     // viewport and not the text, so anything drawn in it has to be moved by however far the text
     // has slid. Without this the borders stay put while their blocks scroll away from under them.
     val scroll = rememberScrollState()
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var measured by remember { mutableStateOf<MeasuredMarkdown?>(null) }
 
     // Which table border the user has picked out, named by where its table starts in the source.
     // Nothing clears it when the document moves under it: the border is only ever drawn against a
@@ -274,12 +295,12 @@ private fun MarkdownField(
             .focusRequester(focusRequester)
             // Copy and cut have to carry the Markdown away rather than the rendering of it.
             .markdownClipboard(state)
-            // Sides only. There is no top padding because there is nothing to pad against: every
-            // line already carries [MdStyle.LEADING] on its terminator, and a line takes the height
-            // of the tallest thing on it — so the first line arrives with air above it whether or
-            // not this asks for any, and asking anyway put a visible gap under the app bar. A
-            // bottom margin would not be a margin either, but a strip of page the text can never
-            // reach; the bar below already separates the two.
+            // Sides only. There is nothing to pad against at the top: the document's first line
+            // is meant to sit against the app bar, and the blank lines that space paragraphs out
+            // are only ever *between* two of them. Nor at the bottom, where padding would hold a
+            // strip of the viewport permanently empty and show a note in less room than it has —
+            // the room to scroll the last line clear of the bar is a blank line at the foot of the
+            // document instead. See [MarkdownStyles.trailingSpace].
             .padding(horizontal = 20.dp)
             // Inside the padding, so a position here is already in the text's own coordinates.
             // The tap is watched rather than taken: it goes on to place the caret as any other
@@ -287,15 +308,16 @@ private fun MarkdownField(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val result = layout ?: return@awaitEachGesture
-                    val decorations = MarkdownRenderer.plan(state.text.toString()).decorations
+                    val shown = measured ?: return@awaitEachGesture
+                    val result = shown.layout
+                    val decorations = shown.decorations
                     val at = down.position + Offset(0f, scroll.value.toFloat())
-                    val padding = BlockPadding.toPx()
+                    val drop = CellDrop.toPx()
 
                     // The `+` stands on the middle of the border it belongs to, so every tap on it
                     // is also a tap on that border. The button gets it.
                     val open = border
-                    val centre = open?.let { decorations.buttonCentre(it, result, padding) }
+                    val centre = open?.let { decorations.buttonCentre(it, result, drop) }
                     if (centre != null && (at - centre).getDistance() <= InsertButton.toPx() / 2f) {
                         return@awaitEachGesture
                     }
@@ -303,7 +325,7 @@ private fun MarkdownField(
                     // Taking the tap rather than watching it. Letting it through as well would drop
                     // the caret into the nearest cell, and the handle Android draws under a caret
                     // is wide enough to cover the button that is about to appear.
-                    val hit = decorations.borderAt(result, padding, BorderTouch.toPx(), at)
+                    val hit = decorations.borderAt(result, drop, BorderTouch.toPx(), at)
                     if (hit == null) {
                         // Anywhere else puts the last border back the way it was, which is the only
                         // way out of the focused state that does not need a control of its own. The
@@ -339,36 +361,42 @@ private fun MarkdownField(
             KeepBlocksIntact.then(ListIndent).then(InsertTableRow).then(ContinueList)
                 .then(KeepFenceIntact)
         },
-        // Null in source mode: that *is* the source, unchanged and unhidden.
-        outputTransformation = if (sourceMode) null else transformation,
+        // Present in source mode too, though it renders nothing there: it is also what keeps the
+        // blank line at the foot of the document, and the page has the same bottom in both views.
+        outputTransformation = transformation,
         scrollState = scroll,
-        onTextLayout = { result -> layout = result() },
+        // The plan is captured here rather than read from the document, so that whatever is drawn
+        // over the text is drawn from the offsets this very layout was built out of. A layout
+        // arrives a frame after the edit that caused it — `onTextLayout` runs in the layout phase,
+        // by which time the composition that changed the document has been and gone — so a
+        // decoration placed by the new plan against the old layout is placed wrong for exactly one
+        // frame. That frame is what made a checkbox jump to the line above on a backspace.
+        onTextLayout = { result ->
+            val source = state.text.toString()
+            measured = result()?.let { MeasuredMarkdown(it, source, sourceMode) }
+        },
         decorator = TextFieldDecorator { field ->
             val text = state.text.toString()
             // Read here rather than in the field's body: the decoration is recomposed as the
             // document changes anyway, and the table menu has to know which cell it would act on.
             val caret = state.selection.start
-            // Source mode shows the source, decorations and all left undrawn — a box round the
-            // backticks would be claiming they are not there.
-            val plan = if (sourceMode) null else MarkdownRenderer.plan(text)
+            val shown = measured
 
             Box(
                 Modifier
                     .fillMaxWidth()
                     .drawBehind {
-                        val result = layout ?: return@drawBehind
-                        val decorations = plan?.decorations ?: return@drawBehind
-                        // Clipped by hand rather than with `clipToBounds`, and a little wider than
-                        // the text: a code block's box has to sit outside the column its code is
-                        // set in, because the code cannot be moved inwards. An indent made of
-                        // spaces is lost the moment a line wraps, and a wrapped line that starts
-                        // under the border instead of under its own first character is worse than
-                        // no padding at all. Vertically it clips exactly, so nothing a scroll has
-                        // taken off the top is painted over the bar above.
+                        val result = shown?.layout ?: return@drawBehind
+                        val decorations = shown.decorations
+                        // Clipped by hand rather than with `clipToBounds`, and by a hair's breadth
+                        // wider than the text: a block's box is drawn flush with the text column,
+                        // so half of its one-dp outline falls outside it and would be shaved off.
+                        // Vertically it clips exactly, so nothing a scroll has taken off the top is
+                        // painted over the bar above.
                         clipRect(
-                            left = -CodeInset.toPx(),
+                            left = -BlockBleed.toPx(),
                             top = 0f,
-                            right = size.width + CodeInset.toPx(),
+                            right = size.width + BlockBleed.toPx(),
                             bottom = size.height,
                         ) {
                             translate(top = -scroll.value.toFloat()) {
@@ -386,10 +414,11 @@ private fun MarkdownField(
                     )
                 }
                 field()
-                layout?.let { result ->
-                    plan?.decorations?.forEach { decoration ->
+                if (shown != null) {
+                    val result = shown.layout
+                    shown.decorations.forEach { decoration ->
                         when (decoration) {
-                            is MdCodeBlock -> CopyCodeButton(decoration, result, text, scroll.value)
+                            is MdCodeBlock -> CopyCodeButton(decoration, result, shown.source, scroll.value)
                             is MdTask -> TaskCheckbox(decoration, result, scroll.value) {
                                 toggleTask(state, decoration)
                             }
@@ -591,7 +620,7 @@ private fun BoxScope.TableMenuButton(
     onAction: (TableAction) -> Unit,
 ) {
     val density = LocalDensity.current
-    val grid = table.gridIn(layout, with(density) { BlockPadding.toPx() }) ?: return
+    val grid = table.gridIn(layout, with(density) { CellDrop.toPx() }) ?: return
     val header = grid.rows.getOrNull(1) ?: grid.bottom
     var expanded by remember { mutableStateOf(false) }
 
@@ -642,7 +671,7 @@ private fun BoxScope.TableInsertButton(
 ) {
     val here = focused?.takeIf { it.table == table.sourceStart } ?: return
     val density = LocalDensity.current
-    val grid = table.gridIn(layout, with(density) { BlockPadding.toPx() }) ?: return
+    val grid = table.gridIn(layout, with(density) { CellDrop.toPx() }) ?: return
     val at = grid.centreOf(here) ?: return
 
     // No minimum touch target: 48 dp of it would cover most of a small table, and the button is

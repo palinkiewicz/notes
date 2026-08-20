@@ -19,7 +19,18 @@ import pl.dakil.notes.editor.markdown.code.CodeColors
 
 /** One `SpanStyle` per [MdStyle], resolved from the Material theme once and reused per keystroke. */
 @Immutable
-data class MarkdownStyles(private val byStyle: Map<MdStyle, SpanStyle>) {
+data class MarkdownStyles(
+    private val byStyle: Map<MdStyle, SpanStyle>,
+    /**
+     * The blank line kept past the end of the document.
+     *
+     * Not one of the [MdStyle]s: it is nothing to do with what the Markdown means, only with there
+     * being somewhere to scroll to. It is part of the *document* rather than of the field around it
+     * for exactly that reason — padding on the field would hold a strip of the viewport empty at
+     * all times, so a note that fits on one screen would be shown in less room than it has.
+     */
+    val trailingSpace: SpanStyle,
+) {
     // Unstyled rather than absent for a style nobody has given a span to: a new [MdStyle] with no
     // entry here is a paragraph that looks plain, which is a bug someone will notice and fix, and
     // not a note that cannot be opened.
@@ -39,24 +50,38 @@ data class MarkdownStyles(private val byStyle: Map<MdStyle, SpanStyle>) {
  * the shapes a block wants drawn round it — is not applied here at all; a text field cannot draw a
  * box, so `MarkdownDecorations` draws them from the same plan.
  */
-class MarkdownOutputTransformation(private val styles: MarkdownStyles) : OutputTransformation {
+class MarkdownOutputTransformation(
+    private val styles: MarkdownStyles,
+    private val formatted: Boolean,
+) : OutputTransformation {
 
     override fun TextFieldBuffer.transformOutput() {
-        val plan = MarkdownRenderer.plan(toString())
-        for (edit in plan.edits.asReversed()) {
-            replace(edit.start, edit.end, edit.replacement)
+        // Source mode renders nothing: that *is* the source, unchanged and unhidden. It still gets
+        // the trailing line, so the bottom of the page is in the same place in both views.
+        if (formatted) {
+            val plan = MarkdownRenderer.plan(toString())
+            for (edit in plan.edits.asReversed()) {
+                replace(edit.start, edit.end, edit.replacement)
+            }
+            for (range in plan.styles) {
+                if (range.end > range.start) addStyle(styles.spanFor(range.style), range.start, range.end)
+            }
         }
-        for (range in plan.styles) {
-            if (range.end > range.start) addStyle(styles.spanFor(range.style), range.start, range.end)
-        }
+
+        // And a short blank line past the end, so the last line of a note can be scrolled clear of
+        // the bar below it. See [MarkdownStyles.trailingSpace].
+        val end = length
+        replace(end, end, "\n")
+        addStyle(styles.trailingSpace, end, end + 1)
     }
 
     // Two transformations built from the same theme must compare equal, or the field rebuilds its
     // layout on every recomposition.
     override fun equals(other: Any?): Boolean =
-        this === other || (other is MarkdownOutputTransformation && styles == other.styles)
+        this === other ||
+            (other is MarkdownOutputTransformation && styles == other.styles && formatted == other.formatted)
 
-    override fun hashCode(): Int = styles.hashCode()
+    override fun hashCode(): Int = 31 * styles.hashCode() + formatted.hashCode()
 }
 
 @Composable
@@ -83,7 +108,10 @@ fun rememberMarkdownStyles(): MarkdownStyles {
         )
 
         MarkdownStyles(
-            mapOf(
+            // A blank line of a 14 sp face comes out at about 16 dp, which is what holds the last
+            // line of a note off the formatting bar once it has been scrolled to.
+            trailingSpace = SpanStyle(fontSize = 14.sp),
+            byStyle = mapOf(
                 MdStyle.H1 to heading(typography.headlineMedium.fontSize),
                 MdStyle.H2 to heading(typography.headlineSmall.fontSize),
                 MdStyle.H3 to heading(typography.titleLarge.fontSize),
@@ -144,13 +172,20 @@ fun rememberMarkdownStyles(): MarkdownStyles {
                 // hold a predictable width open. See `TASK_BLANK`.
                 MdStyle.TASK_BOX to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
                 // Leading, worn by a line's terminating newline. A line takes the height of the
-                // tallest thing on it, so an oversized newline is space below the line and nothing
-                // else — no glyph to draw, no width, and a taller line keeps its own height.
-                MdStyle.LEADING to SpanStyle(fontSize = 21.sp),
+                // tallest thing on it, so an oversized newline is room on the line and nothing
+                // else — no glyph to draw and no width. Blocks only: see [MdStyle.LEADING_TIGHT].
                 MdStyle.LEADING_TIGHT to SpanStyle(fontSize = 16.sp),
-                // And the blank line that stands between a block and its neighbour, kept to about
-                // half the height of a line of text.
-                MdStyle.BLOCK_GAP to SpanStyle(fontSize = 7.sp),
+                // A table row is as tall as this rather than as tall as its own monospace text, so
+                // that a cell has four dp of air above and below what is written in it. Which side
+                // that air falls on is not up to us — see `CellLift`.
+                MdStyle.LEADING_CELL to SpanStyle(fontSize = 21.sp),
+                // The blank lines standing between one thing and the next, in the three sizes the
+                // document is spaced with: items of one list, two paragraphs, and a drawn block
+                // against whatever it stands beside. A blank line comes out a shade taller than
+                // the face it is set in — 4 sp reads as about 4 dp, 7 sp as about 8.
+                MdStyle.LIST_GAP to SpanStyle(fontSize = 3.5.sp),
+                MdStyle.PARAGRAPH_GAP to SpanStyle(fontSize = 7.sp),
+                MdStyle.BLOCK_GAP to SpanStyle(fontSize = 11.sp),
             )
         )
     }

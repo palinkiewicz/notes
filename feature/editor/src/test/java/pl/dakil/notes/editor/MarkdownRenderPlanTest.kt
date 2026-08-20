@@ -176,8 +176,10 @@ class MarkdownRenderPlanTest {
 
     @Test
     fun `a rule between paragraphs keeps its own line`() {
-        assertEquals("a\n\nb", renderRaw("a\n---\nb"))
-        assertEquals(listOf(MdRule(2)), decorations<MdRule>("a\n---\nb"))
+        // Two blank lines round it, which is the margin a drawn block gets: the rule itself has
+        // no characters left, so the line it stands on is the third of them.
+        assertEquals("a\n\n\n\nb", renderRaw("a\n---\nb"))
+        assertEquals(listOf(MdRule(3)), decorations<MdRule>("a\n---\nb"))
     }
 
     // ---- Fenced code ---------------------------------------------------------------------------
@@ -185,7 +187,9 @@ class MarkdownRenderPlanTest {
     @Test
     fun `a fence keeps its language as a header and drops the backticks`() {
         // The label the reader sees is the language in the source, so editing one edits the other.
-        assertEquals("kotlin\nval x = 1\n", render("```kotlin\nval x = 1\n```"))
+        // Indented by a column, the same step the blank left by a table's opening pipe holds its
+        // first cell off its own border: both boxes are drawn flush with the text column.
+        assertEquals(" kotlin\n val x = 1\n", render("```kotlin\nval x = 1\n```"))
         assertEquals(listOf("kotlin"), styled("```kotlin\nval x = 1\n```", MdStyle.FENCE_HEADER))
     }
 
@@ -207,14 +211,14 @@ class MarkdownRenderPlanTest {
         val rendered = renderRaw(source)
         // Including the blank line: a box drawn round the code has to reach the last line of it,
         // and a blank line in the middle used to break the background in half.
-        assertEquals("\nab\n\ncd", rendered.substring(block.start, block.end))
+        assertEquals(" \n ab\n \n cd", rendered.substring(block.start, block.end))
     }
 
     @Test
     fun `a fence with no language leaves an empty header line to type into`() {
         // The line stays so the caret has somewhere to sit; the placeholder over it is drawn, not
         // typed, so a word entered there lands in the source as the fence's language.
-        assertEquals("\nval x = 1\n", renderRaw("```\nval x = 1\n```"))
+        assertEquals(" \n val x = 1\n", renderRaw("```\nval x = 1\n```"))
         val block = decorations<MdCodeBlock>("```\nval x = 1\n```").single()
         assertEquals(block.headerStart, block.headerEnd)
     }
@@ -232,7 +236,7 @@ class MarkdownRenderPlanTest {
     fun `markdown inside a fence is not interpreted`() {
         // The whole point of a code block is that its contents are quoted, not parsed.
         val source = "```\n# not a heading **not bold**\n```"
-        assertEquals("\n# not a heading **not bold**\n", render(source))
+        assertEquals("\n # not a heading **not bold**\n", render(source))
         assertEquals(emptyList<String>(), styled(source, MdStyle.BOLD))
     }
 
@@ -272,7 +276,7 @@ class MarkdownRenderPlanTest {
     @Test
     fun `an unknown language still renders, just without colour`() {
         val source = "```klingon\nnuqneH\n```"
-        assertEquals("klingon\nnuqneH\n", render(source))
+        assertEquals(" klingon\n nuqneH\n", render(source))
         assertEquals(emptyList<String>(), styled(source, MdStyle.CODE_KEYWORD))
     }
 
@@ -338,6 +342,27 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `a cell begins where its column does, whatever the author spaced it with`() {
+        // The rules are drawn a fixed column out from the text on either side, so the text has to
+        // start and stop at fixed places. Blanks the author typed at either end of a cell are
+        // struck out and the column is squared off with blanks of its own instead; `| a |`, `|a|`
+        // and `|  a  |` then read exactly alike, and nothing on screen sits past the text for a
+        // caret to be dropped into.
+        val rendered = renderRaw("|a|  spaced  |\n| --- | --- |\n|   b | c |").lines()
+        assertEquals(" a  spaced  ", rendered[0])
+        assertEquals(" b  c       ", rendered[1])
+    }
+
+    @Test
+    fun `a cell of nothing but blanks keeps one for a caret to sit in`() {
+        // Struck out whole, it would have no offset inside it at all, and the cursor of an empty
+        // cell would be drawn against the far border with nowhere else to go.
+        val plan = MarkdownRenderer.plan("| a |   |\n| --- | --- |")
+        val struck = plan.edits.filter { it.replacement.isEmpty() && it.end > it.start }
+        assertTrue("the empty cell was struck out whole", struck.none { it.end - it.start == 3 })
+    }
+
+    @Test
     fun `a half-typed table is measured to its last visible row`() {
         // A header and a delimiter and nothing else. The delimiter is hidden, so measuring the box
         // to the last *line* would draw it a row taller than the table it contains.
@@ -364,8 +389,9 @@ class MarkdownRenderPlanTest {
 
     @Test
     fun `text with no markup is left exactly as it is`() {
-        val plain = "Just a sentence.\n\nAnd another one."
-        assertEquals(plain, render(plain))
+        // Two blank lines where the author typed one: a blank is a paragraph like any other, so
+        // it gets space above it and gives the paragraph below it space in turn.
+        assertEquals("Just a sentence.\n\n\n\nAnd another one.", render("Just a sentence.\n\nAnd another one."))
     }
 
     // ---- Spacing -------------------------------------------------------------------------------
@@ -375,7 +401,7 @@ class MarkdownRenderPlanTest {
         // The margin has to be a line: one line box begins exactly where the last one ended, so
         // there is no space to draw a box into. The inserted lines are kept short by their style.
         assertEquals(
-            listOf("before", "", "", "x", "", "after"),
+            listOf("before", "", " ", " x", "", "after"),
             renderRaw("before\n```\nx\n```\nafter").lines(),
         )
     }
@@ -383,7 +409,7 @@ class MarkdownRenderPlanTest {
     @Test
     fun `a block with nothing beside it gets no margin`() {
         // A blank line at the top of a document is not a margin, it is a blank line.
-        assertEquals(listOf("", "x", ""), renderRaw("```\nx\n```").lines())
+        assertEquals(listOf(" ", " x", ""), renderRaw("```\nx\n```").lines())
     }
 
     @Test
@@ -394,22 +420,49 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
-    fun `every line carries its leading on its own newline`() {
-        // Which is what gives the document its line height: a line is as tall as the tallest thing
-        // on it, and this makes the tallest thing the terminator.
-        val source = "one\ntwo\nthree"
-        val rendered = renderRaw(source)
-        val leading = MarkdownRenderer.plan(source).styles.filter { it.style == MdStyle.LEADING }
-        // Two, not three: the last line has no terminator, and nothing below to be spaced from.
-        assertEquals(2, leading.size)
-        for (range in leading) assertEquals("\n", rendered.substring(range.start, range.end))
+    fun `every paragraph but the first opens with a blank line of its own`() {
+        // The space between two paragraphs is a line, not leading hung on the terminator above it.
+        // Leading lands on the terminator's own visual line, which on a paragraph that wrapped is
+        // the last of several — so it opened a gap in the middle of a long list item rather than
+        // after it. A line always falls between the two, however either of them wraps.
+        assertEquals(listOf("one", "", "two", "", "three"), renderRaw("one\ntwo\nthree").lines())
+    }
+
+    @Test
+    fun `a list is spaced tighter inside itself than against what surrounds it`() {
+        // Items of one list are separate things and get a line between them; what stands either
+        // side of the list is further off still, and its line is a taller one.
+        assertEquals(
+            listOf("text", "", "•  one", "", "•  two", "", "after"),
+            renderRaw("text\n- one\n- two\nafter").lines(),
+        )
+        val gaps = MarkdownRenderer.plan("text\n- one\n- two\nafter").styles
+        assertEquals(1, gaps.count { it.style == MdStyle.LIST_GAP })
+        assertEquals(2, gaps.count { it.style == MdStyle.PARAGRAPH_GAP })
+    }
+
+    @Test
+    fun `switching list marker starts a second list`() {
+        // Which is what CommonMark says it is, and two lists want a space between them.
+        assertEquals(
+            listOf("•  one", "", "1. two"),
+            renderRaw("- one\n1. two").lines(),
+        )
+    }
+
+    @Test
+    fun `a task item belongs to the bullet list above it`() {
+        val plan = MarkdownRenderer.plan("- one\n- [ ] two")
+        // One list, so the space between them is a list's own and not a paragraph's.
+        assertEquals(1, plan.styles.count { it.style == MdStyle.LIST_GAP })
+        assertEquals(0, plan.styles.count { it.style == MdStyle.PARAGRAPH_GAP })
     }
 
     @Test
     fun `code keeps the tighter leading`() {
         // A code block is meant to read densely; body spacing inside one would undo that.
         val plan = MarkdownRenderer.plan("```kotlin\nval x = 1\n```")
-        assertEquals(0, plan.styles.count { it.style == MdStyle.LEADING })
+        assertEquals(0, plan.styles.count { it.style == MdStyle.PARAGRAPH_GAP })
         assertEquals(2, plan.styles.count { it.style == MdStyle.LEADING_TIGHT })
     }
 
