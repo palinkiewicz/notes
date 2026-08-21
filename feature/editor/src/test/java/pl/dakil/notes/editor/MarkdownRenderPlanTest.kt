@@ -501,6 +501,34 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `the start of a line maps to the start of the line`() {
+        // The blank line above a paragraph is spelled by rewriting the break above it rather than
+        // by inserting a newline at the paragraph's own first offset. An insertion there would
+        // leave that offset standing on both sides of what went in, and a text field picks the near
+        // side: the caret for the start of the paragraph came out on the blank line above it, at
+        // that blank line's own few pixels of height. Every offset has one place to be.
+        val source = "one\ntwo"
+        val rendered = renderRaw(source)
+        assertEquals("one\n\ntwo", rendered)
+        val edits = MarkdownRenderer.plan(source).edits
+        assertEquals(rendered.indexOf("two"), MarkdownRenderer.transformedOffset(edits, source.indexOf("two")))
+        // And the end of the line above is still the end of the line above.
+        assertEquals(3, MarkdownRenderer.transformedOffset(edits, 3))
+    }
+
+    @Test
+    fun `the line below a block starts where it looks like it starts`() {
+        // The same, where the break above has already gone: a closing fence takes its own newline
+        // with it, so the blank line is made out of the fence's own edit rather than inserted after
+        // it. Nothing may be inserted at a line's first offset, wherever that line stands.
+        val source = "```\nx\n```\nafter"
+        val rendered = renderRaw(source)
+        val edits = MarkdownRenderer.plan(source).edits
+        assertEquals(rendered.indexOf("after"), MarkdownRenderer.transformedOffset(edits, source.indexOf("after")))
+        assertTrue("no gap was left below the block", rendered.endsWith("\n\nafter"))
+    }
+
+    @Test
     fun `the offset mapping never goes backwards`() {
         // A text field rejects a non-monotonic mapping outright, so this is a crash guard rather
         // than a cosmetic one.

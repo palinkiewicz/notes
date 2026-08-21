@@ -62,26 +62,30 @@ object KeepBlocksIntact : InputTransformation {
     }
 
     /**
-     * Narrows [deleted] to the one character the reader could see and meant to remove.
+     * Narrows [deleted] to the one thing the reader could see and meant to remove.
      *
      * Only when hidden syntax was caught up in it — an ordinary deletion is left exactly alone, and
      * so is a marker that is redrawn rather than hidden, because that one is on screen and the list
      * keys downstream are the ones that know what to do with it.
+     *
+     * What the field asks for wherever hidden syntax meets the caret is not a near miss but an
+     * arbitrary range: a keyboard counting in what it can see, told the caret's offset in a document
+     * it cannot, asked for one press of backspace beside a heading and got `\n### Head`. So the
+     * range is not trimmed towards what was asked for — it is worked out again from the caret, by
+     * [MarkdownStructure.backspaceTarget].
      */
     private fun TextFieldBuffer.trimToVisible(before: String, deleted: TextRange) {
-        // A deletion that crosses a line break is two lines being joined, and which of their markers
-        // survives that is [MarkdownStructure.backspaceAt]'s question rather than this one.
-        if (before.substring(deleted.start, deleted.end).contains('\n')) return
         if (!MarkdownRenderer.hidesAnythingIn(before, deleted.start, deleted.end)) return
+        // A deletion that starts at the caret is a forward one, and this knows only what lies behind
+        // a caret. Leaving it be is what it has always done with those.
+        if (deleted.start >= originalSelection.max) return
 
-        val caret = originalSelection.min.coerceIn(deleted.start, deleted.end)
-        // Nothing visible in front of the caret: the run is all syntax, and letting the field have
-        // its way is better than a key that does nothing at all.
-        val at = MarkdownRenderer.lastVisibleBefore(before, deleted.start, caret) ?: return
-        if (deleted.start == at && deleted.end == at + 1) return
+        // Nothing behind the caret but another block's machinery: no better answer than the field's.
+        val aim = MarkdownStructure.backspaceTarget(before, originalSelection.min) ?: return
+        if (deleted.start == aim.start && deleted.end == aim.end) return
 
         revertAllChanges()
-        replace(at, at + 1, "")
-        selection = TextRange(at)
+        replace(aim.start, aim.end, aim.text)
+        selection = TextRange(aim.caret)
     }
 }

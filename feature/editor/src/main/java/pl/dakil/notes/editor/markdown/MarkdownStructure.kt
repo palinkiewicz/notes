@@ -136,6 +136,86 @@ object MarkdownStructure {
     }
 
     /**
+     * The one thing a backspace pressed at [caret] was aimed at, or null when there is nothing here
+     * this can work out better than the field already has.
+     *
+     * A field cannot count in what the reader sees. Standing at the start of `### Heading`, with the
+     * hashes hidden, the keyboard asks for a deletion that runs from the line above to four
+     * characters *into* the word — one press, the heading demoted and `Head` gone with it. So the
+     * question is answered here instead, from the caret alone: the last character in front of it
+     * that is actually on screen is the one that goes, and nothing else does.
+     *
+     * The search stops at the break that opens the caret's line. Further back is another block,
+     * whose own line ends are hidden too, and what a backspace means at *that* edge is
+     * [backspaceAt]'s question rather than this one.
+     */
+    fun backspaceTarget(source: String, caret: Int): MdEditAt? {
+        if (caret !in 1..source.length) return null
+        val lines = MarkdownRenderer.Lines(source)
+        val k = lines.lineOf(caret)
+        val start = lines.start(k)
+        val at = MarkdownRenderer.lastVisibleBefore(source, start - 1, caret)
+        if (at == null) {
+            // The top of the document, with nothing in front of the caret but markup — a note that
+            // opens with a heading, and a caret in front of its first word. There is nothing there
+            // to delete. Taking the markup instead would be a key that removes no text and restyles
+            // text it never touched, so the key does nothing at all, which is what it does at the
+            // start of any other document.
+            if (k == 0) return MdEditAt(caret, caret, "", caret)
+            // Otherwise the break above is hidden too, which means a block is up there and what a
+            // backspace means at its edge is [backspaceAt]'s question rather than this one.
+            return null
+        }
+        // Something on the caret's own line: that character, and only that character.
+        if (at >= start) return MdEditAt(at, at + 1, "", at)
+
+        // Otherwise everything in front of the caret on this line is hidden, and what the reader
+        // can see behind them is the line break itself. Deleting it joins the two lines, which is
+        // what a backspace at the start of a line has always meant.
+        val heading = MarkdownParser.HEADING.matchEntire(lines.text(k))
+        // A heading's hashes are markup only while they stand at the start of a line. Carried into
+        // the middle of one by the join they turn back into text, so the user would see `###`
+        // appear in their document out of a key that deletes. They go with it — which is also what
+        // a word processor does with the style of a paragraph merged into the one above.
+        val join = if (heading != null && k > 0 && lines.text(k - 1).isNotEmpty()) {
+            lines.end(k) - heading.groupValues[2].length
+        } else {
+            start
+        }
+        return MdEditAt(at, join, "", at)
+    }
+
+    /**
+     * The emphasis markers left holding nothing once [at] had its text deleted out of it, or null.
+     *
+     * Bold is a pair of markers with a word between them, and deleting the word leaves the pair.
+     * They are hidden while they have something to style and are nothing of the kind once they do
+     * not: `****` is not an empty bold run to the parser, it is four asterisks, so what the user
+     * gets for deleting their own word is four characters they never typed appearing in its place.
+     * Styling only exists to be worn by text, so when the last of the text goes, it goes too.
+     *
+     * [before] is the document as it was, and is what says whether these characters were styling at
+     * all: markers the renderer had hidden were doing that job, and a pair of asterisks it left on
+     * screen was always just a pair of asterisks and is the user's to keep.
+     */
+    fun strandedMarkers(before: String, after: String, at: Int): MdEditAt? {
+        for (marker in MARKERS) {
+            val open = at - marker.length
+            if (open < 0 || at + marker.length > after.length) continue
+            if (!after.startsWith(marker, open) || !after.startsWith(marker, at)) continue
+            if (!MarkdownRenderer.hidesAnythingIn(before, open, at)) continue
+            return MdEditAt(open, at + marker.length, "", open)
+        }
+        return null
+    }
+
+    /**
+     * Longest first, for the same reason the renderer scans them that way: `**` matched inside
+     * `***` would take two of the three and leave the last one standing on its own.
+     */
+    private val MARKERS = listOf("***", "___", "**", "__", "~~", "*", "_", "`", "$")
+
+    /**
      * The row Enter should open when the caret is in a table, or null when it is not in one.
      *
      * A blank copy of the row it was pressed on — same pipes in the same places — so the table

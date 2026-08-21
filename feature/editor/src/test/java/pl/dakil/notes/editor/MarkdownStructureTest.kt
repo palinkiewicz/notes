@@ -363,9 +363,172 @@ class MarkdownStructureTest {
 
     @Test
     fun `a run that is nothing but hidden syntax has no letter to keep`() {
-        // A heading's hashes are hidden whole, so there is no narrower deletion to make and the
-        // caller falls back to what the field was going to do.
+        // A heading's hashes are hidden whole, so there is no letter on that line to fall back on;
+        // what a backspace there means is [MarkdownStructure.backspaceTarget]'s question instead.
         assertNull(MarkdownRenderer.lastVisibleBefore("# Title", 0, 2))
+    }
+
+    // ---- What a backspace was aimed at ----------------------------------------------------------
+
+    @Test
+    fun `a backspace at the start of a heading takes the blank line and not the heading`() {
+        // The bug this is here for: the keyboard asks for `\n### Head` — a break, the markup and
+        // four letters of the word — for one press against the front of `Header text`. What the
+        // user can see in front of the caret is the paragraph break, and that alone is what goes.
+        val source = "Intro paragraph here.\n\n### Header text\n"
+        val caret = source.indexOf("Header")
+        assertEquals(MdEditAt(22, 23, "", 22), MarkdownStructure.backspaceTarget(source, caret))
+    }
+
+    @Test
+    fun `a heading joined into the line above loses its hashes rather than showing them`() {
+        // With the blank line already gone, the same press joins the two lines — and hashes carried
+        // into the middle of a line are no longer markup, so leaving them would spell `###` out in
+        // the user's document. They go with the break, the way a merged paragraph loses its style.
+        val source = "Intro paragraph here.\n### Header text\n"
+        val caret = source.indexOf("Header")
+        assertEquals(MdEditAt(21, 26, "", 21), MarkdownStructure.backspaceTarget(source, caret))
+        assertEquals(
+            "Intro paragraph here.Header text\n",
+            apply(source, MarkdownStructure.backspaceTarget(source, caret)!!),
+        )
+    }
+
+    @Test
+    fun `a heading pulled onto a blank line is still a heading`() {
+        // Nothing to collide with on an empty line, so the hashes stay where they are and stay
+        // markup: the press closes the gap and the heading is still a heading afterwards.
+        val source = "Intro.\n\n# Title\n"
+        val caret = source.indexOf("Title")
+        assertEquals("Intro.\n# Title\n", apply(source, MarkdownStructure.backspaceTarget(source, caret)!!))
+    }
+
+    @Test
+    fun `a backspace beside inline markup still means the letter next to it`() {
+        // Unchanged from what it always did: the letter the caret is against, never the syntax the
+        // field swept up on the way to it.
+        val source = "Some **bold** and more"
+        assertEquals(MdEditAt(10, 11, "", 10), MarkdownStructure.backspaceTarget(source, 11))
+        assertEquals(MdEditAt(4, 5, "", 4), MarkdownStructure.backspaceTarget(source, 5))
+    }
+
+    @Test
+    fun `a backspace with a block behind it is left for the block rules`() {
+        // The line below a code block: everything between the caret and the last thing on screen is
+        // the block's own hidden machinery, and removing one character of that is not an answer.
+        // [backspaceAt] is what handles this edge, so nothing is claimed here.
+        val source = "```\ncode\n```\nafter"
+        assertNull(MarkdownStructure.backspaceTarget(source, source.indexOf("after")))
+    }
+
+    @Test
+    fun `a backspace at the very top of a document has nothing to take`() {
+        assertNull(MarkdownStructure.backspaceTarget("# Title", 0))
+        // In front of the word there is only the heading's own markup, so the answer is an edit
+        // that removes nothing rather than one that removes the markup. See the test below.
+        assertEquals(MdEditAt(2, 2, "", 2), MarkdownStructure.backspaceTarget("# Title", 2))
+    }
+
+    @Test
+    fun `a heading at the top of a note has nothing behind it to delete`() {
+        // What the user reported: a note opening with a heading, a caret in front of its first
+        // word, and one backspace that removed no text and demoted the heading. There is nothing
+        // in front of that caret, so the key does nothing — as it does at the start of any note.
+        val source = "### Header text\n\nBody."
+        assertEquals(MdEditAt(4, 4, "", 4), MarkdownStructure.backspaceTarget(source, 4))
+        // The same for a note that opens with a bold word rather than a heading.
+        assertEquals(MdEditAt(2, 2, "", 2), MarkdownStructure.backspaceTarget("**Bold**", 2))
+    }
+
+    @Test
+    fun `a run covering a closing fence is still a caret and not a selection`() {
+        // The fence renders as the blank line below the block rather than as nothing at all, which
+        // makes it a run of source with one character of rendered text to its name — and still not
+        // one character anybody can see. A field reporting a caret there hands back the whole run,
+        // and reading that as a selection is what let a backspace eat the fence.
+        val source = "```\nx\n```\nafter"
+        assertFalse(MarkdownRenderer.coversVisibleText(source, 6, 10))
+        assertTrue(MarkdownRenderer.coversVisibleText(source, 4, 5))
+    }
+
+    // ---- Markers left holding nothing -------------------------------------------------------------
+
+    @Test
+    fun `deleting the last of a bold run takes its markers with it`() {
+        // `****` is not an empty bold run to the parser — it is four asterisks — so leaving them
+        // behind spells characters into the document that the user never typed.
+        val before = "Some **test** here"
+        val after = "Some **** here"
+        assertEquals(MdEditAt(5, 9, "", 5), MarkdownStructure.strandedMarkers(before, after, 7))
+        assertEquals("Some  here", apply(after, MarkdownStructure.strandedMarkers(before, after, 7)!!))
+    }
+
+    @Test
+    fun `every kind of inline marker is dropped the same way`() {
+        assertEquals(MdEditAt(0, 2, "", 0), MarkdownStructure.strandedMarkers("*x*", "**", 1))
+        assertEquals(MdEditAt(0, 4, "", 0), MarkdownStructure.strandedMarkers("~~x~~", "~~~~", 2))
+        assertEquals(MdEditAt(0, 2, "", 0), MarkdownStructure.strandedMarkers("`x`", "``", 1))
+        assertEquals(MdEditAt(0, 6, "", 0), MarkdownStructure.strandedMarkers("***x***", "******", 3))
+    }
+
+    @Test
+    fun `a run that still has text in it keeps its markers`() {
+        // The rule the user asked for, and its whole point: markup goes when the last of the text
+        // it covers goes, and never merely because the run got shorter.
+        assertNull(MarkdownStructure.strandedMarkers("**ab**", "**a**", 3))
+        assertNull(MarkdownStructure.strandedMarkers("**ab**", "**b**", 2))
+    }
+
+    @Test
+    fun `characters the renderer never hid are the user's own to keep`() {
+        // Underscores inside a word are `snake_case` and not emphasis, so the renderer leaves them
+        // on screen — which makes them the user's own text, and nothing here has any business
+        // tidying them away when what stood between them goes.
+        val before = "one_two_three"
+        assertNull(MarkdownStructure.strandedMarkers(before, "one__three", 4))
+    }
+
+    // ---- Where a caret may rest -----------------------------------------------------------------
+
+    @Test
+    fun `a caret dropped in a heading's hashes moves to the word`() {
+        // Hidden characters have offsets even though they have no width, so the strip of blank line
+        // above a heading maps into the hashes: the caret was drawn up there, the height of that
+        // blank line, and every key pressed went somewhere the user could not predict.
+        val source = "Intro paragraph here.\n\n### Header text\n"
+        assertEquals(27, MarkdownRenderer.visibleCaret(source, 23))
+        assertEquals(27, MarkdownRenderer.visibleCaret(source, 25))
+        // Where the user can already see it, it stays put.
+        assertNull(MarkdownRenderer.visibleCaret(source, 27))
+        assertNull(MarkdownRenderer.visibleCaret(source, 22))
+        assertNull(MarkdownRenderer.visibleCaret(source, 5))
+    }
+
+    @Test
+    fun `a caret in the markup a paragraph opens with moves to its first word`() {
+        // Not only headings: any line whose first characters render to nothing has the same strip
+        // of nowhere above it, and a bold paragraph opens with two of them.
+        assertEquals(2, MarkdownRenderer.visibleCaret("**Bold line**\n\nAfter.", 0))
+        assertEquals(2, MarkdownRenderer.visibleCaret("~~Struck~~ line", 0))
+        assertEquals(1, MarkdownRenderer.visibleCaret("`code` first", 0))
+    }
+
+    @Test
+    fun `a caret on a line that is markup from end to end is left where it is`() {
+        // A closing fence has nowhere better on its own line to put a caret, and moving it off the
+        // line would take it out of the block whose edge it is standing on.
+        val source = "```\ncode\n```\n"
+        assertNull(MarkdownRenderer.visibleCaret(source, 10))
+        assertNull(MarkdownRenderer.visibleCaret(source, 11))
+    }
+
+    @Test
+    fun `a caret behind inline markup is one the user placed`() {
+        // In front of a bold run there is a real choice — inside the emphasis or outside it — and
+        // both sides of it are beside text the reader can see. Nothing to correct.
+        val source = "Some **bold** here"
+        assertNull(MarkdownRenderer.visibleCaret(source, 5))
+        assertNull(MarkdownRenderer.visibleCaret(source, 11))
     }
 
     private fun apply(source: String, edit: MdEditAt): String =

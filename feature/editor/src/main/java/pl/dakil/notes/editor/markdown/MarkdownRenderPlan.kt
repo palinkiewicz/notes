@@ -66,8 +66,19 @@ enum class MdStyle {
     BLOCK_GAP,
 }
 
-/** Replace `[start, end)` of the source with [replacement]. An empty replacement hides it. */
-data class MdEdit(val start: Int, val end: Int, val replacement: String)
+/**
+ * Replace `[start, end)` of the source with [replacement].
+ *
+ * [hides] says whether what stood there is gone from the reader's view, which is almost always the
+ * same question as whether the replacement is empty. Almost: a whole line that renders as nothing
+ * but the blank line after it is replaced by a newline and is every bit as invisible. See [gap].
+ */
+data class MdEdit(
+    val start: Int,
+    val end: Int,
+    val replacement: String,
+    val hides: Boolean = replacement.isEmpty(),
+)
 
 data class MdStyleRange(val start: Int, val end: Int, val style: MdStyle)
 
@@ -244,12 +255,11 @@ object MarkdownRenderer {
 
         val result = MarkdownRenderPlan(
             edits = edits,
-            // The gaps go on last so that nothing overrides them. A line's own style opens *before*
-            // whatever was inserted at its first offset — that is what gets a cell's padding set in
-            // the cell's face — and the blank line above a list item is inserted at exactly that
-            // offset, so the item's monospace blank reached back over the gap and made it as tall
-            // as a line of code. Applied afterwards, the gap's own size is the one that stands.
-            styles = (styles + gaps).map { it.mapped(edits) },
+            // The gaps go on last so that nothing overrides them: a leading style hung on the
+            // newline that ends a block's last line reaches over the gap below it as well, and
+            // would otherwise leave the blank line as tall as a line of code. They arrive already
+            // in transformed coordinates — see [gap] for why they cannot be mapped like the rest.
+            styles = styles.map { it.mapped(edits) } + gaps,
             decorations = decorations.map { it.mapped(edits) },
         )
         lastSource = markdown
@@ -270,20 +280,6 @@ object MarkdownRenderer {
     }
 
     /**
-     * Where `[start, end)` of [markdown] lands on screen, as a half-open `(from, to)`.
-     *
-     * Each end is mapped the way that keeps the answer honest about what is *inside* the range:
-     * text inserted at the start falls outside it, text inserted at the end falls outside it too.
-     * A range made only of hidden characters therefore comes back empty rather than merely short.
-     */
-    fun renderedRange(markdown: String, start: Int, end: Int): Pair<Int, Int> {
-        val edits = plan(markdown).edits
-        val from = transformedOffset(edits, start.coerceIn(0, markdown.length), includeInsertionAt = true)
-        val to = transformedOffset(edits, end.coerceIn(0, markdown.length), includeInsertionAt = false)
-        return from to maxOf(from, to)
-    }
-
-    /**
      * Whether `[start, end)` of [markdown] covers anything the reader can actually see.
      *
      * The question a text field cannot be asked directly, and the one that says whether a range is a
@@ -291,10 +287,16 @@ object MarkdownRenderer {
      * reported back in source coordinates as the *whole* hidden run — a range several characters
      * wide that is nothing at all on screen — and treating that as a deliberate selection is what
      * used to let a backspace beside a code block quietly eat its closing fence.
+     *
+     * Asked one character at a time rather than by measuring how much rendered text the range came
+     * out as, because the two answers differ where a line is hidden by being turned into the blank
+     * one below it: a closing fence renders as one newline and is still nothing anybody can see.
      */
     fun coversVisibleText(markdown: String, start: Int, end: Int): Boolean {
-        val (from, to) = renderedRange(markdown, minOf(start, end), maxOf(start, end))
-        return to > from
+        val edits = plan(markdown).edits
+        val from = minOf(start, end).coerceAtLeast(0)
+        val to = maxOf(start, end).coerceAtMost(markdown.length)
+        return (from until to).any { !isHidden(edits, it) }
     }
 
     /**
@@ -328,9 +330,36 @@ object MarkdownRenderer {
         return null
     }
 
-    /** Whether the character at [at] is inside a run the plan replaces with nothing at all. */
+    /**
+     * Where a caret dropped at [at] should really sit, or null when it is already somewhere the
+     * user could have aimed at.
+     *
+     * A run that renders to nothing is still a run of offsets, and a caret can come to rest inside
+     * one: a heading's `### ` is four characters wide on the way past and no width at all on
+     * screen, so the strip of the line above it is a place a tap lands *in* the hashes. What the
+     * user gets is a cursor drawn on the blank line above the heading, at the height of that blank
+     * line — a stray mark beside their document, which is not a place anybody meant to put a caret
+     * and from which every keystroke means something they cannot predict.
+     *
+     * Only the run a line *opens* with can strand a caret this way: anything visible in front of it
+     * is something the user can aim at, and a caret beside that is one they placed. A line that is
+     * markup from end to end — a closing fence, a `$$`, a rule — has nowhere better to put one, and
+     * moving it off the line would take it out of the block it belongs to.
+     */
+    fun visibleCaret(markdown: String, at: Int): Int? {
+        if (at !in 0..markdown.length) return null
+        val lines = Lines(markdown)
+        val k = lines.lineOf(at)
+        val edits = plan(markdown).edits
+        if ((lines.start(k) until at).any { !isHidden(edits, it) }) return null
+        var to = at
+        while (to < lines.end(k) && isHidden(edits, to)) to++
+        return to.takeIf { it != at && to < lines.end(k) }
+    }
+
+    /** Whether the character at [at] is inside a run the plan leaves nothing on screen for. */
     private fun isHidden(edits: List<MdEdit>, at: Int): Boolean =
-        edits.any { it.replacement.isEmpty() && at >= it.start && at < it.end }
+        edits.any { it.hides && at >= it.start && at < it.end }
 
     /**
      * Where [offset] in the source ends up once [edits] are applied.
@@ -377,15 +406,48 @@ object MarkdownRenderer {
      * between the two paragraphs, however either of them wraps.
      */
     private fun gap(
-        anchor: Int,
+        lines: Lines,
+        k: Int,
         style: MdStyle,
         edits: MutableList<MdEdit>,
         gaps: MutableList<MdStyleRange>,
     ) {
-        edits += MdEdit(anchor, anchor, "\n")
-        // Zero characters of source, which maps to exactly the newline just inserted: the start of
-        // a style range falls before an insertion at its offset and the end falls after it.
-        gaps += MdStyleRange(anchor, anchor, style)
+        val breakAbove = lines.end(k - 1)
+        val start = lines.start(k)
+
+        // Nothing is *inserted* here — the break above the line is rewritten into two, or the edit
+        // that already swallowed it is made to leave one behind. Either way no offset gains a
+        // second place to be, and that is the whole point.
+        //
+        // An insertion is a seam: the offset it was made at still stands on both sides of what went
+        // in, and a text field asked to put a caret there has to pick a side. It picks the near one
+        // — so the caret for the start of every paragraph was drawn on the blank line above it, at
+        // that blank line's own few pixels of height. That is the stray little cursor that could be
+        // tapped into above a heading, and the stub left behind by pressing Enter. Rewriting has no
+        // seam: the offset in front of the break and the offset behind it are each one place and
+        // nowhere else.
+        val above = edits.lastOrNull()?.takeIf { breakAbove >= it.start && breakAbove < it.end }
+        val at = if (above == null) {
+            edits += MdEdit(breakAbove, start, "\n\n")
+            transformedOffset(edits, breakAbove)
+        } else {
+            // The break has already gone with something else: a closing fence and a `$$` take their
+            // own newline with them. So the blank line is made *out of* that edit rather than added
+            // beside it — what was hiding the line is left hiding it and spelling the gap as well.
+            // `hides` is carried over deliberately: it does not follow the replacement here, and a
+            // fence that renders as a blank line is every bit as gone as one that renders as
+            // nothing at all.
+            edits[edits.lastIndex] = above.copy(replacement = above.replacement + "\n", hides = above.hides)
+            transformedOffset(edits, above.start)
+        }
+        val made = edits.last().replacement.length
+
+        // Recorded already mapped, which is only possible here: a gap's size belongs to the *last*
+        // newline of whatever the break became, since a line takes the height of what ends it and
+        // an earlier newline ends the line above instead. There is no source range that picks that
+        // one character out, so there is nothing for [mapped] to work from. Every edit that could
+        // move it is already in the list, so the offset worked out now is the offset it keeps.
+        gaps += MdStyleRange(at + made - 1, at + made, style)
     }
 
     /** What every line of a drawn block belongs to, and the one unit that never absorbs a gap. */
@@ -486,7 +548,7 @@ object MarkdownRenderer {
             here.startsWith(LIST_UNIT) -> MdStyle.LIST_GAP
             else -> return
         }
-        gap(lines.start(k), style, edits, gaps)
+        gap(lines, k, style, edits, gaps)
     }
 
     /** The transformed offset text inserted here should fall *after* — an opening edge. */

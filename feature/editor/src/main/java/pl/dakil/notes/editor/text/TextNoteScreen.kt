@@ -389,7 +389,7 @@ private fun MarkdownField(
             ListIndent.then(ContinueList)
         } else {
             KeepBlocksIntact.then(ListIndent).then(InsertTableRow).then(ContinueList)
-                .then(KeepFenceIntact)
+                .then(KeepFenceIntact).then(DropStrandedMarkers)
         },
         // Present in source mode too, though it renders nothing there: it is also what keeps the
         // blank line at the foot of the document, and the page has the same bottom in both views.
@@ -495,9 +495,20 @@ private fun MarkdownField(
     if (!sourceMode) {
         LaunchedEffect(state) {
             snapshotFlow { state.selection }.collect { selection ->
+                val source = state.text.toString()
+                // A caret that has come to rest inside markup nobody can see is not one the user
+                // placed, however they came to it — a tap in the few pixels above a heading, or an
+                // arrow key stepping into the hashes, which the field reports back as a range
+                // covering the whole run. Neither is a selection: both cover nothing on screen.
+                if (!MarkdownRenderer.coversVisibleText(source, selection.start, selection.end)) {
+                    val past = MarkdownRenderer.visibleCaret(source, selection.min)
+                    if (past != null) {
+                        state.edit { this.selection = TextRange(past.coerceIn(0, length)) }
+                        return@collect
+                    }
+                }
                 if (!selection.collapsed) return@collect
-                val target = MarkdownStructure.cellCaret(state.text.toString(), selection.start)
-                    ?: return@collect
+                val target = MarkdownStructure.cellCaret(source, selection.start) ?: return@collect
                 state.edit { this.selection = TextRange(target.coerceIn(0, length)) }
             }
         }
