@@ -102,6 +102,11 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                 viewModel = textNoteViewModel,
                 onNavigateBack = ::closeEditor,
                 expanded = expanded,
+                // A note's file name is its identity here, so a rename hands back a new ref. The
+                // editors keep the document they already have — their `open` is a no-op for a note
+                // they are holding — but leaving this pointing at the old name would flush the note
+                // to a file that no longer exists, and reopen nothing after a process death.
+                onRenamed = { openNote = it.value },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -113,6 +118,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                 onNavigateBack = ::closeEditor,
                 darkTheme = darkTheme,
                 expanded = expanded,
+                onRenamed = { openNote = it.value },
                 modifier = Modifier.fillMaxSize(),
             )
         }

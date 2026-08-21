@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.StoreRef
-import pl.dakil.notes.format.NoteKind
+import pl.dakil.notes.data.noteTitle
 
 @Immutable
 data class TextNoteUiState(
@@ -70,11 +70,11 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
                     text = TextFieldState(markdown)
                     _state.update {
                         it.copy(
-                            title = NoteKind.titleOf(ref.value.substringAfterLast('/')),
+                            title = ref.noteTitle(),
                             isLoading = false,
                         )
                     }
-                    startAutosave(ref)
+                    startAutosave()
                 },
                 onFailure = { cause ->
                     _state.update {
@@ -85,13 +85,41 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
-    private fun startAutosave(ref: StoreRef) {
+    private fun startAutosave() {
         // `drop(1)` skips the value snapshotFlow emits on subscription: that is the text just loaded
         // from disk, and writing it straight back would touch the file's timestamp for nothing.
+        //
+        // The ref is read per emission rather than captured, so a rename mid-session redirects the
+        // next save instead of writing the note back to the name it no longer has.
         autosave = snapshotFlow { text.text.toString() }
             .drop(1)
-            .onEach { repository.requestSaveMarkdown(ref, it) }
+            .onEach { markdown ->
+                val ref = _state.value.ref ?: return@onEach
+                repository.requestSaveMarkdown(ref, markdown)
+            }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Renames the note.
+     *
+     * A `.md` note is titled by its file name and nothing else, so this is the whole of it — but
+     * the ref changes with the name, and [onRenamed] hands the new one to whoever is holding it.
+     */
+    fun rename(title: String, onRenamed: (StoreRef) -> Unit = {}) {
+        val current = _state.value
+        val ref = current.ref ?: return
+        val wanted = title.trim()
+        if (wanted.isEmpty() || wanted == current.title) return
+        viewModelScope.launch {
+            // Silent on failure by design: the title on screen still says what the file is called,
+            // and `error` on this screen replaces the note with a message.
+            repository.rename(ref, wanted).onSuccess { moved ->
+                // The store settles the final name; a collision means it is not the one asked for.
+                _state.update { it.copy(ref = moved, title = moved.noteTitle()) }
+                onRenamed(moved)
+            }
+        }
     }
 
     fun setSourceMode(source: Boolean) = _state.update { it.copy(sourceMode = source) }

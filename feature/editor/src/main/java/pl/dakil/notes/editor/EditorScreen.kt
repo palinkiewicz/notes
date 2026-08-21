@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,13 +24,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorPickerSheet
+import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -47,15 +51,18 @@ fun EditorScreen(
     darkTheme: Boolean,
     modifier: Modifier = Modifier,
     expanded: Boolean = false,
+    onRenamed: (StoreRef) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pageSetupOpen by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     var editingPen by remember { mutableStateOf<ToolId?>(null) }
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
     // Held here rather than in the toolbar: the sheet and the app bar close it too.
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
 
     val sheet = state.sheet
+    val title = state.note?.meta?.title?.takeIf { it.isNotBlank() } ?: "Untitled"
 
     // The selectors do not take focus, so back would otherwise leave the editor with one open.
     BackHandler(enabled = toolPopup != null) { toolPopup = null }
@@ -130,15 +137,38 @@ fun EditorScreen(
         )
     }
 
+    if (renaming) {
+        RenameNoteDialog(
+            initial = title,
+            onDismiss = { renaming = false },
+            onConfirm = { name ->
+                renaming = false
+                viewModel.rename(name, onRenamed)
+            },
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 modifier = Modifier.dismissToolPopupOnPress { toolPopup = null },
                 title = {
+                    // The name is a control rather than a caption: tapping it renames the note,
+                    // which is the same thing the library's three-dot menu offers. A note this
+                    // build may only read is left alone — its title lives in a manifest that must
+                    // not be rewritten, so a rename here could only half happen.
                     Text(
-                        text = state.note?.meta?.title?.takeIf { it.isNotBlank() } ?: "Untitled",
+                        text = title,
                         maxLines = 1,
+                        modifier = if (state.isReadOnly) {
+                            Modifier
+                        } else {
+                            Modifier
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable { renaming = true }
+                                .padding(vertical = 8.dp)
+                        },
                     )
                 },
                 navigationIcon = {

@@ -2,6 +2,7 @@ package pl.dakil.notes.editor.text
 
 import android.content.ClipData
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -53,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -75,6 +77,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.markdown.BlockPadding
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownOutputTransformation
@@ -96,6 +99,7 @@ import pl.dakil.notes.editor.markdown.drawMarkdownDecorations
 import pl.dakil.notes.editor.markdown.gridIn
 import pl.dakil.notes.editor.markdown.rememberMarkdownDecorationPalette
 import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
+import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.theme.MonospaceStyle
 import kotlin.math.roundToInt
@@ -117,6 +121,7 @@ fun TextNoteScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
     expanded: Boolean = false,
+    onRenamed: (StoreRef) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val text = viewModel.text
@@ -124,6 +129,19 @@ fun TextNoteScreen(
 
     var popup by remember { mutableStateOf<FormatPopup?>(null) }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
+    var renaming by remember { mutableStateOf(false) }
+    val title = state.title.ifBlank { "Untitled" }
+
+    if (renaming) {
+        RenameNoteDialog(
+            initial = title,
+            onDismiss = { renaming = false },
+            onConfirm = { name ->
+                renaming = false
+                viewModel.rename(name, onRenamed)
+            },
+        )
+    }
 
     // The selector takes no focus, so back would otherwise leave the editor with one open.
     BackHandler(enabled = popup != null) { popup = null }
@@ -157,7 +175,19 @@ fun TextNoteScreen(
         modifier = modifier.fillMaxSize().imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text(state.title.ifBlank { "Untitled" }, maxLines = 1) },
+                // Tapping the name renames the note, matching the ink editor and the library's
+                // three-dot menu. For a `.md` note the name *is* the title: there is nowhere else
+                // one could be kept.
+                title = {
+                    Text(
+                        text = title,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable { renaming = true }
+                            .padding(vertical = 8.dp),
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(NotesIcons.Back, contentDescription = "Back")

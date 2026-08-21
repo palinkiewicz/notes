@@ -15,6 +15,7 @@ import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.canvas.InkCallbacks
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
@@ -147,6 +148,11 @@ class NoteViewModel(
     // ---- Lifecycle -----------------------------------------------------------------------------
 
     fun open(ref: StoreRef) {
+        // Re-opening the note already in hand would throw away the undo history and any edit still
+        // sitting inside the autosave debounce. Worth guarding because the ref of an open note is
+        // not fixed: renaming one changes it, and the shell asks for it again when it does.
+        val current = _state.value
+        if (current.ref == ref && current.note != null && !current.isLoading) return
         _state.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             repository.load(ref).fold(
@@ -180,6 +186,41 @@ class NoteViewModel(
     }
 
     fun openInMemory(note: Note, ref: StoreRef?) = adopt(note, ref)
+
+    /**
+     * Renames the note, on disk and in the document.
+     *
+     * Not a pure file operation: an ink note also carries its title in its manifest, and the two
+     * disagreeing is what makes a note show one name in the library and another in its own app bar.
+     * The repository settles both, then hands back where the file ended up — [onRenamed] passes
+     * that on to whoever is holding the ref, because the file's name is its identity here.
+     */
+    fun rename(title: String, onRenamed: (StoreRef) -> Unit = {}) {
+        val current = _state.value
+        val note = current.note ?: return
+        val ref = current.ref ?: return
+        val wanted = title.trim()
+        if (wanted.isEmpty() || wanted == note.meta.title) return
+        viewModelScope.launch {
+            // A failure leaves the old title on screen, which is the truth about the file and the
+            // only report this screen can make: `error` here replaces the whole editor, and losing
+            // the open note over a rename that did not happen would be the worse outcome.
+            repository.rename(ref, wanted).onSuccess { moved ->
+                // Read back rather than assumed: a collision makes the store step aside, and a
+                // title the file does not have is exactly the disagreement this is avoiding.
+                val landed = moved.noteTitle()
+                _state.update {
+                    it.copy(
+                        ref = moved,
+                        note = it.note?.let { open ->
+                            open.copy(meta = open.meta.copy(title = landed))
+                        },
+                    )
+                }
+                onRenamed(moved)
+            }
+        }
+    }
 
     /** Forces a write; called when the editor leaves the foreground. */
     fun flush() {

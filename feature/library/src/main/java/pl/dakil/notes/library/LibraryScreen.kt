@@ -52,6 +52,7 @@ import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.NoteSummary
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
+import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 import java.text.DateFormat
 import java.util.Date
@@ -74,6 +75,21 @@ fun LibraryScreen(
     var searchActive by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     var newNoteMenuOpen by remember { mutableStateOf(false) }
+    // Held by the screen rather than by the row that asked for it. Dismissing the row's menu hands
+    // focus back to the search bar, which expands on focus and takes the whole list out of
+    // composition — and a dialog owned by a row in that list would go with it.
+    var renaming by remember { mutableStateOf<NoteSummary?>(null) }
+
+    renaming?.let { note ->
+        RenameNoteDialog(
+            initial = note.title,
+            onDismiss = { renaming = null },
+            onConfirm = { name ->
+                renaming = null
+                viewModel.renameNote(note.ref, name)
+            },
+        )
+    }
 
     // The menu takes no focus, so without this back would dismiss the whole screen behind it.
     BackHandler(enabled = newNoteMenuOpen) { newNoteMenuOpen = false }
@@ -131,6 +147,7 @@ fun LibraryScreen(
                             onOpenNote(ref)
                         },
                         onDelete = viewModel::deleteNote,
+                        onRename = { renaming = it },
                     )
                 }
 
@@ -176,6 +193,7 @@ fun LibraryScreen(
                                     selected = state.selectedNote == note.ref,
                                     onOpen = { onOpenNote(note.ref) },
                                     onDelete = { viewModel.deleteNote(note.ref) },
+                                    onRename = { renaming = note },
                                 )
                             }
                         }
@@ -210,6 +228,7 @@ private fun NoteList(
     selected: StoreRef?,
     onOpen: (StoreRef) -> Unit,
     onDelete: (StoreRef) -> Unit,
+    onRename: (NoteSummary) -> Unit,
 ) {
     LazyColumn(Modifier.fillMaxSize()) {
         items(notes, key = { it.ref.value }) { note ->
@@ -218,6 +237,7 @@ private fun NoteList(
                 selected = selected == note.ref,
                 onOpen = { onOpen(note.ref) },
                 onDelete = { onDelete(note.ref) },
+                onRename = { onRename(note) },
             )
         }
     }
@@ -229,6 +249,7 @@ private fun NoteRow(
     selected: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onRename: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
@@ -272,6 +293,14 @@ private fun NoteRow(
                     Icon(NotesIcons.More, contentDescription = "More actions")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        leadingIcon = { Icon(NotesIcons.Rename, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onRename()
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Delete") },
                         leadingIcon = { Icon(NotesIcons.Delete, contentDescription = null) },

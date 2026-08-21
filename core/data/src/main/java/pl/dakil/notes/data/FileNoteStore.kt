@@ -93,10 +93,15 @@ class FileNoteStore(
         val source = fileOf(from)
         // `to` is a display name, not a path — resolving it as one would drop the note into the
         // process's working directory instead of renaming it in place.
-        val target = File(source.parentFile, to.value.sanitizeFileName())
-        if (target != source && !source.renameTo(target)) {
-            throw StoreException("Could not rename ${from.value}")
+        val wanted = File(source.parentFile, to.value.sanitizeFileName())
+        // `renameTo` overwrites an existing file without a word, so renaming one note onto the name
+        // of another would destroy it. Step aside instead, the way a new note already does.
+        val target = when {
+            wanted == source -> return@withContext StoreRef(source.absolutePath)
+            wanted.exists() -> File(source.parentFile, uniqueName(source.parentFile, wanted.name))
+            else -> wanted
         }
+        if (!source.renameTo(target)) throw StoreException("Could not rename ${from.value}")
         StoreRef(target.absolutePath)
     }
 

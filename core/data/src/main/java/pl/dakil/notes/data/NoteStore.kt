@@ -1,6 +1,7 @@
 package pl.dakil.notes.data
 
 import kotlinx.coroutines.flow.Flow
+import pl.dakil.notes.format.NoteKind
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -15,6 +16,15 @@ import java.io.OutputStream
 value class StoreRef(val value: String) {
     override fun toString(): String = value
 }
+
+/**
+ * The note's title as its storage records it: the file name without the extension.
+ *
+ * True of both kinds. A `.md` note has nowhere else to keep a title, and an ink note's manifest is
+ * kept in step with its file name by [NoteRepository.rename] — so the name is always the answer,
+ * and always the one available without opening the file.
+ */
+fun StoreRef.noteTitle(): String = NoteKind.titleOf(value.substringAfterLast('/'))
 
 data class StoreEntry(
     val ref: StoreRef,

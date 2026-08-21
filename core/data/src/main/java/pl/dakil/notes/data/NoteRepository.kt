@@ -52,6 +52,16 @@ class NoteRepository(
 
     private val writeLock = Mutex()
 
+    /**
+     * Where the note being saved has moved to since its write was queued, as `from to to`.
+     *
+     * A rename can land in the gap between the last keystroke and the debounce firing, and the
+     * queued write still carries the ref the note had then. Writing to it would recreate the old
+     * file, content and all, next to the renamed one. One entry is enough because [saveRequests]
+     * conflates: there is never more than one write waiting. Guarded by [writeLock].
+     */
+    private var pendingMove: Pair<StoreRef, StoreRef>? = null
+
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: Flow<SaveState> = _saveState.asStateFlow()
 
@@ -158,10 +168,14 @@ class NoteRepository(
 
     private suspend fun performSave(pending: PendingSave): Result<Unit> = writeLock.withLock {
         _saveState.value = SaveState.Saving
+        val ref = pendingMove?.takeIf { it.first == pending.ref }?.second ?: pending.ref
+        // Applied or superseded either way: nothing older than this write is still queued behind
+        // it, so keeping the redirect could only misdirect a save of some future note.
+        pendingMove = null
         runCatching {
             when (pending) {
-                is PendingSave.Ink -> writeInk(pending.ref, pending.note)
-                is PendingSave.Text -> writeText(pending.ref, pending.markdown)
+                is PendingSave.Ink -> writeInk(ref, pending.note)
+                is PendingSave.Text -> writeText(ref, pending.markdown)
             }
         }.onSuccess {
             _saveState.value = SaveState.Saved(clock())
@@ -251,13 +265,51 @@ class NoteRepository(
      *
      * The extension comes from the existing name rather than a constant: renaming a `.md` note must
      * not silently turn it into something no reader can open.
+     *
+     * Held under the same lock as a save, because both rewrite the note's storage and the second
+     * half of this — retitling an ink note's manifest — is a read-modify-write of the file a save
+     * may be in the middle of replacing.
      */
     suspend fun rename(ref: StoreRef, newTitle: String): Result<StoreRef> = runCatching {
-        val current = ref.value.substringAfterLast('/')
-        val kind = NoteKind.of(current) ?: NoteKind.INK
-        val moved = store.move(ref, StoreRef("${newTitle.sanitizeFileName()}.${kind.extension}"))
-        index.move(ref, moved)
-        moved
+        writeLock.withLock {
+            val current = ref.value.substringAfterLast('/')
+            val kind = NoteKind.of(current) ?: NoteKind.INK
+            val title = newTitle.sanitizeFileName()
+            val moved = store.move(ref, StoreRef("$title.${kind.extension}"))
+            redirectPendingSave(ref, moved)
+            // The store has the last word on the name — it steps aside from a collision rather
+            // than overwriting — so what goes in the manifest and the index is read back from
+            // where the file actually landed, not from what was asked for.
+            val landed = moved.noteTitle().ifBlank { title }
+            // A `.md` note is titled by its file name, so the index row can be corrected here and
+            // that is the whole rename. An ink note keeps its title in its manifest, which is where
+            // the index reads it from — so that file has to be rewritten, and doing so reindexes
+            // the note under its new title as a side effect. Hence the null: setting the title here
+            // would either be undone a line later or, for a note this build may only read, claim a
+            // title the file does not have.
+            index.move(ref, moved, landed.takeIf { kind == NoteKind.TEXT })
+            if (kind == NoteKind.INK) retitle(moved, landed)
+            moved
+        }
+    }
+
+    /**
+     * Writes [title] into an ink note's manifest, and reindexes it under the new name.
+     *
+     * A note this build may only read keeps the title it has: a `minReaderVersion` gate is worth
+     * more than a tidy name, and the index then goes on reporting what the file actually says.
+     */
+    private suspend fun retitle(ref: StoreRef, title: String) {
+        val note = runCatching { store.read(ref) { DakNoteReader.read(it) } }.getOrNull() ?: return
+        if (note.readOnly || note.meta.title == title) return
+        writeInk(ref, note.copy(meta = note.meta.copy(title = title)))
+    }
+
+    /** Points a write queued before the rename at the file's new home; see [pendingMove]. */
+    private fun redirectPendingSave(from: StoreRef, to: StoreRef) {
+        // Collapse the chain so a second rename in the same breath still lands on the current file.
+        val origin = pendingMove?.takeIf { it.second == from }?.first ?: from
+        pendingMove = origin to to
     }
 
     suspend fun delete(ref: StoreRef): Result<Unit> = runCatching {

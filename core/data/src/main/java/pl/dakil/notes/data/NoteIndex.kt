@@ -173,14 +173,42 @@ class NoteIndex(
         Unit
     }
 
-    suspend fun move(from: StoreRef, to: StoreRef) = withContext(io) {
+    /**
+     * Follows a renamed note to its new ref, optionally under a new [title].
+     *
+     * The title has to be passed in rather than re-derived here, because where a note's title comes
+     * from depends on its kind — a `.md` note is titled by its file name, an ink note by its
+     * manifest. Skipping it would leave the old title in the index indefinitely: a rename does not
+     * change the file's size or timestamp, so the next scan sees the row as current and never
+     * re-reads it.
+     */
+    suspend fun move(from: StoreRef, to: StoreRef, title: String? = null) = withContext(io) {
         val db = helper.writableDatabase
-        val values = ContentValues().apply {
-            put("ref", to.value)
-            put("parent", parentOf(to.value))
+        db.beginTransaction()
+        try {
+            db.update(
+                "notes",
+                ContentValues().apply {
+                    put("ref", to.value)
+                    put("parent", parentOf(to.value))
+                    if (title != null) put("title", title)
+                },
+                "ref = ?",
+                arrayOf(from.value),
+            )
+            db.update(
+                "notes_fts",
+                ContentValues().apply {
+                    put("ref", to.value)
+                    if (title != null) put("title", title)
+                },
+                "ref = ?",
+                arrayOf(from.value),
+            )
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        db.update("notes", values, "ref = ?", arrayOf(from.value))
-        db.update("notes_fts", ContentValues().apply { put("ref", to.value) }, "ref = ?", arrayOf(from.value))
         Unit
     }
 
