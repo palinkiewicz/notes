@@ -39,6 +39,23 @@ class StrokeBuilder {
     private var spec: ToolSpec = ToolSpec.PEN
     private var config: InputConfig = InputConfig()
 
+    /**
+     * The straightedge this stroke is being drawn against, if any.
+     *
+     * ### Why the constraint has to live here, past the filter
+     *
+     * Snapping the incoming samples is not enough. The One Euro filter runs **per axis**, and its
+     * cutoff is set from that axis's own speed, so x and y are blended by different amounts on the
+     * same sample. Two points that both lie on a sloped line therefore filter to a point that does
+     * not — the faster the hand and the sharper the change of direction, the further off it lands,
+     * and since the deviation is perpendicular to the line it can put the ink under the ruler.
+     *
+     * Projecting after filtering makes every stored point exactly collinear by construction, so
+     * there is no hand speed at which a ruled line can bend. The smoothing still does its job: it
+     * damps the travel *along* the edge, which is the only freedom the pen has left.
+     */
+    private var guide: RulerEdge? = null
+
     private var lastRawX = 0f
     private var lastRawY = 0f
     private var lastTimeMs = 0L
@@ -69,9 +86,10 @@ class StrokeBuilder {
         if (count == 0) Rect.ZERO
         else Rect(minX, minY, maxX, maxY).inflate(spec.width * 0.5f + 1f)
 
-    fun start(spec: ToolSpec, config: InputConfig, sample: PointerSample) {
+    fun start(spec: ToolSpec, config: InputConfig, sample: PointerSample, guide: RulerEdge? = null) {
         this.spec = spec
         this.config = config
+        this.guide = guide
         count = 0
         anyPressure = false
         anyTilt = false
@@ -132,6 +150,7 @@ class StrokeBuilder {
         count = 0
         anyPressure = false
         anyTilt = false
+        guide = null
     }
 
     private fun append(sample: PointerSample, force: Boolean): Boolean {
@@ -141,8 +160,11 @@ class StrokeBuilder {
         val dtMs = (sample.timeMs - lastTimeMs).coerceAtLeast(0L)
         val timeS = (sample.timeMs - startTimeMs) / 1000f
 
-        val fx = filterX.filter(sample.x, timeS)
-        val fy = filterY.filter(sample.y, timeS)
+        val smoothX = filterX.filter(sample.x, timeS)
+        val smoothY = filterY.filter(sample.y, timeS)
+        val line = guide
+        val fx = if (line == null) smoothX else line.projectX(smoothX, smoothY)
+        val fy = if (line == null) smoothY else line.projectY(smoothX, smoothY)
 
         if (!force && count > 0) {
             // Decimation: digitisers report far more points than the geometry needs. Dropping

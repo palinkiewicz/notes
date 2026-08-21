@@ -79,6 +79,7 @@ fun EditorToolbar(
     onSelectTextTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
+    onToggleRuler: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
@@ -103,8 +104,9 @@ fun EditorToolbar(
             )
         }
         Box(Modifier.width(8.dp))
-        // The one control that must never be crowded out: without it, a stylus-less phone cannot
-        // draw at all.
+        // The two switches, held out of the scrolling row because neither is a tool: they change
+        // what the surface does, not what the pen is, and both have to stay reachable. Without the
+        // first, a stylus-less phone cannot draw at all.
         FilledIconToggleButton(
             checked = state.inputConfig.fingerDrawingEnabled,
             onCheckedChange = {
@@ -114,6 +116,10 @@ fun EditorToolbar(
         ) {
             Icon(NotesIcons.FingerDraw, contentDescription = "Draw with finger")
         }
+        RulerToggle(checked = state.rulerEnabled, onCheckedChange = {
+            onPopupChange(null)
+            onToggleRuler(it)
+        })
     }
 
     optionsFor?.let { tool ->
@@ -140,6 +146,7 @@ fun EditorToolRail(
     onSelectTextTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
+    onToggleRuler: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
@@ -165,6 +172,10 @@ fun EditorToolRail(
         ) {
             Icon(NotesIcons.FingerDraw, contentDescription = "Draw with finger")
         }
+        RulerToggle(checked = state.rulerEnabled, onCheckedChange = {
+            onPopupChange(null)
+            onToggleRuler(it)
+        })
     }
 
     optionsFor?.let { tool ->
@@ -267,6 +278,20 @@ private fun ToolControls(
             onUpdateTool = onUpdateTool,
             onOpenOptions = { onOpenOptions(state.tool.tool) },
         )
+    }
+}
+
+/**
+ * The straightedge switch.
+ *
+ * A toggle rather than a tool, and sitting outside the tool row on purpose: the ruler is on the
+ * page alongside whatever the pen is doing, so it has to be reachable — and readable as on or off —
+ * without disturbing the pen you are holding.
+ */
+@Composable
+private fun RulerToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    FilledIconToggleButton(checked = checked, onCheckedChange = onCheckedChange) {
+        Icon(NotesIcons.Ruler, contentDescription = "Ruler")
     }
 }
 

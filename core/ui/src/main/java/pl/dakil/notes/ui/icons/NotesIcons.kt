@@ -125,6 +125,15 @@ object NotesIcons {
         )
     }
 
+    /** Straightedge: a slab lying at a slight angle, with its scale marked along the near edge. */
+    val Ruler: ImageVector by lazy {
+        strokedIcon(
+            "Ruler",
+            "M3 15.5 L15.5 3 L21 8.5 L8.5 21 Z " +
+                "M6.5 12 L9 14.5 M9.5 9 L13 12.5 M13 5.5 L15.5 8",
+        )
+    }
+
     val Folder: ImageVector by lazy {
         strokedIcon("Folder", "M3 6.5 a1.5 1.5 0 0 1 1.5 -1.5 h4.5 l2 2.5 h8 a1.5 1.5 0 0 1 1.5 1.5 v9 a1.5 1.5 0 0 1 -1.5 1.5 h-15 a1.5 1.5 0 0 1 -1.5 -1.5 Z")
     }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -19,7 +20,13 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.canvas.InkOverlay
 import pl.dakil.notes.editor.canvas.PageChrome
+import pl.dakil.notes.editor.canvas.RULER_END_MARGIN
+import pl.dakil.notes.editor.canvas.RULER_SNAP_BAND
+import pl.dakil.notes.editor.canvas.RULER_THICKNESS
+import pl.dakil.notes.editor.canvas.RulerOverlay
+import pl.dakil.notes.editor.canvas.RulerState
 import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.editor.canvas.rulerEdgeAt
 import pl.dakil.notes.editor.canvas.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.ZoomChip
@@ -64,6 +71,17 @@ fun SheetEditor(
     val ptToPx = with(density) { (160f / 72f).dp.toPx() }
 
     val transform = rememberSaveable(saver = SheetTransform.Saver) { SheetTransform() }
+
+    // The straightedge, if the user has one out. It is kept whether or not it is switched on, so
+    // turning the tool off to see the page underneath and back on again does not lose the angle
+    // that was just lined up.
+    val ruler = rememberSaveable(saver = RulerState.Saver) { RulerState() }
+    ruler.configure(
+        ptToPx = ptToPx,
+        thicknessOnGlassPx = with(density) { RULER_THICKNESS.toPx() },
+        endMarginOnGlassPx = with(density) { RULER_END_MARGIN.toPx() },
+    )
+
     val format = sheet.format
     val paged = state.view == ViewMode.PAGED
     val stripWidthPx = (format.width * ptToPx).toInt()
@@ -83,6 +101,19 @@ fun SheetEditor(
         transform.animateToContentY(tops.getOrNull(request.page) ?: return@LaunchedEffect)
     }
 
+    // Bring a ruler that was left behind on another page back under the reader's eye. A ruler
+    // already on screen is left exactly where it was set down — that is where the user put it.
+    LaunchedEffect(state.rulerEnabled) {
+        if (state.rulerEnabled) {
+            ruler.ensureVisible(
+                left = transform.visibleLeft(),
+                top = transform.visibleTop(),
+                right = transform.visibleRight(),
+                bottom = transform.visibleBottom(),
+            )
+        }
+    }
+
     // Room above the first page for its header, and below the last for the add button. Continuous
     // view draws no headers, so it asks for no room above the paper — reserving it there would
     // leave a band of empty background the view can scroll to and nothing ever occupies.
@@ -94,7 +125,7 @@ fun SheetEditor(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .sheetTransformGestures(transform, scope),
+            .sheetTransformGestures(transform, scope, ruler = if (state.rulerEnabled) ruler else null),
     ) {
         Layout(
             content = {
@@ -105,6 +136,7 @@ fun SheetEditor(
                     paged = paged,
                     darkTheme = darkTheme,
                     transform = transform,
+                    ruler = ruler,
                 )
             },
         ) { measurables, constraints ->
@@ -127,6 +159,16 @@ fun SheetEditor(
             )
             transform.setContent(placeable.width.toFloat(), placeable.height.toFloat())
             transform.fitWidthIfUnset()
+
+            // The first place a ruler goes is across the middle of what is on screen. Done here
+            // rather than at the toggle because this is the first moment the viewport is known —
+            // the same reason fit-to-width is settled here.
+            if (state.rulerEnabled && constraints.hasBoundedHeight) {
+                ruler.placeIfUnset(
+                    x = placeable.width * 0.5f,
+                    y = transform.screenToContentY(constraints.maxHeight * 0.5f),
+                )
+            }
 
             // This node stays window-sized; the sheet overflows it and is clipped by the parent.
             layout(constraints.maxWidth, constraints.maxHeight) {
@@ -201,11 +243,32 @@ private fun SheetLayers(
     paged: Boolean,
     darkTheme: Boolean,
     transform: SheetTransform,
+    ruler: RulerState,
 ) {
     val sheet = state.sheet ?: return
     val density = LocalDensity.current
     val format = sheet.format
     val pageCount = sheet.pageCount()
+
+    // Asked at pen-down only, so it reads the zoom and the ruler's pose when the pen lands rather
+    // than when this composed.
+    val snapBandPx = with(density) { RULER_SNAP_BAND.toPx() }
+    val nibWidth = state.tool.width
+    val rulerEdgeFor = remember(ruler, ptToPx, format, paged, snapBandPx, nibWidth, transform) {
+        { x: Float, y: Float ->
+            val zoom = transform.zoom
+            rulerEdgeAt(
+                pose = ruler.pose(zoom),
+                docX = x,
+                docY = y,
+                band = snapBandPx / zoom.coerceAtLeast(0.05f),
+                ptToPx = ptToPx,
+                format = format,
+                paged = paged,
+                outward = nibWidth * 0.5f,
+            )
+        }
+    }
 
     Box(Modifier.fillMaxWidth()) {
 
@@ -266,7 +329,18 @@ private fun SheetLayers(
             // screen, and reading it here instead of at the call site keeps a pinch off the
             // recomposition path entirely.
             zoom = transform::zoom,
+            rulerEdgeFor = if (state.rulerEnabled && ruler.isPlaced) rulerEdgeFor else null,
             modifier = Modifier.matchParentSize(),
         )
+
+        // 4. The ruler, over the ink it is there to straighten. It takes no pointer input at all —
+        // two fingers on it are handled by the one gesture authority, in sheetTransformGestures.
+        if (state.rulerEnabled) {
+            RulerOverlay(
+                ruler = ruler,
+                transform = transform,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
 }

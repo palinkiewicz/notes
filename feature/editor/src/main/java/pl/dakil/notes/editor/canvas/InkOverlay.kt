@@ -20,6 +20,8 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalHapticFeedback
 import pl.dakil.notes.ink.InputIntent
 import pl.dakil.notes.ink.InputRouter
+import pl.dakil.notes.ink.RulerEdge
+import pl.dakil.notes.ink.RulerGuide
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.InputConfig
@@ -66,6 +68,12 @@ interface InkCallbacks {
  * `ACTION_CANCEL` and stops dispatching for the rest of the stream. The visible result is a stroke
  * that puts down a single dot and dies.
  *
+ * ### Why the ruler is consulted once
+ *
+ * [rulerEdgeFor] is asked at pen-down and never again: whether the stroke is being drawn against
+ * the straightedge is a fact about how it started, exactly as it is with a real ruler. Re-testing
+ * per sample would let the ink step on and off the edge wherever the hand drifted past the band.
+ *
  * ### Why auto-shape needs a timer
  *
  * The snap is triggered by holding the pen *still*, and Android sends no move events while a
@@ -92,17 +100,24 @@ fun InkOverlay(
     darkTheme: Boolean = false,
     /** The scale the sheet is placed at, for anything that must stay a fixed size on screen. */
     zoom: () -> Float = { 1f },
+    /**
+     * Given a pen-down in document points, the ruler edge that stroke should be drawn against, or
+     * null for free-hand. Null itself whenever the ruler is off.
+     */
+    rulerEdgeFor: ((Float, Float) -> RulerEdge?)? = null,
 ) {
     val renderer = remember { StrokeRenderer() }
     val builder = remember { StrokeBuilder() }
     val router = remember { InputRouter(inputConfig) }
     val lasso = remember { LassoBuffer() }
     val shape = remember { ShapeController() }
+    val guide = remember { RulerGuide() }
     val inkVersion = remember { mutableIntStateOf(0) }
     val disallowIntercept = remember { RequestDisallowInterceptTouchEvent() }
 
     val currentCallbacks by rememberUpdatedState(callbacks)
     val currentTool by rememberUpdatedState(tool)
+    val currentRulerEdgeFor by rememberUpdatedState(rulerEdgeFor)
     val format = sheet.format
     val pageCount = sheet.pageCount()
 
@@ -142,6 +157,8 @@ fun InkOverlay(
                 builder = builder,
                 lasso = lasso,
                 shape = shape,
+                guide = guide,
+                rulerEdgeFor = currentRulerEdgeFor,
                 tool = currentTool,
                 config = inputConfig,
                 callbacks = currentCallbacks,
@@ -272,6 +289,8 @@ private fun handleEvent(
     builder: StrokeBuilder,
     lasso: LassoBuffer,
     shape: ShapeController,
+    guide: RulerGuide,
+    rulerEdgeFor: ((Float, Float) -> RulerEdge?)?,
     tool: ToolSpec,
     config: InputConfig,
     callbacks: InkCallbacks,
@@ -302,6 +321,7 @@ private fun handleEvent(
                 // Same reasoning: a gesture whose ACTION_UP never arrived would otherwise leave a
                 // shape live and its ticker running into the next stroke.
                 shape.reset()
+                guide.release()
             }
 
             val index = event.actionIndex
@@ -323,13 +343,23 @@ private fun handleEvent(
                 builder.reset()
                 lasso.reset()
                 shape.reset()
+                guide.release()
             }
 
             when (decision.intent) {
                 is InputIntent.Draw -> {
-                    val sample = sampleAt(index)
-                    beginAction(builder, lasso, tool, config, sample)
-                    if (config.autoShapeEnabled && tool.tool.isDrawing) {
+                    val landed = sampleAt(index)
+                    guide.release()
+                    // Erasing and lassoing along a straightedge is not a thing anyone does, and
+                    // snapping them would make the ruler feel like it had captured the tool.
+                    if (rulerEdgeFor != null && tool.tool.isDrawing) {
+                        guide.engage(rulerEdgeFor(landed.x, landed.y))
+                    }
+                    val sample = guide.snap(landed)
+                    beginAction(builder, lasso, tool, config, sample, guide.edge)
+                    // A stroke drawn against the edge is already the shape it is meant to be;
+                    // pausing at the end of a ruled line should not turn it into a rectangle.
+                    if (config.autoShapeEnabled && tool.tool.isDrawing && !guide.isEngaged) {
                         shape.begin(sample.x, sample.y, sample.timeMs)
                         startTicking()
                     }
@@ -341,6 +371,7 @@ private fun handleEvent(
                     // beneath can pick the pinch up, and report the revoked stroke gone.
                     claim(false)
                     shape.reset()
+                    guide.release()
                     if (decision.revoked.isNotEmpty()) invalidate()
                     return false
                 }
@@ -362,7 +393,7 @@ private fun handleEvent(
                 consumed = true
                 MotionEventBridge.forEachSample(event, index) { raw ->
                     val doc = toDocument(raw.x, raw.y)
-                    val sample = raw.copy(x = doc.x, y = doc.y)
+                    val sample = guide.snap(raw.copy(x = doc.x, y = doc.y))
                     router.update(raw)
                     when (tool.tool) {
                         ToolId.ERASER_STROKE, ToolId.ERASER_POINT ->
@@ -395,7 +426,8 @@ private fun handleEvent(
             // resting on the glass lifting off mid-word.
             if (event.actionMasked == MotionEvent.ACTION_UP || !router.isDrawing) claim(false)
             if (intent is InputIntent.Draw) {
-                finishAction(builder, lasso, shape, tool, sampleAt(index), callbacks)
+                finishAction(builder, lasso, shape, tool, guide.snap(sampleAt(index)), callbacks)
+                guide.release()
                 invalidate()
                 return true
             }
@@ -408,6 +440,7 @@ private fun handleEvent(
             builder.reset()
             lasso.reset()
             shape.reset()
+            guide.release()
             claim(false)
             invalidate()
             return false
@@ -422,6 +455,9 @@ private fun beginAction(
     tool: ToolSpec,
     config: InputConfig,
     sample: PointerSample,
+    /** The straightedge the stroke has taken hold of, which the builder has to honour past its
+     *  own smoothing — see [StrokeBuilder]'s guide. */
+    guideEdge: RulerEdge? = null,
 ) {
     when (tool.tool) {
         ToolId.LASSO -> {
@@ -437,7 +473,7 @@ private fun beginAction(
         }
         else -> {
             lasso.reset()
-            builder.start(tool, config, sample)
+            builder.start(tool, config, sample, guideEdge)
         }
     }
 }

@@ -80,6 +80,13 @@ data class EditorUiState(
     val lastEraser: ToolId = ToolId.ERASER_STROKE,
     /** True when the text tool is chosen: a finger tap edits text rather than drawing. */
     val textToolActive: Boolean = false,
+    /**
+     * Whether the straightedge is out.
+     *
+     * Not a tool, which is the whole point of it: a ruler on the desk does not stop you writing,
+     * erasing or typing, so this is independent of [tool] and of [textToolActive].
+     */
+    val rulerEnabled: Boolean = false,
     val editingText: Boolean = false,
     val activeLayerId: BlockId? = null,
     val selection: Selection? = null,
@@ -224,6 +231,15 @@ class NoteViewModel(
     }
 
     fun setFingerDrawing(enabled: Boolean) = settings.setFingerDrawing(enabled)
+
+    /**
+     * Puts the straightedge on the page, or takes it away.
+     *
+     * Kept with the editor rather than in settings: it is a thing you reach for mid-sentence and
+     * put down again, and a ruler that was still lying across the page a week later would be a
+     * surprise rather than a convenience.
+     */
+    fun setRuler(enabled: Boolean) = _state.update { it.copy(rulerEnabled = enabled) }
 
     /** Records a colour the user settled on, so it is one tap away next time. */
     fun rememberColor(argb: Int) = settings.addRecentColor(argb)

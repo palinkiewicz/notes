@@ -169,6 +169,7 @@ fun EditorScreen(
                     onSelectTextTool = viewModel::selectTextTool,
                     onUpdateTool = viewModel::updateTool,
                     onToggleFingerDrawing = viewModel::setFingerDrawing,
+                    onToggleRuler = viewModel::setRuler,
                     onOpenColorPicker = { editingPen = it },
                 )
             }
@@ -205,6 +206,7 @@ fun EditorScreen(
                             onSelectTextTool = viewModel::selectTextTool,
                             onUpdateTool = viewModel::updateTool,
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
+                            onToggleRuler = viewModel::setRuler,
                             onOpenColorPicker = { editingPen = it },
                         )
                     }

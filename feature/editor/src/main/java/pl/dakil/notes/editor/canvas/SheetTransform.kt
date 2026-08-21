@@ -232,6 +232,12 @@ class SheetTransform {
     /** Bottom of the visible band, in unzoomed content pixels. */
     fun visibleBottom(): Float = screenToContentY(viewportHeight)
 
+    /** Left of the visible band, in unzoomed content pixels. Negative when the page is centred. */
+    fun visibleLeft(): Float = screenToContentX(0f)
+
+    /** Right of the visible band, in unzoomed content pixels. */
+    fun visibleRight(): Float = screenToContentX(viewportWidth)
+
     // ---- Clamping --------------------------------------------------------------------------------
 
     /**
