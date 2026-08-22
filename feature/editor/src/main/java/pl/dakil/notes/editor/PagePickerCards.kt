@@ -26,7 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.sheet.SheetPainter.drawPattern
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PageBackground
@@ -200,7 +202,7 @@ private fun PatternCard(
             }
         }
         Text(
-            text = type.label,
+            text = type.label(),
             style = MaterialTheme.typography.labelMedium,
             color = scheme.onSurface,
             modifier = Modifier
@@ -214,12 +216,14 @@ private fun PatternCard(
     }
 }
 
-internal val PatternType.label: String
-    get() = when (this) {
-        PatternType.NONE -> "Plain"
-        PatternType.GRID -> "Grid"
-        PatternType.RULED -> "Ruled"
-        PatternType.DOTTED -> "Dotted"
-        PatternType.ISOMETRIC -> "Isometric"
-        PatternType.STAVES -> "Staves"
-    }
+@Composable
+internal fun PatternType.label(): String = stringResource(
+    when (this) {
+        PatternType.NONE -> R.string.editor_pattern_plain
+        PatternType.GRID -> R.string.editor_pattern_grid
+        PatternType.RULED -> R.string.editor_pattern_ruled
+        PatternType.DOTTED -> R.string.editor_pattern_dotted
+        PatternType.ISOMETRIC -> R.string.editor_pattern_isometric
+        PatternType.STAVES -> R.string.editor_pattern_staves
+    },
+)

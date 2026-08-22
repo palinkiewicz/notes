@@ -25,10 +25,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.FormatPopup
 import pl.dakil.notes.editor.markdown.MarkdownEditor
@@ -67,7 +69,12 @@ fun TextNoteScreen(
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
     var renaming by remember { mutableStateOf(false) }
     var tagging by remember { mutableStateOf(false) }
-    val title = state.title.ifBlank { "Untitled" }
+    val title = state.title.ifBlank { stringResource(R.string.editor_untitled) }
+
+    // A message that came up from the store already has its own words; the fallback arrives as a
+    // resource id, because the view model has no `Context` to resolve one with.
+    val errorMessage = state.error ?: state.errorRes?.let { stringResource(it) }
+
 
     if (renaming) {
         RenameNoteDialog(
@@ -138,18 +145,18 @@ fun TextNoteScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = "Back")
+                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.editor_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { tagging = true }) {
-                        Icon(NotesIcons.Tag, contentDescription = "Tags")
+                        Icon(NotesIcons.Tag, contentDescription = stringResource(R.string.editor_tags))
                     }
                     IconButton(onClick = { undo.undo() }, enabled = undo.canUndo) {
-                        Icon(NotesIcons.Undo, contentDescription = "Undo")
+                        Icon(NotesIcons.Undo, contentDescription = stringResource(R.string.editor_undo))
                     }
                     IconButton(onClick = { undo.redo() }, enabled = undo.canRedo) {
-                        Icon(NotesIcons.Redo, contentDescription = "Redo")
+                        Icon(NotesIcons.Redo, contentDescription = stringResource(R.string.editor_redo))
                     }
                     FilledIconToggleButton(
                         checked = state.sourceMode,
@@ -185,9 +192,9 @@ fun TextNoteScreen(
                     CircularProgressIndicator()
                 }
 
-                state.error != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                errorMessage != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text(
-                        text = state.error!!,
+                        text = errorMessage,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.error,
                     )

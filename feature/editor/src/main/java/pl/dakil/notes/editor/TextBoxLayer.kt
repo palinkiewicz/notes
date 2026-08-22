@@ -18,8 +18,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.markdown.MarkdownStaticText
 import pl.dakil.notes.editor.markdown.MarkdownStyles
@@ -121,7 +123,7 @@ private fun TextBoxContent(
                 markdown = box.markdown,
                 styles = styles,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = if (active) "Type here…" else "",
+                placeholder = if (active) stringResource(R.string.editor_type_here) else "",
                 onToggleTask = if (state.isReadOnly) {
                     null
                 } else {

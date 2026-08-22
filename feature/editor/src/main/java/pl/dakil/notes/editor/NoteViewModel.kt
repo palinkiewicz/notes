@@ -1,5 +1,6 @@
 package pl.dakil.notes.editor
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.InkCallbacks
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
@@ -122,7 +124,14 @@ data class EditorUiState(
     /** The unit paper measurements are shown and typed in. An app setting, not a document one. */
     val measurementUnit: MeasurementUnit = MeasurementUnit.CENTIMETRE,
     val isLoading: Boolean = true,
+    /**
+     * A failure message that came up from the store or the file format.
+     *
+     * Those layers are pure JVM and have no resources, so their text arrives already written; when
+     * a failure has nothing to say, [errorRes] carries the fallback for the screen to resolve.
+     */
     val error: String? = null,
+    @StringRes val errorRes: Int? = null,
 ) {
     val sheet: Sheet? get() = note?.sheet
     val isReadOnly: Boolean get() = note?.readOnly == true
@@ -207,7 +216,11 @@ class NoteViewModel(
                 onSuccess = { note -> adopt(note, ref) },
                 onFailure = { cause ->
                     _state.update {
-                        it.copy(isLoading = false, error = cause.message ?: "Could not open the note")
+                        it.copy(
+                            isLoading = false,
+                            error = cause.message,
+                            errorRes = if (cause.message == null) R.string.editor_error_open else null,
+                        )
                     }
                 },
             )

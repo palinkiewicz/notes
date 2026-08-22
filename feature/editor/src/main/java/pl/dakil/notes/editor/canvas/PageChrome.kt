@@ -16,8 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.ui.icons.NotesIcons
 import kotlin.math.min
@@ -148,17 +150,37 @@ private fun PageHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Page $number",
+                text = stringResource(R.string.editor_page_x, number),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 4.dp),
             )
             // Shown disabled rather than hidden on a page the text flows through: controls that
             // come and go as you type are harder to trust than ones that stay put.
-            HeaderAction(NotesIcons.MoveUp, "Move page $number up", canMoveUp, onMoveUp)
-            HeaderAction(NotesIcons.MoveDown, "Move page $number down", canMoveDown, onMoveDown)
-            HeaderAction(NotesIcons.DuplicatePage, "Duplicate page $number", editable, onDuplicate)
-            HeaderAction(NotesIcons.Delete, "Delete page $number", editable, onRemove)
+            HeaderAction(
+                icon = NotesIcons.MoveUp,
+                description = stringResource(R.string.editor_page_move_up_x, number),
+                enabled = canMoveUp,
+                onClick = onMoveUp,
+            )
+            HeaderAction(
+                icon = NotesIcons.MoveDown,
+                description = stringResource(R.string.editor_page_move_down_x, number),
+                enabled = canMoveDown,
+                onClick = onMoveDown,
+            )
+            HeaderAction(
+                icon = NotesIcons.DuplicatePage,
+                description = stringResource(R.string.editor_page_duplicate_x, number),
+                enabled = editable,
+                onClick = onDuplicate,
+            )
+            HeaderAction(
+                icon = NotesIcons.Delete,
+                description = stringResource(R.string.editor_page_delete_x, number),
+                enabled = editable,
+                onClick = onRemove,
+            )
         }
     }
 }
@@ -189,7 +211,10 @@ private fun AddPageButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
             )
-            Text("  Add page", style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = stringResource(R.string.editor_add_page),
+                style = MaterialTheme.typography.labelLarge,
+            )
         }
     }
 }

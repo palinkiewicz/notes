@@ -18,8 +18,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.library.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -37,13 +40,13 @@ fun NewFolderDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(NotesIcons.NewFolder, contentDescription = null) },
-        title = { Text("New folder") },
+        title = { Text(stringResource(R.string.library_new_folder_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
                 singleLine = true,
-                label = { Text("Name") },
+                label = { Text(stringResource(R.string.library_name_label)) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     if (name.isNotBlank()) onConfirm(name.trim())
@@ -55,9 +58,11 @@ fun NewFolderDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.isNotBlank(),
-            ) { Text("Create") }
+            ) { Text(stringResource(R.string.library_create)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
+        },
     )
 }
 
@@ -80,25 +85,35 @@ fun ConfirmDeleteDialog(
         icon = { Icon(NotesIcons.Delete, contentDescription = null) },
         title = {
             Text(
-                if (items.size == 1) "Delete “${items.first().name.ifBlank { "Untitled" }}”?"
-                else "Delete ${items.size} items?"
+                if (items.size == 1) {
+                    stringResource(R.string.library_delete_one_x, items.first().displayName())
+                } else {
+                    pluralStringResource(R.plurals.library_delete_many_x, items.size, items.size)
+                }
             )
         },
         text = {
             Column {
                 if (folders > 0) {
                     Text(
-                        if (folders == 1 && items.size == 1) "Everything inside this folder goes too."
-                        else "Everything inside the selected folders goes too."
+                        if (folders == 1 && items.size == 1) {
+                            stringResource(R.string.library_delete_folder_contents_one)
+                        } else {
+                            stringResource(R.string.library_delete_folder_contents_many)
+                        }
                     )
                 }
                 Text(
-                    text = "This cannot be undone.",
+                    text = stringResource(R.string.library_delete_undone),
                     modifier = Modifier.padding(top = if (folders > 0) 8.dp else 0.dp),
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.library_delete)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
+        },
     )
 }

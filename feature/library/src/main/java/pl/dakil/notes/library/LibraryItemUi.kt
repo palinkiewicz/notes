@@ -2,12 +2,15 @@ package pl.dakil.notes.library
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import pl.dakil.notes.format.NoteKind
+import pl.dakil.notes.library.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -58,14 +61,17 @@ val LibraryItem.icon: ImageVector
         }
     }
 
-val LibraryItem.contentDescription: String
-    get() = when (this) {
-        is LibraryItem.Folder -> "Folder"
+@Composable
+fun LibraryItem.contentDescription(): String = stringResource(
+    when (this) {
+        is LibraryItem.Folder -> R.string.library_item_folder
         is LibraryItem.Note -> when (summary.kind) {
-            NoteKind.INK -> "Ink note"
-            NoteKind.TEXT -> "Text note"
+            NoteKind.INK -> R.string.library_item_ink_note
+            NoteKind.TEXT -> R.string.library_item_text_note
         }
-    }
+    },
+)
 
 /** An untitled note still needs something to be called on screen. */
-val LibraryItem.displayName: String get() = name.ifBlank { "Untitled" }
+@Composable
+fun LibraryItem.displayName(): String = name.ifBlank { stringResource(R.string.library_untitled) }

@@ -1,3 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Notes</string>
+
+    <string name="app_name">DakNote</string>
+
+    <!--  COMMON  -->
+    <string name="common_back">Back</string>
+    <string name="common_close">Close</string>
+
+    <!--  NAVIGATION  -->
+    <string name="nav_notes">Notes</string>
+    <string name="nav_settings">Settings</string>
+
+    <!--  SETTINGS  -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_appearance_summary">Theme, colours and layout</string>
+    <string name="settings_input">Input</string>
+    <string name="settings_input_summary">Stylus, palm rejection and pressure</string>
+    <string name="settings_about">About app</string>
+    <string name="settings_about_summary">Version and credits</string>
+
+    <!--  APPEARANCE SETTINGS  -->
+    <string name="settings_theme_colors">Theme colours</string>
+    <string name="settings_dark_mode">Dark mode</string>
+    <string name="settings_pure_black">Pure black</string>
+    <string name="settings_pure_black_description">True black backgrounds in dark mode, to save power on an OLED screen.</string>
+    <string name="settings_library">Library</string>
+    <string name="settings_notes_layout">Notes layout</string>
+    <string name="settings_notes_layout_description">Cards show a preview of each note; the list fits more of them on screen.</string>
+    <string name="settings_paper">Paper</string>
+    <string name="settings_measurements">Measurements</string>
+    <string name="settings_measurements_description">The unit page margins, rule spacing and paper sizes are shown in.</string>
+    <string name="settings_pattern_in_document">Show paper pattern in text mode</string>
+    <string name="settings_pattern_in_document_description">Keeps grid or rule lines behind reflowing text.</string>
+
+    <!--  THEME NAMES  -->
+    <string name="theme_dakils_notes">Dakil\'s Notes</string>
+    <string name="theme_dynamic">Dynamic</string>
+    <string name="theme_ocean">Ocean</string>
+    <string name="theme_lavender">Lavender</string>
+    <string name="theme_sunset">Sunset</string>
+    <string name="theme_rose">Rose</string>
+    <string name="theme_teal">Teal</string>
+
+    <string name="dark_theme_system">System</string>
+    <string name="dark_theme_light">Light</string>
+    <string name="dark_theme_dark">Dark</string>
+
+    <string name="library_layout_cards">Floating cards</string>
+    <string name="library_layout_list">List</string>
+
+    <string name="unit_centimetres">Centimetres</string>
+    <string name="unit_millimetres">Millimetres</string>
+    <string name="unit_inches">Inches</string>
+
+    <!--  INPUT SETTINGS  -->
+    <string name="settings_finger_drawing">Draw with finger</string>
+    <string name="settings_finger_drawing_description">Turn on if your device has no stylus. Two fingers still pan and zoom.</string>
+    <string name="settings_multitouch_nav">Two fingers navigate</string>
+    <string name="settings_multitouch_nav_description">Keeps pan and zoom available while drawing with a finger.</string>
+    <string name="settings_palm_window">Palm rejection window</string>
+    <string name="settings_palm_window_description">Touches within this time of a stylus sample are ignored. Raise it if your hand still draws; lower it if touch feels unresponsive.</string>
+    <string name="settings_palm_size">Palm size threshold</string>
+    <string name="settings_palm_size_description">Contact patches wider than this are treated as a palm rather than a fingertip.</string>
+    <string name="settings_smoothing">Stroke smoothing</string>
+    <string name="settings_smoothing_description">A global multiplier on every tool\'s own smoothing.</string>
+    <string name="settings_min_pressure">Minimum pressure</string>
+    <string name="settings_min_pressure_description">Ignores the faint tail of a lifting pen.</string>
+    <string name="settings_pressure_curve">Pressure response</string>
+    <string name="settings_pressure_curve_description">Soft reaches full width with a lighter touch; firm needs more force.</string>
+    <string name="settings_auto_shape">Auto-shape</string>
+    <string name="settings_auto_shape_description">Hold the pen still at the end of a stroke to snap it to a line, square, circle or polygon. Lift normally and the stroke is left as drawn.</string>
+    <string name="settings_auto_shape_hold">Hold to snap</string>
+    <string name="settings_auto_shape_hold_description">How long the pen must rest before a shape is guessed.</string>
+
+    <string name="pressure_curve_soft">Soft</string>
+    <string name="pressure_curve_linear">Linear</string>
+    <string name="pressure_curve_firm">Firm</string>
+
+    <!--  SETTINGS VALUE READOUTS  -->
+    <string name="settings_milliseconds_x">%1$d ms</string>
+    <string name="settings_pixels_x">%1$d px</string>
+    <string name="settings_multiplier_x">%1$s×</string>
+    <string name="settings_off">Off</string>
+
+    <!--  ABOUT DIALOG  -->
+    <string name="about_title">About DakNote</string>
+    <string name="about_version_x">Version %1$s</string>
+    <string name="about_description">One sheet of paper carrying Markdown text and vector ink, in an open, unzippable file format.</string>
+    <string name="about_repository">Repository</string>
+    <string name="about_repository_link">GitHub</string>
+    <string name="about_author">Author</string>
+    <string name="about_credit">Idea, and a loving girlfriend</string>
+
 </resources>

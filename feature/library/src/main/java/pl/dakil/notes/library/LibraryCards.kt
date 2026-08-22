@@ -20,10 +20,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
+import pl.dakil.notes.library.R
 import pl.dakil.notes.ui.icons.NotesIcons
 import java.text.DateFormat
 import java.util.Date
@@ -114,9 +116,13 @@ private fun FolderCardBody(folder: LibraryItem.Folder) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Icon(NotesIcons.Folder, contentDescription = "Folder", modifier = Modifier.size(22.dp))
+        Icon(
+            imageVector = NotesIcons.Folder,
+            contentDescription = stringResource(R.string.library_item_folder),
+            modifier = Modifier.size(22.dp),
+        )
         Text(
-            text = folder.displayName,
+            text = folder.displayName(),
             style = MaterialTheme.typography.titleSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -146,7 +152,7 @@ private fun NoteCardBody(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = note.displayName,
+            text = note.displayName(),
             style = MaterialTheme.typography.titleSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -164,7 +170,8 @@ private fun NoteCardBody(
         }
         Text(
             text = if (showPath) {
-                note.path.ifEmpty { ROOT_FOLDER_NAME } + "  ·  " + dateFormat.format(Date(note.modifiedAt))
+                note.path.ifEmpty { stringResource(R.string.library_root_folder) } + "  ·  " +
+                    dateFormat.format(Date(note.modifiedAt))
             } else {
                 dateFormat.format(Date(note.modifiedAt))
             },

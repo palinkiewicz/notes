@@ -1,5 +1,6 @@
 package pl.dakil.notes.editor
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -54,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import java.util.Locale
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ColorCodec
@@ -122,7 +126,10 @@ fun EditorToolbar(
                 onToggleFingerDrawing(it)
             },
         ) {
-            Icon(NotesIcons.FingerDraw, contentDescription = "Draw with finger")
+            Icon(
+                imageVector = NotesIcons.FingerDraw,
+                contentDescription = stringResource(R.string.editor_finger_drawing),
+            )
         }
         RulerToggle(checked = state.rulerEnabled, onCheckedChange = {
             onPopupChange(null)
@@ -178,7 +185,10 @@ fun EditorToolRail(
                 onToggleFingerDrawing(it)
             },
         ) {
-            Icon(NotesIcons.FingerDraw, contentDescription = "Draw with finger")
+            Icon(
+                imageVector = NotesIcons.FingerDraw,
+                contentDescription = stringResource(R.string.editor_finger_drawing),
+            )
         }
         RulerToggle(checked = state.rulerEnabled, onCheckedChange = {
             onPopupChange(null)
@@ -222,7 +232,7 @@ private fun ToolControls(
 
     ToolBarButton(
         icon = NotesIcons.Lasso,
-        label = "Select",
+        label = stringResource(R.string.editor_tool_select),
         selected = !state.textToolActive && active == ToolId.LASSO,
         onClick = {
             onPopupChange(null)
@@ -232,7 +242,7 @@ private fun ToolControls(
 
     ToolBarButton(
         icon = NotesIcons.TextBox,
-        label = "Text",
+        label = stringResource(R.string.editor_tool_text),
         selected = state.textToolActive,
         onClick = {
             onPopupChange(null)
@@ -299,7 +309,7 @@ private fun ToolControls(
 @Composable
 private fun RulerToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     FilledIconToggleButton(checked = checked, onCheckedChange = onCheckedChange) {
-        Icon(NotesIcons.Ruler, contentDescription = "Ruler")
+        Icon(NotesIcons.Ruler, contentDescription = stringResource(R.string.editor_ruler))
     }
 }
 
@@ -398,7 +408,7 @@ private fun VariantButton(
 
     ToolBarButton(
         icon = entry.icon,
-        label = entry.label,
+        label = stringResource(entry.label),
         selected = selected,
         onClick = {
             if (selected) {
@@ -415,7 +425,7 @@ private fun VariantButton(
                 for (variant in variants) {
                     SelectorItem(
                         icon = variant.icon,
-                        label = variant.label,
+                        label = stringResource(variant.label),
                         selected = variant.tool == current,
                         onClick = {
                             onPopupChange(null)
@@ -487,7 +497,7 @@ private fun ColorButton(
                 }
                 SelectorItem(
                     icon = NotesIcons.Palette,
-                    label = "Custom colour",
+                    label = stringResource(R.string.editor_custom_colour),
                     selected = false,
                     onClick = {
                         onOpenChange(false)
@@ -559,7 +569,7 @@ private fun SizeButton(
                 // a control nobody can find is a control that does not exist.
                 SelectorItem(
                     icon = NotesIcons.More,
-                    label = "More options",
+                    label = stringResource(R.string.editor_more_options),
                     selected = false,
                     onClick = {
                         onOpenChange(false)
@@ -572,7 +582,7 @@ private fun SizeButton(
 }
 
 /** Three significant digits and one decimal: `2.0`, `16.5`, `40.0` — a stable width to lay out. */
-private fun formatSize(value: Float): String = String.format("%.1f", value)
+private fun formatSize(value: Float): String = String.format(Locale.getDefault(), "%.1f", value)
 
 /**
  * The popup itself: one row, one row high, floating clear of the bar that opened it.
@@ -735,7 +745,9 @@ private fun ToolOptionsSheet(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = TOOL_ENTRIES.firstOrNull { it.tool == spec.tool }?.label ?: "Tool",
+                text = stringResource(
+                    TOOL_ENTRIES.firstOrNull { it.tool == spec.tool }?.label ?: R.string.editor_tool,
+                ),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
@@ -748,23 +760,35 @@ private fun ToolOptionsSheet(
                     onOpenPicker = onOpenPicker,
                 )
 
-                LabelledSlider("Width", spec.width, WIDTH_RANGE) {
+                LabelledSlider(stringResource(R.string.editor_width), spec.width, WIDTH_RANGE) {
                     onSpecChange(spec.copy(width = it))
                 }
-                LabelledSlider("Opacity", spec.opacity, 0.05f..1f) {
+                LabelledSlider(stringResource(R.string.editor_opacity), spec.opacity, 0.05f..1f) {
                     onSpecChange(spec.copy(opacity = it))
                 }
-                LabelledSlider("Smoothing", spec.smoothing, 0f..1f) {
+                LabelledSlider(stringResource(R.string.editor_smoothing), spec.smoothing, 0f..1f) {
                     onSpecChange(spec.copy(smoothing = it))
                 }
-                LabelledSlider("Pressure sensitivity", spec.pressureInfluence, 0f..1f) {
+                LabelledSlider(
+                    stringResource(R.string.editor_pressure_sensitivity),
+                    spec.pressureInfluence,
+                    0f..1f,
+                ) {
                     onSpecChange(spec.copy(pressureInfluence = it))
                 }
-                LabelledSlider("Speed thinning", spec.speedInfluence, 0f..1f) {
+                LabelledSlider(
+                    stringResource(R.string.editor_speed_thinning),
+                    spec.speedInfluence,
+                    0f..1f,
+                ) {
                     onSpecChange(spec.copy(speedInfluence = it))
                 }
             } else {
-                LabelledSlider("Eraser size", spec.eraserRadius, ERASER_RANGE) {
+                LabelledSlider(
+                    stringResource(R.string.editor_eraser_size),
+                    spec.eraserRadius,
+                    ERASER_RANGE,
+                ) {
                     onSpecChange(spec.copy(eraserRadius = it))
                 }
             }
@@ -783,7 +807,11 @@ private fun LabelledSlider(
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.labelLarge)
             Text(
-                text = String.format("%.2f", value).trimEnd('0').trimEnd('.'),
+                // Both separators, like `MeasurementUnit.format`: a comma is what most of Europe
+                // gets back from `String.format`, and trimming only the point leaves it stranded.
+                text = String.format(Locale.getDefault(), "%.2f", value)
+                    .trimEnd('0')
+                    .trimEnd('.', ','),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -807,7 +835,7 @@ private fun ColorSection(
     onOpenPicker: () -> Unit,
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
-        Text("Colour", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.editor_colour), style = MaterialTheme.typography.labelLarge)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -842,7 +870,7 @@ private fun ColorSection(
             ) {
                 Icon(
                     imageVector = NotesIcons.Palette,
-                    contentDescription = "Custom colour",
+                    contentDescription = stringResource(R.string.editor_custom_colour),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
@@ -851,22 +879,26 @@ private fun ColorSection(
     }
 }
 
-private data class ToolEntry(val tool: ToolId, val label: String, val icon: ImageVector)
+private data class ToolEntry(
+    val tool: ToolId,
+    @param:StringRes val label: Int,
+    val icon: ImageVector,
+)
 
 private val DRAWING_TOOLS = listOf(
-    ToolEntry(ToolId.PEN, "Pen", NotesIcons.Pen),
-    ToolEntry(ToolId.FOUNTAIN_PEN, "Fountain", NotesIcons.FountainPen),
-    ToolEntry(ToolId.PENCIL, "Pencil", NotesIcons.Pencil),
-    ToolEntry(ToolId.HIGHLIGHTER, "Highlighter", NotesIcons.Highlighter),
+    ToolEntry(ToolId.PEN, R.string.editor_tool_pen, NotesIcons.Pen),
+    ToolEntry(ToolId.FOUNTAIN_PEN, R.string.editor_tool_fountain, NotesIcons.FountainPen),
+    ToolEntry(ToolId.PENCIL, R.string.editor_tool_pencil, NotesIcons.Pencil),
+    ToolEntry(ToolId.HIGHLIGHTER, R.string.editor_tool_highlighter, NotesIcons.Highlighter),
 )
 
 private val ERASER_TOOLS = listOf(
-    ToolEntry(ToolId.ERASER_STROKE, "Erase stroke", NotesIcons.EraserStroke),
-    ToolEntry(ToolId.ERASER_POINT, "Erase area", NotesIcons.EraserPoint),
+    ToolEntry(ToolId.ERASER_STROKE, R.string.editor_tool_erase_stroke, NotesIcons.EraserStroke),
+    ToolEntry(ToolId.ERASER_POINT, R.string.editor_tool_erase_area, NotesIcons.EraserPoint),
 )
 
 private val TOOL_ENTRIES = DRAWING_TOOLS + ERASER_TOOLS +
-    ToolEntry(ToolId.LASSO, "Select", NotesIcons.Lasso)
+    ToolEntry(ToolId.LASSO, R.string.editor_tool_select, NotesIcons.Lasso)
 
 /** The height of the tool bar when it is the lower of two. See [EditorToolbar]'s `compact`. */
 private val CompactBarHeight = 56.dp

@@ -24,10 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.format.NoteKind
+import pl.dakil.notes.library.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -67,7 +69,7 @@ fun NewNoteFab(
             // The lowest item is nearest the thumb, so it animates in first and out last.
             index = 2,
             icon = NotesIcons.NewFolder,
-            label = "Folder",
+            label = stringResource(R.string.library_new_folder),
             onClick = {
                 onOpenChange(false)
                 onCreateFolder()
@@ -77,7 +79,7 @@ fun NewNoteFab(
             visible = open,
             index = 1,
             icon = NotesIcons.TextNote,
-            label = "Text",
+            label = stringResource(R.string.library_new_text),
             onClick = {
                 onOpenChange(false)
                 onCreate(NoteKind.TEXT)
@@ -87,7 +89,7 @@ fun NewNoteFab(
             visible = open,
             index = 0,
             icon = NotesIcons.InkNote,
-            label = "Ink",
+            label = stringResource(R.string.library_new_ink),
             onClick = {
                 onOpenChange(false)
                 onCreate(NoteKind.INK)
@@ -100,7 +102,9 @@ fun NewNoteFab(
                 imageVector = NotesIcons.Add,
                 // The label has to follow the state, or a screen reader announces "new note" for a
                 // button that now closes the menu.
-                contentDescription = if (open) "Close" else "New",
+                contentDescription = stringResource(
+                    if (open) R.string.library_new_close else R.string.library_new,
+                ),
                 modifier = Modifier.rotate(rotation),
             )
         }

@@ -18,12 +18,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
 import java.text.DateFormat
 import java.util.Date
+import pl.dakil.notes.library.R
 
 /**
  * The dense layout: one row each.
@@ -68,7 +70,7 @@ private fun LibraryRow(
 ) {
     ListItem(
         headlineContent = {
-            Text(item.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.displayName(), maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         supportingContent = {
             Column {
@@ -77,7 +79,12 @@ private fun LibraryRow(
                     Text(snippet, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 Text(
-                    text = subtitle(item, dateFormat, showPath),
+                    text = subtitle(
+                        item = item,
+                        dateFormat = dateFormat,
+                        showPath = showPath,
+                        rootFolderName = stringResource(R.string.library_root_folder),
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -99,7 +106,7 @@ private fun LibraryRow(
                 Box(Modifier.width(THUMBNAIL_WIDTH), androidx.compose.ui.Alignment.Center) {
                     Icon(
                         imageVector = item.icon,
-                        contentDescription = item.contentDescription,
+                        contentDescription = item.contentDescription(),
                         modifier = Modifier.size(24.dp),
                     )
                 }
@@ -120,11 +127,16 @@ private fun LibraryRow(
  * The folder only appears when searching, because that is the only time a row on screen might not
  * be in the folder the breadcrumbs say it is.
  */
-private fun subtitle(item: LibraryItem, dateFormat: DateFormat, showPath: Boolean): String {
+private fun subtitle(
+    item: LibraryItem,
+    dateFormat: DateFormat,
+    showPath: Boolean,
+    rootFolderName: String,
+): String {
     val date = dateFormat.format(Date(item.modifiedAt))
     val tags = (item as? LibraryItem.Note)?.summary?.tags.orEmpty()
     return buildString {
-        if (showPath) append(item.path.ifEmpty { ROOT_FOLDER_NAME }).append("  ·  ")
+        if (showPath) append(item.path.ifEmpty { rootFolderName }).append("  ·  ")
         append(date)
         if (tags.isNotEmpty()) append("  ·  ").append(tags.joinToString(", "))
     }

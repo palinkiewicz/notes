@@ -1,5 +1,7 @@
 package pl.dakil.notes.model
 
+import java.util.Locale
+
 /**
  * Paper extent, in points (1/72 inch).
  *
@@ -41,10 +43,18 @@ sealed interface PageSize {
         LETTER(612f, 792f, SizeGroup.US),
         LEGAL(612f, 1008f, SizeGroup.US);
 
-        /** "A4" stays shouted, "LETTER" does not. */
+        /**
+         * "A4" stays shouted, "LETTER" does not.
+         *
+         * Paper names, so they are the same in every language and stay in the model. `Locale.ROOT`
+         * because the device's locale must not decide what a size is called.
+         */
         val label: String
-            get() = if (group == SizeGroup.US) name.lowercase().replaceFirstChar { it.uppercase() }
-            else name
+            get() = if (group == SizeGroup.US) {
+                name.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase(Locale.ROOT) }
+            } else {
+                name
+            }
     }
 
     companion object {
@@ -69,8 +79,13 @@ enum class PatternType {
             entries.firstOrNull { it.key == key } ?: NONE
     }
 
-    /** Stable lower-case token used in the file, decoupled from the enum name. */
-    val key: String get() = name.lowercase()
+    /**
+     * Stable lower-case token used in the file, decoupled from the enum name.
+     *
+     * `Locale.ROOT`, not the device's: Turkish lower-cases `I` to a dotless `ı`, which would write
+     * a key no other device could read back.
+     */
+    val key: String get() = name.lowercase(Locale.ROOT)
 }
 
 data class PagePattern(

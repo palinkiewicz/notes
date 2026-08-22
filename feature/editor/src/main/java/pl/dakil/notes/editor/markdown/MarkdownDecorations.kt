@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import pl.dakil.notes.editor.R
 
 /**
  * The colours a block's drawn geometry is made of, resolved from the theme once.
@@ -44,7 +46,10 @@ class MarkdownDecorationPalette(
 fun rememberMarkdownDecorationPalette(): MarkdownDecorationPalette {
     val colors = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
-    return remember(colors, measurer) {
+    // Read outside the `remember`, which is not a composable scope, and keyed into it so a locale
+    // change re-measures the label rather than leaving the previous language's metrics behind.
+    val codeLabel = stringResource(R.string.markdown_code)
+    return remember(colors, measurer, codeLabel) {
         MarkdownDecorationPalette(
             codeBackground = colors.surfaceContainer,
             codeHeader = colors.surfaceContainerHigh,
@@ -55,7 +60,7 @@ fun rememberMarkdownDecorationPalette(): MarkdownDecorationPalette {
             quoteBar = colors.primary.copy(alpha = 0.5f),
             focus = colors.primary,
             placeholder = measurer.measure(
-                text = "Code",
+                text = codeLabel,
                 style = TextStyle(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,

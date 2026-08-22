@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.map
+import pl.dakil.notes.model.AppColorTheme
+import pl.dakil.notes.model.DarkThemeOption
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PagePattern
@@ -20,14 +22,11 @@ import java.util.Locale
 /** Where the toolbar sits, so left-handed users and tablet users can put it somewhere sensible. */
 enum class ToolbarPosition { BOTTOM, LEFT, RIGHT, TOP }
 
-enum class ThemeMode { SYSTEM, LIGHT, DARK }
-
 /**
  * How the note library draws its contents.
  *
- * Keyed by a stable string rather than by ordinal, like [pl.dakil.notes.model.ViewMode] and unlike
- * [ThemeMode]: reordering the enum then cannot silently turn everyone's saved choice into a
- * different one.
+ * Keyed by a stable string rather than by ordinal, like [pl.dakil.notes.model.ViewMode]:
+ * reordering the enum then cannot silently turn everyone's saved choice into a different one.
  */
 enum class LibraryLayout(val key: String) {
     /** A card each, with a preview of what is in the note. */
@@ -44,7 +43,12 @@ enum class LibraryLayout(val key: String) {
 /** Everything the user can configure. Defaults are what a casual note-taker should never touch. */
 data class AppSettings(
     val input: InputConfig = InputConfig(),
-    val theme: ThemeMode = ThemeMode.SYSTEM,
+    /** The colour scheme the app paints itself in. */
+    val colorTheme: AppColorTheme = AppColorTheme.DAKILS_NOTES,
+    /** Whether the app follows the system dark setting or overrides it. */
+    val darkTheme: DarkThemeOption = DarkThemeOption.SYSTEM,
+    /** True black backgrounds in dark mode, for OLED screens. Ignored in light mode. */
+    val pureBlack: Boolean = false,
     val toolbarPosition: ToolbarPosition = ToolbarPosition.BOTTOM,
     val defaultPageSize: PageSize = PageSize.A4,
     val defaultBackground: PageBackground = PageBackground.DEFAULT,
@@ -101,7 +105,11 @@ class SettingsRepository(context: Context) {
             autoShapeEnabled = prefs.getBoolean(KEY_AUTO_SHAPE, true),
             autoShapeHoldMs = prefs.getLong(KEY_AUTO_SHAPE_HOLD, 500L),
         ),
-        theme = ThemeMode.entries.getOrElse(prefs.getInt(KEY_THEME, 0)) { ThemeMode.SYSTEM },
+        colorTheme = prefs.getString(KEY_COLOR_THEME, null)
+            ?.let(AppColorTheme::fromKey) ?: AppColorTheme.DAKILS_NOTES,
+        darkTheme = prefs.getString(KEY_DARK_THEME, null)
+            ?.let(DarkThemeOption::fromKey) ?: DarkThemeOption.SYSTEM,
+        pureBlack = prefs.getBoolean(KEY_PURE_BLACK, false),
         toolbarPosition = ToolbarPosition.entries
             .getOrElse(prefs.getInt(KEY_TOOLBAR_POSITION, 0)) { ToolbarPosition.BOTTOM },
         defaultPageSize = readPageSize(),
@@ -144,7 +152,13 @@ class SettingsRepository(context: Context) {
         .putFloat(KEY_CURVE_Y2, curve.y2)
         .apply()
 
-    fun setTheme(mode: ThemeMode) = prefs.edit().putInt(KEY_THEME, mode.ordinal).apply()
+    fun setColorTheme(theme: AppColorTheme) =
+        prefs.edit().putString(KEY_COLOR_THEME, theme.key).apply()
+
+    fun setDarkTheme(option: DarkThemeOption) =
+        prefs.edit().putString(KEY_DARK_THEME, option.key).apply()
+
+    fun setPureBlack(enabled: Boolean) = prefs.edit().putBoolean(KEY_PURE_BLACK, enabled).apply()
 
     fun setToolbarPosition(position: ToolbarPosition) =
         prefs.edit().putInt(KEY_TOOLBAR_POSITION, position.ordinal).apply()
@@ -268,7 +282,9 @@ class SettingsRepository(context: Context) {
         const val KEY_AUTO_SHAPE = "input.autoShape"
         const val KEY_AUTO_SHAPE_HOLD = "input.autoShapeHoldMs"
 
-        const val KEY_THEME = "ui.theme"
+        const val KEY_COLOR_THEME = "ui.colorTheme"
+        const val KEY_DARK_THEME = "ui.darkTheme"
+        const val KEY_PURE_BLACK = "ui.pureBlack"
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"
         const val KEY_PATTERN_IN_DOC = "ui.patternInDocumentMode"
         const val KEY_LIBRARY_ROOT = "library.root"

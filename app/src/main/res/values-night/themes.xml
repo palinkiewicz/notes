@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      The window background the platform paints before Compose draws its first frame. Without a
+      night variant a dark-mode cold start flashes white for that frame.
+    -->
+    <style name="Theme.Notes" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

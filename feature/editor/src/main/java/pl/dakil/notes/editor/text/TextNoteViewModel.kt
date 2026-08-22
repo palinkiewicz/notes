@@ -1,5 +1,6 @@
 package pl.dakil.notes.editor.text
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.format.FrontmatterCodec
 
 @Immutable
@@ -33,7 +35,14 @@ data class TextNoteUiState(
     val tags: List<String> = emptyList(),
     val saveState: SaveState = SaveState.Idle,
     val isLoading: Boolean = true,
+    /**
+     * A failure message that came up from the store or the file format.
+     *
+     * Those layers are pure JVM and have no resources, so their text arrives already written; when
+     * a failure has nothing to say, [errorRes] carries the fallback for the screen to resolve.
+     */
     val error: String? = null,
+    @StringRes val errorRes: Int? = null,
 )
 
 /**
@@ -100,7 +109,11 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
                 },
                 onFailure = { cause ->
                     _state.update {
-                        it.copy(isLoading = false, error = cause.message ?: "Could not open the note")
+                        it.copy(
+                            isLoading = false,
+                            error = cause.message,
+                            errorRes = if (cause.message == null) R.string.editor_error_open else null,
+                        )
                     }
                 },
             )

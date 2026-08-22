@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.InlineSelector
 import pl.dakil.notes.editor.PopupPlacement
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
 import pl.dakil.notes.ui.icons.NotesIcons
 
@@ -174,8 +176,8 @@ private fun FormatControls(
     }
 
     FormatButton(
-        label = block.label,
-        description = "Paragraph style",
+        label = block.label(),
+        description = stringResource(R.string.markdown_paragraph_style),
         selected = openPopup == FormatPopup.BLOCK,
         onClick = { onPopupChange(if (openPopup == FormatPopup.BLOCK) null else FormatPopup.BLOCK) },
         content = { Icon(NotesIcons.Heading, contentDescription = null) },
@@ -204,14 +206,14 @@ private fun FormatControls(
             // The number rather than a glyph: the whole point of the control is which size is in
             // force, and a letter A with arrows beside it can only say "some size, possibly".
             label = size?.toString() ?: "Aa",
-            description = "Font size",
+            description = stringResource(R.string.markdown_font_size),
             selected = openPopup == FormatPopup.SIZE,
             onClick = { onPopupChange(if (openPopup == FormatPopup.SIZE) null else FormatPopup.SIZE) },
             content = { Text(size?.toString() ?: "Aa", fontWeight = FontWeight.Medium) },
         ) {
             if (openPopup == FormatPopup.SIZE) {
                 InlineSelector(placement = placement, onDismiss = { onPopupChange(null) }) {
-                    SizeChoice(label = "Body", selected = size == null) {
+                    SizeChoice(label = stringResource(R.string.markdown_block_body), selected = size == null) {
                         onPopupChange(null)
                         state.applySize(null)
                     }
@@ -229,29 +231,29 @@ private fun FormatControls(
     Separator(placement)
 
     FormatButton(
-        label = "Bold",
-        description = "Bold",
+        label = stringResource(R.string.markdown_bold),
+        description = stringResource(R.string.markdown_bold),
         selected = "**" in active,
         onClick = { state.applyWrap("**") },
         content = { Text("B", fontWeight = FontWeight.Bold) },
     )
     FormatButton(
-        label = "Italic",
-        description = "Italic",
+        label = stringResource(R.string.markdown_italic),
+        description = stringResource(R.string.markdown_italic),
         selected = "*" in active,
         onClick = { state.applyWrap("*") },
         content = { Text("I", fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium) },
     )
     FormatButton(
-        label = "Strikethrough",
-        description = "Strikethrough",
+        label = stringResource(R.string.markdown_strikethrough),
+        description = stringResource(R.string.markdown_strikethrough),
         selected = "~~" in active,
         onClick = { state.applyWrap("~~") },
         content = { Text("S", textDecoration = TextDecoration.LineThrough) },
     )
     IconFormatButton(
         icon = NotesIcons.InlineCode,
-        description = "Code",
+        description = stringResource(R.string.markdown_code),
         selected = "`" in active,
         onClick = { state.applyWrap("`") },
     )
@@ -260,19 +262,19 @@ private fun FormatControls(
 
     IconFormatButton(
         icon = NotesIcons.BulletList,
-        description = "Bulleted list",
+        description = stringResource(R.string.markdown_bulleted_list),
         selected = list == BlockStyle.BULLET,
         onClick = { state.applyBlockToggle(BlockStyle.BULLET) },
     )
     IconFormatButton(
         icon = NotesIcons.NumberedList,
-        description = "Numbered list",
+        description = stringResource(R.string.markdown_numbered_list),
         selected = list == BlockStyle.ORDERED,
         onClick = { state.applyBlockToggle(BlockStyle.ORDERED) },
     )
     IconFormatButton(
         icon = NotesIcons.TaskList,
-        description = "Task list",
+        description = stringResource(R.string.markdown_task_list),
         selected = list == BlockStyle.TASK,
         onClick = { state.applyBlockToggle(BlockStyle.TASK) },
     )
@@ -280,7 +282,7 @@ private fun FormatControls(
     // has to hunt for, and "you cannot nest this line" is worth saying.
     IconFormatButton(
         icon = NotesIcons.IndentDecrease,
-        description = "Decrease indent",
+        description = stringResource(R.string.markdown_indent_decrease),
         enabled = nested,
         onClick = {
             state.applyAction { text, start, end -> MarkdownActions.outdentList(text, start, end) }
@@ -288,7 +290,7 @@ private fun FormatControls(
     )
     IconFormatButton(
         icon = NotesIcons.IndentIncrease,
-        description = "Increase indent",
+        description = stringResource(R.string.markdown_indent_increase),
         enabled = nestable,
         onClick = {
             state.applyAction { text, start, end -> MarkdownActions.indentList(text, start, end) }
@@ -297,23 +299,23 @@ private fun FormatControls(
 
     Separator(placement)
 
-    IconFormatButton(icon = NotesIcons.Link, description = "Link", onClick = onInsertLink)
-    IconFormatButton(icon = NotesIcons.Image, description = "Image", onClick = onInsertImage)
+    IconFormatButton(icon = NotesIcons.Link, description = stringResource(R.string.markdown_link), onClick = onInsertLink)
+    IconFormatButton(icon = NotesIcons.Image, description = stringResource(R.string.markdown_image), onClick = onInsertImage)
     IconFormatButton(
         icon = NotesIcons.CodeBlock,
-        description = "Code block",
+        description = stringResource(R.string.markdown_code_block),
         onClick = {
             state.applyAction { text, start, _ -> MarkdownActions.insertCodeFence(text, start) }
         },
     )
     IconFormatButton(
         icon = NotesIcons.Table,
-        description = "Table",
+        description = stringResource(R.string.markdown_table),
         onClick = { state.applyAction { text, start, _ -> MarkdownActions.insertTable(text, start) } },
     )
     IconFormatButton(
         icon = NotesIcons.HorizontalRule,
-        description = "Divider",
+        description = stringResource(R.string.markdown_divider),
         onClick = { state.applyAction { text, start, _ -> MarkdownActions.insertRule(text, start) } },
     )
 }
@@ -336,20 +338,30 @@ private val BLOCK_CHOICES = listOf(
     BlockStyle.QUOTE,
 )
 
-private val BlockStyle.label: String
-    get() = when (this) {
-        BlockStyle.PARAGRAPH -> "Body"
-        BlockStyle.H1 -> "H1"
-        BlockStyle.H2 -> "H2"
-        BlockStyle.H3 -> "H3"
-        BlockStyle.H4 -> "H4"
-        BlockStyle.H5 -> "H5"
-        BlockStyle.H6 -> "H6"
-        BlockStyle.QUOTE -> "Quote"
-        BlockStyle.BULLET -> "List"
-        BlockStyle.TASK -> "Tasks"
-        BlockStyle.ORDERED -> "Numbers"
-    }
+/**
+   * The name of a block style on the style button.
+   *
+   * `H1`..`H6` stay as they are: they are Markdown's own notation for a heading level, the same in
+   * every language, and a translation would only make them harder to match to what gets typed.
+   */
+@Composable
+private fun BlockStyle.label(): String = when (this) {
+    BlockStyle.H1 -> "H1"
+    BlockStyle.H2 -> "H2"
+    BlockStyle.H3 -> "H3"
+    BlockStyle.H4 -> "H4"
+    BlockStyle.H5 -> "H5"
+    BlockStyle.H6 -> "H6"
+    else -> stringResource(
+        when (this) {
+            BlockStyle.QUOTE -> R.string.markdown_block_quote
+            BlockStyle.BULLET -> R.string.markdown_block_bullet
+            BlockStyle.TASK -> R.string.markdown_block_task
+            BlockStyle.ORDERED -> R.string.markdown_block_ordered
+            else -> R.string.markdown_block_body
+        },
+    )
+}
 
 @Composable
 private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Unit) {
@@ -367,7 +379,7 @@ private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Uni
         // The choices are typographic, so they are shown as type rather than as icons: an "H2" set
         // in the weight it produces says more than any glyph could.
         Text(
-            text = style.label,
+            text = style.label(),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (style == BlockStyle.PARAGRAPH) FontWeight.Normal else FontWeight.SemiBold,
             color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer

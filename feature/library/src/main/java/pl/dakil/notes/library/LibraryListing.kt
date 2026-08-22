@@ -7,9 +7,6 @@ import pl.dakil.notes.data.StoreEntry
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
 
-/** What the root of the library is called on screen. It is a label, not a folder on disk. */
-const val ROOT_FOLDER_NAME = "Notes"
-
 /**
  * One row of the browser, folder or note.
  *
@@ -45,12 +42,17 @@ sealed interface LibraryItem {
     }
 }
 
-/** Which kinds of thing the browser is showing. */
-enum class LibraryFilter(val label: String) {
-    ALL("All"),
-    FOLDERS("Folders only"),
-    TEXT("Text notes only"),
-    INK("Ink notes only"),
+/**
+ * Which kinds of thing the browser is showing.
+ *
+ * No display name on the constants: this enum is matched on by the pure listing code, which has no
+ * resources to translate one with. See `LibraryFilter.label()`.
+ */
+enum class LibraryFilter {
+    ALL,
+    FOLDERS,
+    TEXT,
+    INK,
 }
 
 /**

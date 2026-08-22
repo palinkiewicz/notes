@@ -25,8 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.model.MarginLink
 import pl.dakil.notes.model.MeasurementUnit
@@ -145,9 +147,11 @@ private fun LengthDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(unit.snapPoints(points).coerceIn(range)) }) { Text("OK") }
+            TextButton(onClick = { onConfirm(unit.snapPoints(points).coerceIn(range)) }) { Text(stringResource(R.string.editor_ok)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+        },
     )
 }
 
@@ -197,9 +201,9 @@ fun MarginsRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Margins", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.editor_margins), style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = "The column the text flows in.",
+                text = stringResource(R.string.editor_margins_summary),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -271,7 +275,7 @@ private fun MarginsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Margins") },
+        title = { Text(stringResource(R.string.editor_margins)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -292,7 +296,7 @@ private fun MarginsDialog(
                 // Top, right, bottom, left — the order the shorthand on the row is read in.
                 when (link) {
                     MarginLink.ALL -> LengthTextField(
-                        label = "All sides",
+                        label = stringResource(R.string.editor_margins_all_sides),
                         text = top,
                         unit = unit,
                         onTextChange = { top = it; right = it; bottom = it; left = it },
@@ -301,14 +305,14 @@ private fun MarginsDialog(
 
                     MarginLink.AXES -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         LengthTextField(
-                            label = "Vertical",
+                            label = stringResource(R.string.editor_margins_vertical),
                             text = top,
                             unit = unit,
                             onTextChange = { top = it; bottom = it },
                             modifier = Modifier.weight(1f),
                         )
                         LengthTextField(
-                            label = "Horizontal",
+                            label = stringResource(R.string.editor_margins_horizontal),
                             text = left,
                             unit = unit,
                             onTextChange = { left = it; right = it },
@@ -337,8 +341,10 @@ private fun MarginsDialog(
                     val (t, r, b, l) = parsed.map { (it ?: 0f).coerceIn(range) }
                     onConfirm(PageMargins(left = l, top = t, right = r, bottom = b))
                 },
-            ) { Text("OK") }
+            ) { Text(stringResource(R.string.editor_ok)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+        },
     )
 }

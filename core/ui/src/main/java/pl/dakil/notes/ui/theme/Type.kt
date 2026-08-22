@@ -12,6 +12,9 @@ import androidx.compose.ui.unit.sp
  * No bundled typeface: a variable font is several hundred kilobytes, and the system font is what
  * the rest of the user's device already reads like. Body text is set slightly larger and looser
  * than the Material default, because this app's body text is the content rather than a label.
+ *
+ * `titleLarge` is deliberately left at the Material weight: it is what `TopAppBar` sets its title in,
+ * and a bold title on every screen shouts over the content it is naming.
  */
 internal val NotesTypography = Typography().let { base ->
     base.copy(
@@ -30,7 +33,6 @@ internal val NotesTypography = Typography().let { base ->
             fontSize = 23.sp,
             lineHeight = 30.sp,
         ),
-        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold),
     )
 }
 

@@ -22,8 +22,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.ui.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -57,12 +59,12 @@ fun TagEditorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(NotesIcons.Tag, contentDescription = null) },
-        title = { Text("Tags") },
+        title = { Text(stringResource(R.string.ui_tags_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (tags.isEmpty()) {
                     Text(
-                        text = "No tags yet. Tags let you filter the library down to a subject.",
+                        text = stringResource(R.string.ui_tags_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -77,7 +79,10 @@ fun TagEditorDialog(
                                 onClick = { tags.remove(tag) },
                                 label = { Text(tag) },
                                 trailingIcon = {
-                                    Icon(NotesIcons.Close, contentDescription = "Remove $tag")
+                                    Icon(
+                                        imageVector = NotesIcons.Close,
+                                        contentDescription = stringResource(R.string.ui_tags_remove_x, tag),
+                                    )
                                 },
                             )
                         }
@@ -87,13 +92,16 @@ fun TagEditorDialog(
                     value = draft,
                     onValueChange = { draft = it },
                     singleLine = true,
-                    label = { Text("Add a tag") },
+                    label = { Text(stringResource(R.string.ui_tags_add_label)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { commitDraft() }),
                     trailingIcon = {
                         if (draft.isNotBlank()) {
                             IconButton(onClick = { commitDraft() }) {
-                                Icon(NotesIcons.Add, contentDescription = "Add tag")
+                                Icon(
+                                    imageVector = NotesIcons.Add,
+                                    contentDescription = stringResource(R.string.ui_tags_add),
+                                )
                             }
                         }
                     },
@@ -107,8 +115,8 @@ fun TagEditorDialog(
                 // they reached for Save instead of Enter would be a small betrayal.
                 commitDraft()
                 onConfirm(tags.toList())
-            }) { Text("Save") }
+            }) { Text(stringResource(R.string.ui_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) } },
     )
 }

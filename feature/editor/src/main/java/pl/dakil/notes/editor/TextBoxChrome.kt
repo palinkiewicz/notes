@@ -34,10 +34,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.markdown.MarkdownEditor
@@ -150,7 +152,7 @@ fun TextBoxChrome(
             content = {
                 Grip(
                     icon = NotesIcons.Move,
-                    description = "Move text box",
+                    description = stringResource(R.string.editor_text_box_move),
                     modifier = Modifier.layoutId(Handle.MOVE),
                     onStart = { viewModel.beginTextBlockDrag(id) },
                     onEnd = viewModel::endTextBlockDrag,
@@ -167,7 +169,7 @@ fun TextBoxChrome(
                 }
                 Grip(
                     icon = NotesIcons.ResizeWidth,
-                    description = "Set text box width from the left",
+                    description = stringResource(R.string.editor_text_box_width_left),
                     modifier = Modifier.layoutId(Handle.LEFT),
                     onStart = { viewModel.beginTextBlockDrag(id) },
                     onEnd = viewModel::endTextBlockDrag,
@@ -176,7 +178,7 @@ fun TextBoxChrome(
                 }
                 Grip(
                     icon = NotesIcons.ResizeWidth,
-                    description = "Set text box width from the right",
+                    description = stringResource(R.string.editor_text_box_width_right),
                     modifier = Modifier.layoutId(Handle.RIGHT),
                     onStart = { viewModel.beginTextBlockDrag(id) },
                     onEnd = viewModel::endTextBlockDrag,
@@ -262,7 +264,7 @@ private fun EditableTextBox(
                     state = viewModel.textField,
                     sourceMode = false,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "Type here…",
+                    placeholder = stringResource(R.string.editor_type_here),
                     sizes = true,
                     // Back into the strip's own coordinates, because the thing that has to move to
                     // reveal the caret is the whole sheet.
@@ -348,7 +350,7 @@ private fun DeleteButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
             }
         },
         icon = NotesIcons.Delete,
-        description = "Delete text box",
+        description = stringResource(R.string.editor_text_box_delete),
         container = MaterialTheme.colorScheme.errorContainer,
         content = MaterialTheme.colorScheme.onErrorContainer,
     )

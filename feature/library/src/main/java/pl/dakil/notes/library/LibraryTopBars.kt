@@ -20,8 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.library.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -44,25 +47,37 @@ fun SelectionTopBar(
 ) {
     TopAppBar(
         modifier = modifier,
-        title = { Text("Selected $count") },
+        title = { Text(pluralStringResource(R.plurals.library_selected_x, count, count)) },
         navigationIcon = {
             IconButton(onClick = onClear) {
-                Icon(NotesIcons.Close, contentDescription = "Clear selection")
+                Icon(
+                    imageVector = NotesIcons.Close,
+                    contentDescription = stringResource(R.string.library_clear_selection),
+                )
             }
         },
         actions = {
             if (count == 1) {
                 IconButton(onClick = onRename) {
-                    Icon(NotesIcons.Rename, contentDescription = "Rename")
+                    Icon(
+                        imageVector = NotesIcons.Rename,
+                        contentDescription = stringResource(R.string.library_rename),
+                    )
                 }
             }
             if (canMove) {
                 IconButton(onClick = onMove) {
-                    Icon(NotesIcons.Move, contentDescription = "Move")
+                    Icon(
+                        imageVector = NotesIcons.Move,
+                        contentDescription = stringResource(R.string.library_move),
+                    )
                 }
             }
             IconButton(onClick = onDelete) {
-                Icon(NotesIcons.Delete, contentDescription = "Delete")
+                Icon(
+                    imageVector = NotesIcons.Delete,
+                    contentDescription = stringResource(R.string.library_delete),
+                )
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -99,23 +114,27 @@ fun MoveBar(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = if (count == 1) "Moving 1 item" else "Moving $count items",
+                text = pluralStringResource(R.plurals.library_moving_x, count, count),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = if (enabled) "Into $destination" else "Open the folder to move them into",
+                text = if (enabled) {
+                    stringResource(R.string.library_move_into_x, destination)
+                } else {
+                    stringResource(R.string.library_move_hint)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = onCancel) { Text("Cancel") }
+        TextButton(onClick = onCancel) { Text(stringResource(R.string.library_cancel)) }
         Button(
             onClick = onConfirm,
             enabled = enabled,
             modifier = Modifier.padding(end = 16.dp),
-        ) { Text("Move here") }
+        ) { Text(stringResource(R.string.library_move_here)) }
     }
 }
 

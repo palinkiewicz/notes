@@ -1,5 +1,6 @@
 package pl.dakil.notes.model
 
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -18,7 +19,7 @@ object ColorCodec {
         sb.append('#')
         val value = if (includeAlpha) argb else argb and 0x00FFFFFF
         val digits = if (includeAlpha) 8 else 6
-        val hex = (value.toLong() and 0xFFFFFFFFL).toString(16).uppercase()
+        val hex = (value.toLong() and 0xFFFFFFFFL).toString(16).uppercase(Locale.ROOT)
         val trimmed = if (hex.length > digits) hex.substring(hex.length - digits) else hex
         repeat(digits - trimmed.length) { sb.append('0') }
         sb.append(trimmed)

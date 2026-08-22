@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -46,7 +47,16 @@ data class LibraryUiState(
     /** Items the user has asked to delete and not yet confirmed. */
     val pendingDelete: List<LibraryItem>? = null,
     val isLoading: Boolean = true,
+    /**
+     * A failure message that came up from the store or the file format.
+     *
+     * Those layers are pure JVM and have no resources, so their text arrives already written. Any
+     * message this view model produces itself uses [errorRes] instead, which the screen resolves.
+     */
     val error: String? = null,
+    @StringRes val errorRes: Int? = null,
+    /** The one substitution [errorRes] may take — the name of the item a failure was about. */
+    val errorArg: String? = null,
 ) {
     val current: StoreRef? get() = crumbs.lastOrNull()?.ref
 
@@ -58,7 +68,7 @@ data class LibraryUiState(
      */
     val path: String get() = crumbs.drop(1).joinToString("/") { it.name }
 
-    val folderName: String get() = crumbs.lastOrNull()?.name ?: ROOT_FOLDER_NAME
+    val folderName: String get() = crumbs.lastOrNull()?.name.orEmpty()
     val canGoUp: Boolean get() = crumbs.size > 1
 
     /** Search results replace the folder listing while a query is active. */
@@ -85,6 +95,10 @@ class LibraryViewModel(
     private val index: NoteIndex,
     private val repository: NoteRepository,
     settings: SettingsRepository,
+    /** What the root of the library is called on screen. A label, not a folder on disk. */
+    private val rootFolderName: String,
+    /** What a note created without a name is called. */
+    private val untitledName: String,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState(layout = settings.read().libraryLayout))
@@ -123,10 +137,12 @@ class LibraryViewModel(
         viewModelScope.launch {
             val root = store.root()
             if (root == null) {
-                _state.update { it.copy(isLoading = false, error = "No note folder is configured yet.") }
+                _state.update {
+                    it.copy(isLoading = false, errorRes = R.string.library_error_no_root)
+                }
                 return@launch
             }
-            _state.update { it.copy(crumbs = listOf(Crumb(root, ROOT_FOLDER_NAME))) }
+            _state.update { it.copy(crumbs = listOf(Crumb(root, rootFolderName))) }
             refresh()
             // The whole tree, once, so a search from the root reaches a note in a folder nobody has
             // opened yet. Unchanged files are only stat'ed, so this stays cheap after the first run.
@@ -255,12 +271,12 @@ class LibraryViewModel(
         val parent = _state.value.current ?: return
         val path = _state.value.path
         viewModelScope.launch {
-            repository.create(parent, title.ifBlank { "Untitled" }, kind, path = path).fold(
+            repository.create(parent, title.ifBlank { untitledName }, kind, path = path).fold(
                 onSuccess = { ref ->
                     reload()
                     onCreated(ref)
                 },
-                onFailure = { cause -> fail(cause, "Could not create the note") },
+                onFailure = { cause -> fail(cause, R.string.library_error_create_note) },
             )
         }
     }
@@ -270,7 +286,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             runCatching { store.createDirectory(parent, name) }
                 .onSuccess { reload() }
-                .onFailure { cause -> fail(cause, "Could not create the folder") }
+                .onFailure { cause -> fail(cause, R.string.library_error_create_folder) }
         }
     }
 
@@ -287,7 +303,7 @@ class LibraryViewModel(
 
                 is LibraryItem.Note -> repository.rename(item.ref, newName, item.path)
             }
-            result.onFailure { cause -> fail(cause, "Could not rename it") }
+            result.onFailure { cause -> fail(cause, R.string.library_error_rename) }
             clearSelection()
             if (item is LibraryItem.Folder) {
                 // The rename dropped the folder's whole subtree from the index; only a recursive
@@ -312,7 +328,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             for (item in items) {
                 repository.delete(item.ref, item.path, (item as? LibraryItem.Folder)?.name)
-                    .onFailure { cause -> fail(cause, "Could not delete ${item.name}") }
+                    .onFailure { cause -> fail(cause, R.string.library_error_delete_x, item.name) }
             }
             reload()
         }
@@ -365,7 +381,7 @@ class LibraryViewModel(
                     fromPath = item.path,
                     toPath = toPath,
                     directoryName = (item as? LibraryItem.Folder)?.name,
-                ).onFailure { cause -> fail(cause, "Could not move ${item.name}") }
+                ).onFailure { cause -> fail(cause, R.string.library_error_move_x, item.name) }
             }
             // The destination is rescanned rather than patched: a moved folder brought a whole
             // subtree of index rows with it, and those were dropped rather than rewritten.
@@ -404,10 +420,24 @@ class LibraryViewModel(
         return sheet
     }
 
-    fun dismissError() = _state.update { it.copy(error = null) }
+    fun dismissError() =
+        _state.update { it.copy(error = null, errorRes = null, errorArg = null) }
 
-    private fun fail(cause: Throwable, fallback: String) =
-        _state.update { it.copy(error = cause.message ?: fallback) }
+    /**
+     * Records a failure.
+     *
+     * A message that came up from the store says something specific about which file failed and why,
+     * so it wins; [fallback] is what the user sees when the cause has nothing to say.
+     */
+    private fun fail(cause: Throwable, @StringRes fallback: Int, arg: String? = null) =
+        _state.update {
+            val message = cause.message
+            if (message != null) {
+                it.copy(error = message, errorRes = null, errorArg = null)
+            } else {
+                it.copy(error = null, errorRes = fallback, errorArg = arg)
+            }
+        }
 
     companion object {
         /** Long enough to avoid a query per keystroke, short enough to feel live. */
@@ -416,15 +446,28 @@ class LibraryViewModel(
         /** Roughly two screens of cards, so scrolling back up never re-reads a file. */
         private const val PREVIEW_CACHE_SIZE = 48
 
+        /**
+         * [rootFolderName] and [untitledName] are passed in already translated: this view model has
+         * no `Context`, and both end up as text the user reads.
+         */
         fun factory(
             store: NoteStore,
             index: NoteIndex,
             repository: NoteRepository,
             settings: SettingsRepository,
+            rootFolderName: String,
+            untitledName: String,
         ) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                LibraryViewModel(store, index, repository, settings) as T
+                LibraryViewModel(
+                    store,
+                    index,
+                    repository,
+                    settings,
+                    rootFolderName,
+                    untitledName,
+                ) as T
         }
     }
 }

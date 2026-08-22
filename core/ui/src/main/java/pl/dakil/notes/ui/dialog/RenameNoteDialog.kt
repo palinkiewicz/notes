@@ -16,10 +16,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import pl.dakil.notes.ui.R
 
 /**
  * Asks for a new name for a note.
@@ -47,12 +49,12 @@ fun RenameNoteDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename note") },
+        title = { Text(stringResource(R.string.ui_rename_title)) },
         text = {
             OutlinedTextField(
                 value = value,
                 onValueChange = { value = it },
-                label = { Text("Name") },
+                label = { Text(stringResource(R.string.ui_rename_label)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
@@ -63,8 +65,10 @@ fun RenameNoteDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(name) }, enabled = canRename) { Text("Rename") }
+            TextButton(onClick = { onConfirm(name) }, enabled = canRename) {
+                Text(stringResource(R.string.ui_rename_confirm))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) } },
     )
 }

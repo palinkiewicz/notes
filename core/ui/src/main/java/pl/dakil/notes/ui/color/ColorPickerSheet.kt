@@ -21,8 +21,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.ui.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -74,7 +76,7 @@ fun ColorPickerSheet(
                             onColorChange(original)
                             onDismiss()
                         }
-                    ) { Text("Cancel") }
+                    ) { Text(stringResource(R.string.ui_cancel)) }
                     TextButton(
                         onClick = {
                             onCommit(current)
@@ -82,7 +84,7 @@ fun ColorPickerSheet(
                         }
                     ) {
                         Icon(NotesIcons.Check, contentDescription = null)
-                        Text("Done", modifier = Modifier.padding(start = 4.dp))
+                        Text(stringResource(R.string.ui_done), modifier = Modifier.padding(start = 4.dp))
                     }
                 }
             }

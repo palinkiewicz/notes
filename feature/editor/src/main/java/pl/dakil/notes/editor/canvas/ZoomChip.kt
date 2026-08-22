@@ -26,11 +26,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.icons.NotesIcons
 import kotlin.math.roundToInt
 
@@ -101,7 +103,9 @@ fun ZoomChip(
                 ) {
                     Icon(
                         imageVector = if (locked) NotesIcons.Lock else NotesIcons.LockOpen,
-                        contentDescription = if (locked) "Unlock zoom" else "Lock zoom",
+                        contentDescription = stringResource(
+                            if (locked) R.string.editor_zoom_unlock else R.string.editor_zoom_lock,
+                        ),
                         modifier = Modifier.size(16.dp),
                         tint = if (locked) {
                             MaterialTheme.colorScheme.primary
@@ -117,7 +121,7 @@ fun ZoomChip(
                     IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = NotesIcons.ExpandMore,
-                            contentDescription = "Set zoom",
+                            contentDescription = stringResource(R.string.editor_zoom_set),
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -147,7 +151,7 @@ fun ZoomChip(
 @Composable
 private fun ZoomPercentLabel(percent: () -> Int) {
     Text(
-        text = "${percent()}%",
+        text = stringResource(R.string.editor_zoom_percent_x, percent()),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.Center,
@@ -180,7 +184,7 @@ private fun ZoomMenu(
         val fixed = (listOf(100) + presets).distinct().sorted()
 
         DropdownMenuItem(
-            text = { Text("Fill width") },
+            text = { Text(stringResource(R.string.editor_zoom_fill_width)) },
             leadingIcon = { Icon(NotesIcons.FillWidth, contentDescription = null) },
             onClick = {
                 transform.zoomTo(transform.fitWidthZoom())
@@ -188,7 +192,7 @@ private fun ZoomMenu(
             },
         )
         DropdownMenuItem(
-            text = { Text("Fill height") },
+            text = { Text(stringResource(R.string.editor_zoom_fill_height)) },
             leadingIcon = { Icon(NotesIcons.FillHeight, contentDescription = null) },
             onClick = {
                 transform.zoomTo(transform.fitHeightZoom(pageHeightPx))
@@ -199,12 +203,15 @@ private fun ZoomMenu(
 
         for (percent in fixed) {
             DropdownMenuItem(
-                text = { Text("$percent%") },
+                text = { Text(stringResource(R.string.editor_zoom_percent_x, percent)) },
                 leadingIcon = {
                     // An empty slot on the others, rather than no slot: the labels have to line up
                     // or the ticked entry looks like it belongs to a different list.
                     if (percent == current) {
-                        Icon(NotesIcons.Check, contentDescription = "Current zoom")
+                        Icon(
+                            imageVector = NotesIcons.Check,
+                            contentDescription = stringResource(R.string.editor_zoom_current),
+                        )
                     } else {
                         Box(Modifier.size(24.dp))
                     }
@@ -214,7 +221,7 @@ private fun ZoomMenu(
                         IconButton(onClick = { onRemovePreset(percent) }) {
                             Icon(
                                 imageVector = NotesIcons.Close,
-                                contentDescription = "Forget $percent%",
+                                contentDescription = stringResource(R.string.editor_zoom_forget_x, percent),
                                 modifier = Modifier.size(16.dp),
                             )
                         }
@@ -232,7 +239,7 @@ private fun ZoomMenu(
         if (current !in fixed) {
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Make preset") },
+                text = { Text(stringResource(R.string.editor_zoom_make_preset)) },
                 leadingIcon = { Icon(NotesIcons.Add, contentDescription = null) },
                 onClick = {
                     onAddPreset(current)

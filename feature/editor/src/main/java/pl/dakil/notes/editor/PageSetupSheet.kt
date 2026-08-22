@@ -19,7 +19,10 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PageBackground
@@ -86,35 +89,35 @@ fun PageSetupSheet(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Page", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.editor_page), style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.weight(1f))
                 SingleChoiceSegmentedButtonRow {
                     SegmentedButton(
                         selected = view == ViewMode.PAGED,
                         onClick = { onViewChange(ViewMode.PAGED) },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    ) { Text("Pages") }
+                    ) { Text(stringResource(R.string.editor_pages_paged)) }
                     SegmentedButton(
                         selected = view == ViewMode.CONTINUOUS,
                         onClick = { onViewChange(ViewMode.CONTINUOUS) },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                    ) { Text("Scroll") }
+                    ) { Text(stringResource(R.string.editor_pages_scroll)) }
                 }
             }
             Text(
-                text = if (pageCount == 1) "1 page" else "$pageCount pages",
+                text = pluralStringResource(R.plurals.editor_page_count_x, pageCount, pageCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp),
             )
 
-            SectionLabel("Size")
+            SectionLabel(stringResource(R.string.editor_size))
             // Not padded: the cards run to the panel edge so it is obvious the row scrolls.
             SizeCards(selected = size, unit = unit, onSelect = onSizeChange)
 
             Column(Modifier.padding(horizontal = 24.dp)) {
                 ColorSettingRow(
-                    label = "Paper colour",
+                    label = stringResource(R.string.editor_paper_colour),
                     color = background.color,
                     supporting = ColorCodec.toHex(background.color, includeAlpha = false),
                     onClick = { onEditColor(PageColorTarget.PAPER) },
@@ -128,7 +131,7 @@ fun PageSetupSheet(
                 )
             }
 
-            SectionLabel("Paper")
+            SectionLabel(stringResource(R.string.editor_paper))
             PatternCards(
                 background = background,
                 pageSize = size,
@@ -152,21 +155,21 @@ fun PageSetupSheet(
                     // No separate strength slider: the line colour carries its own alpha, and two
                     // controls over one visual result only ever disagree.
                     ColorSettingRow(
-                        label = "Line colour",
+                        label = stringResource(R.string.editor_line_colour),
                         color = pattern.color,
                         supporting = ColorCodec.toHex(pattern.color, includeAlpha = false),
                         onClick = { onEditColor(PageColorTarget.LINES) },
                         modifier = Modifier.padding(top = 12.dp),
                     )
                     LengthRow(
-                        label = "Spacing",
+                        label = stringResource(R.string.editor_spacing),
                         valuePt = pattern.spacing,
                         unit = unit,
                         range = SPACING_RANGE,
                         supporting = when (pattern.type) {
-                            PatternType.STAVES -> "The gap between two lines of a staff."
-                            PatternType.DOTTED -> "The gap between neighbouring dots."
-                            else -> "The gap between neighbouring rules."
+                            PatternType.STAVES -> stringResource(R.string.editor_spacing_staves)
+                            PatternType.DOTTED -> stringResource(R.string.editor_spacing_dotted)
+                            else -> stringResource(R.string.editor_spacing_rules)
                         },
                         onCommit = {
                             onBackgroundChange(background.copy(pattern = pattern.copy(spacing = it)))
@@ -176,12 +179,12 @@ fun PageSetupSheet(
                     when (pattern.type) {
                         PatternType.RULED -> {
                             LengthRow(
-                                label = "Margin rule",
+                                label = stringResource(R.string.editor_margin_rule),
                                 valuePt = pattern.margin,
                                 unit = unit,
                                 range = MARGIN_RULE_RANGE,
-                                supporting = "How far in the vertical rule is drawn.",
-                                zeroLabel = "None",
+                                supporting = stringResource(R.string.editor_margin_rule_summary),
+                                zeroLabel = stringResource(R.string.editor_none),
                                 onCommit = {
                                     onBackgroundChange(
                                         background.copy(pattern = pattern.copy(margin = it))
@@ -190,7 +193,7 @@ fun PageSetupSheet(
                             )
                             if (pattern.margin > 0f) {
                                 ColorSettingRow(
-                                    label = "Margin colour",
+                                    label = stringResource(R.string.editor_margin_colour),
                                     color = pattern.marginColor,
                                     supporting =
                                         ColorCodec.toHex(pattern.marginColor, includeAlpha = false),
@@ -201,14 +204,14 @@ fun PageSetupSheet(
                         }
 
                         PatternType.STAVES -> LengthRow(
-                            label = "Staff spacing",
+                            label = stringResource(R.string.editor_staff_spacing),
                             valuePt = pattern.groupSpacing,
                             unit = unit,
                             range = STAFF_GAP_RANGE,
-                            supporting = "The gap between one staff and the next.",
+                            supporting = stringResource(R.string.editor_staff_spacing_summary),
                             // Zero is not "no gap" here — it hands the spacing back to the painter,
                             // which derives it from the staff height so it scales with the rules.
-                            zeroLabel = "Auto",
+                            zeroLabel = stringResource(R.string.editor_auto),
                             onCommit = {
                                 onBackgroundChange(
                                     background.copy(pattern = pattern.copy(groupSpacing = it))

@@ -1,6 +1,7 @@
 package pl.dakil.notes.library
 
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,11 +45,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.dakil.notes.data.LibraryLayout
 import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.library.R
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 import java.text.DateFormat
@@ -86,6 +89,13 @@ fun LibraryScreen(
 
     val selected = state.selectedItems
     val moving = state.moving
+
+    // A message that came up from the store already has its own words; one the view model raised
+    // itself arrives as a resource id, because that layer has no `Context` to resolve it with.
+    val errorMessage = state.error ?: state.errorRes?.let { res ->
+        val arg = state.errorArg
+        if (arg != null) stringResource(res, arg) else stringResource(res)
+    }
 
     if (renaming) {
         val item = selected.singleOrNull()
@@ -196,7 +206,7 @@ fun LibraryScreen(
                 NewNoteFab(
                     open = newMenuOpen,
                     onOpenChange = { newMenuOpen = it },
-                    onCreate = { kind -> viewModel.createNote("Untitled", kind, onOpenNote) },
+                    onCreate = { kind -> viewModel.createNote("", kind, onOpenNote) },
                     onCreateFolder = { newFolder = true },
                 )
             }
@@ -248,21 +258,28 @@ fun LibraryScreen(
                             CircularProgressIndicator()
                         }
 
-                        state.error != null -> EmptyState(
-                            title = "Nothing to show",
-                            detail = state.error!!,
-                            action = "Retry",
+                        errorMessage != null -> EmptyState(
+                            title = stringResource(R.string.library_error_title),
+                            detail = errorMessage,
+                            action = stringResource(R.string.library_retry),
                             onAction = viewModel::refresh,
                         )
 
                         state.visibleItems.isEmpty() -> EmptyState(
-                            title = if (state.isSearching) "No matches" else "Nothing here yet",
+                            title = stringResource(
+                                if (state.isSearching) R.string.library_no_matches
+                                else R.string.library_empty_title,
+                            ),
                             detail = when {
-                                state.isSearching -> "Nothing in ${state.folderName} matches \"${state.query}\"."
-                                state.filter != LibraryFilter.ALL ->
-                                    "No ${state.filter.label.lowercase()} in this folder."
+                                state.isSearching -> stringResource(
+                                    R.string.library_no_matches_in_x,
+                                    state.folderName,
+                                    state.query,
+                                )
 
-                                else -> "Tap the button below to start your first note."
+                                state.filter != LibraryFilter.ALL -> stringResource(state.filter.emptyMessage)
+
+                                else -> stringResource(R.string.library_empty_hint)
                             },
                         )
 
@@ -353,12 +370,15 @@ private fun LibrarySearchBar(
                 onSearch = { onActiveChange(false) },
                 expanded = active,
                 onExpandedChange = onActiveChange,
-                placeholder = { Text("Search in ${state.folderName}") },
+                placeholder = { Text(stringResource(R.string.library_search_in_x, state.folderName)) },
                 leadingIcon = { Icon(NotesIcons.Search, contentDescription = null) },
                 trailingIcon = {
                     if (state.query.isNotEmpty()) {
                         IconButton(onClick = { onQuery("") }) {
-                            Icon(NotesIcons.Close, contentDescription = "Clear search")
+                            Icon(
+                                imageVector = NotesIcons.Close,
+                                contentDescription = stringResource(R.string.library_clear_search),
+                            )
                         }
                     }
                 },
@@ -375,7 +395,7 @@ private fun LibrarySearchBar(
         // reader nothing they had not assumed.
         if (state.canGoUp) {
             Text(
-                text = "Searching ${state.folderName} and the folders inside it.",
+                text = stringResource(R.string.library_search_scope_x, state.folderName),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -384,8 +404,12 @@ private fun LibrarySearchBar(
         }
         if (state.isSearching && state.visibleItems.isEmpty()) {
             EmptyState(
-                title = "No matches",
-                detail = "Nothing in ${state.folderName} matches \"${state.query}\".",
+                title = stringResource(R.string.library_no_matches),
+                detail = stringResource(
+                    R.string.library_no_matches_in_x,
+                    state.folderName,
+                    state.query,
+                ),
             )
         } else {
             LibraryList(
@@ -425,13 +449,13 @@ private fun FilterRow(
         Box {
             AssistChip(
                 onClick = { setSortMenuOpen(true) },
-                label = { Text(state.sort.label) },
+                label = { Text(state.sort.label()) },
                 leadingIcon = { Icon(NotesIcons.Sort, contentDescription = null) },
             )
             DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { setSortMenuOpen(false) }) {
                 for (sort in NoteSort.entries) {
                     DropdownMenuItem(
-                        text = { Text(sort.label) },
+                        text = { Text(sort.label()) },
                         trailingIcon = if (sort == state.sort) {
                             { Icon(NotesIcons.Check, contentDescription = null) }
                         } else {
@@ -449,13 +473,13 @@ private fun FilterRow(
         Box {
             AssistChip(
                 onClick = { setFilterMenuOpen(true) },
-                label = { Text(state.filter.label) },
+                label = { Text(state.filter.label()) },
                 leadingIcon = { Icon(NotesIcons.Filter, contentDescription = null) },
             )
             DropdownMenu(expanded = filterMenuOpen, onDismissRequest = { setFilterMenuOpen(false) }) {
                 for (filter in LibraryFilter.entries) {
                     DropdownMenuItem(
-                        text = { Text(filter.label) },
+                        text = { Text(filter.label()) },
                         trailingIcon = if (filter == state.filter) {
                             { Icon(NotesIcons.Check, contentDescription = null) }
                         } else {
@@ -511,11 +535,37 @@ private fun EmptyState(
     }
 }
 
-private val NoteSort.label: String
-    get() = when (this) {
-        NoteSort.MODIFIED_DESC -> "Recently edited"
-        NoteSort.MODIFIED_ASC -> "Oldest edited"
-        NoteSort.TITLE_ASC -> "Title A–Z"
-        NoteSort.TITLE_DESC -> "Title Z–A"
-        NoteSort.CREATED_DESC -> "Recently created"
+@Composable
+private fun NoteSort.label(): String = stringResource(
+    when (this) {
+        NoteSort.MODIFIED_DESC -> R.string.library_sort_modified_desc
+        NoteSort.MODIFIED_ASC -> R.string.library_sort_modified_asc
+        NoteSort.TITLE_ASC -> R.string.library_sort_title_asc
+        NoteSort.TITLE_DESC -> R.string.library_sort_title_desc
+        NoteSort.CREATED_DESC -> R.string.library_sort_created_desc
+    },
+)
+
+@Composable
+private fun LibraryFilter.label(): String = stringResource(
+    when (this) {
+        LibraryFilter.ALL -> R.string.library_filter_all
+        LibraryFilter.FOLDERS -> R.string.library_filter_folders
+        LibraryFilter.TEXT -> R.string.library_filter_text
+        LibraryFilter.INK -> R.string.library_filter_ink
+    },
+)
+
+/**
+ * "Nothing of this kind is here" as a whole sentence per filter.
+ *
+ * The obvious shape — one sentence with the filter's name dropped into it — only reads in English,
+ * where lowercasing the label happens to produce a grammatical noun phrase.
+ */
+private val LibraryFilter.emptyMessage: Int
+    @StringRes get() = when (this) {
+        // The empty state is only reached with a filter applied, so ALL never asks for a message.
+        LibraryFilter.ALL, LibraryFilter.FOLDERS -> R.string.library_filter_empty_folders
+        LibraryFilter.TEXT -> R.string.library_filter_empty_text
+        LibraryFilter.INK -> R.string.library_filter_empty_ink
     }

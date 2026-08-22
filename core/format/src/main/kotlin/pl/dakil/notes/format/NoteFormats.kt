@@ -1,5 +1,7 @@
 package pl.dakil.notes.format
 
+import java.util.Locale
+
 /**
  * Constants for a note that is nothing but a Markdown file.
  *
@@ -36,7 +38,9 @@ enum class NoteKind(val extension: String, val mimeType: String) {
         fun of(fileName: String): NoteKind? {
             val dot = fileName.lastIndexOf('.')
             if (dot <= 0) return null
-            val extension = fileName.substring(dot + 1).lowercase()
+            // `Locale.ROOT`: a Turkish device would fold ".INK" to ".ınk" and stop
+            // recognising its own files.
+            val extension = fileName.substring(dot + 1).lowercase(Locale.ROOT)
             return entries.firstOrNull { it.extension == extension }
         }
 

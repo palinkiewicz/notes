@@ -1,5 +1,7 @@
 package pl.dakil.notes.data
 
+import java.util.Locale
+
 /**
  * Turns what the user typed into an FTS4 `MATCH` expression.
  *
@@ -28,7 +30,7 @@ internal fun ftsMatchExpression(query: String): String? {
             // A bare `AND`, `OR`, `NOT` or `NEAR` is an operator to FTS, and one of those is a word
             // somebody will eventually search for. Quoting makes it a term again — at the cost of
             // the prefix match, which is the lesser loss.
-            term.uppercase() in FTS_KEYWORDS -> "\"$term\""
+            term.uppercase(Locale.ROOT) in FTS_KEYWORDS -> "\"$term\""
             i == terms.lastIndex -> "$term*"
             else -> "\"$term\""
         }

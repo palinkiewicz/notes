@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--  SHARED ACTIONS  -->
+    <string name="ui_cancel">Cancel</string>
+    <string name="ui_save">Save</string>
+    <string name="ui_done">Done</string>
+
+    <!--  TAG EDITOR  -->
+    <string name="ui_tags_title">Tags</string>
+    <string name="ui_tags_empty">No tags yet. Tags let you filter the library down to a subject.</string>
+    <string name="ui_tags_add_label">Add a tag</string>
+    <string name="ui_tags_add">Add tag</string>
+    <string name="ui_tags_remove_x">Remove %1$s</string>
+
+    <!--  RENAME DIALOG  -->
+    <string name="ui_rename_title">Rename note</string>
+    <string name="ui_rename_label">Name</string>
+    <string name="ui_rename_confirm">Rename</string>
+
+    <!--  COLOUR PICKER  -->
+    <string name="ui_color_hex">Hex</string>
+    <string name="ui_color_presets">Presets</string>
+    <string name="ui_color_recent">Recent</string>
+
+</resources>

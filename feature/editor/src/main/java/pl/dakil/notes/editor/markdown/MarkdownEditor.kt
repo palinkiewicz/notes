@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor.markdown
 
 import android.content.ClipData
+import androidx.annotation.StringRes
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -58,6 +59,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -67,6 +69,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.theme.MonospaceStyle
 
@@ -114,7 +117,7 @@ fun MarkdownEditor(
     sourceMode: Boolean,
     modifier: Modifier = Modifier,
     scroll: ScrollState = rememberScrollState(),
-    placeholder: String = "Write something…",
+    placeholder: String = stringResource(R.string.markdown_placeholder),
     /**
      * Whether to take focus as soon as this is mounted.
      *
@@ -414,7 +417,7 @@ private fun BoxScope.CopyCodeButton(
     ) {
         Icon(
             imageVector = NotesIcons.Copy,
-            contentDescription = "Copy code",
+            contentDescription = stringResource(R.string.markdown_copy_code),
             modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -493,14 +496,14 @@ private fun toggleTask(state: TextFieldState, task: MdTask) {
  * the button is two taps rather than one: nothing is on screen until the user has aimed.
  */
 /** What the table menu can do, all of it relative to the cell the caret is in. */
-private enum class TableAction(val label: String) {
-    RowAbove("Insert row above"),
-    RowBelow("Insert row below"),
-    ColumnLeft("Insert column left"),
-    ColumnRight("Insert column right"),
-    DeleteRow("Delete row"),
-    DeleteColumn("Delete column"),
-    DeleteTable("Delete table"),
+private enum class TableAction(@param:StringRes val label: Int) {
+    RowAbove(R.string.markdown_row_above),
+    RowBelow(R.string.markdown_row_below),
+    ColumnLeft(R.string.markdown_column_left),
+    ColumnRight(R.string.markdown_column_right),
+    DeleteRow(R.string.markdown_delete_row),
+    DeleteColumn(R.string.markdown_delete_column),
+    DeleteTable(R.string.markdown_delete_table),
 }
 
 /**
@@ -539,7 +542,7 @@ private fun BoxScope.TableMenuButton(
             FilledTonalIconButton(onClick = { expanded = true }, modifier = Modifier.size(MenuButton)) {
                 Icon(
                     imageVector = NotesIcons.Table,
-                    contentDescription = "Table options",
+                    contentDescription = stringResource(R.string.markdown_table_options),
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -548,7 +551,7 @@ private fun BoxScope.TableMenuButton(
             for (action in TableAction.entries) {
                 if (action == TableAction.DeleteRow) HorizontalDivider()
                 DropdownMenuItem(
-                    text = { Text(action.label) },
+                    text = { Text(stringResource(action.label)) },
                     onClick = {
                         expanded = false
                         onAction(action)
@@ -589,7 +592,10 @@ private fun BoxScope.TableInsertButton(
         ) {
             Icon(
                 imageVector = NotesIcons.Add,
-                contentDescription = if (here.vertical) "Insert column" else "Insert row",
+                contentDescription = stringResource(
+                    if (here.vertical) R.string.markdown_insert_column
+                    else R.string.markdown_insert_row,
+                ),
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -653,20 +659,34 @@ internal fun ReferenceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (kind == ReferenceKind.LINK) "Insert link" else "Insert image") },
+        title = {
+            Text(
+                stringResource(
+                    if (kind == ReferenceKind.LINK) R.string.markdown_insert_link
+                    else R.string.markdown_insert_image,
+                ),
+            )
+        },
         text = {
             Column {
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text(if (kind == ReferenceKind.LINK) "Text" else "Description") },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (kind == ReferenceKind.LINK) R.string.markdown_link_text
+                                else R.string.markdown_image_description,
+                            ),
+                        )
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
-                    label = { Text("Address") },
+                    label = { Text(stringResource(R.string.markdown_address)) },
                     placeholder = { Text("https://") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -680,9 +700,11 @@ internal fun ReferenceDialog(
                 // view, because the formatted view hides it.
                 enabled = url.isNotBlank(),
             ) {
-                Text("Insert")
+                Text(stringResource(R.string.markdown_insert))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+        },
     )
 }

@@ -1,5 +1,6 @@
 package pl.dakil.notes.model
 
+import java.util.Locale
 import pl.dakil.notes.model.json.JsonObject
 import kotlin.math.ceil
 
@@ -56,7 +57,13 @@ enum class ViewMode {
         fun fromKey(key: String): ViewMode = if (key == "continuous") CONTINUOUS else PAGED
     }
 
-    val key: String get() = name.lowercase()
+    /**
+     * Stable lower-case token used in the file, decoupled from the enum name.
+     *
+     * `Locale.ROOT`, not the device's: Turkish lower-cases `I` to a dotless `ı`, which would write
+     * a key no other device could read back.
+     */
+    val key: String get() = name.lowercase(Locale.ROOT)
 }
 
 /**

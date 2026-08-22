@@ -27,10 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.markdown.FormatPopup
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
@@ -75,7 +77,13 @@ fun EditorScreen(
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
 
     val sheet = state.sheet
-    val title = state.note?.meta?.title?.takeIf { it.isNotBlank() } ?: "Untitled"
+    val title = state.note?.meta?.title?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.editor_untitled)
+
+    // A message that came up from the store already has its own words; the fallback arrives as a
+    // resource id, because the view model has no `Context` to resolve one with.
+    val errorMessage = state.error ?: state.errorRes?.let { stringResource(it) }
+
 
     // The selectors do not take focus, so back would otherwise leave the editor with one open.
     BackHandler(enabled = toolPopup != null || formatPopup != null) {
@@ -107,7 +115,7 @@ fun EditorScreen(
     editingPen?.let { tool ->
         val spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool)
         ColorPickerSheet(
-            title = "Pen colour",
+            title = stringResource(R.string.editor_pen_colour),
             initial = spec.color,
             presets = ColorCodec.INK_PRESETS,
             recents = state.recentColors,
@@ -129,9 +137,9 @@ fun EditorScreen(
         }
         ColorPickerSheet(
             title = when (target) {
-                PageColorTarget.PAPER -> "Paper colour"
-                PageColorTarget.LINES -> "Line colour"
-                PageColorTarget.MARGIN -> "Margin colour"
+                PageColorTarget.PAPER -> stringResource(R.string.editor_paper_colour)
+                PageColorTarget.LINES -> stringResource(R.string.editor_line_colour)
+                PageColorTarget.MARGIN -> stringResource(R.string.editor_margin_colour)
             },
             initial = current,
             // Paper is opaque by definition; rules are frequently translucent.
@@ -228,21 +236,24 @@ fun EditorScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = "Back")
+                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.editor_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { tagging = true }) {
-                        Icon(NotesIcons.Tag, contentDescription = "Tags")
+                        Icon(NotesIcons.Tag, contentDescription = stringResource(R.string.editor_tags))
                     }
                     IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
-                        Icon(NotesIcons.Undo, contentDescription = "Undo")
+                        Icon(NotesIcons.Undo, contentDescription = stringResource(R.string.editor_undo))
                     }
                     IconButton(onClick = viewModel::redo, enabled = state.canRedo) {
-                        Icon(NotesIcons.Redo, contentDescription = "Redo")
+                        Icon(NotesIcons.Redo, contentDescription = stringResource(R.string.editor_redo))
                     }
                     IconButton(onClick = { pageSetupOpen = true }) {
-                        Icon(NotesIcons.PageSetup, contentDescription = "Page setup")
+                        Icon(
+                            imageVector = NotesIcons.PageSetup,
+                            contentDescription = stringResource(R.string.editor_page_setup),
+                        )
                     }
                 },
             )
@@ -293,9 +304,9 @@ fun EditorScreen(
                     CircularProgressIndicator()
                 }
 
-                state.error != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                errorMessage != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text(
-                        text = state.error!!,
+                        text = errorMessage,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.error,
                     )

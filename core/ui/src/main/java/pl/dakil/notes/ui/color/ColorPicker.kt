@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
 import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.ui.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -146,7 +148,7 @@ fun ColorPicker(
                 },
                 singleLine = true,
                 isError = ColorCodec.parse(hexText) == null,
-                label = { Text("Hex") },
+                label = { Text(stringResource(R.string.ui_color_hex)) },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     capitalization = KeyboardCapitalization.Characters,
@@ -157,7 +159,7 @@ fun ColorPicker(
 
         if (presets.isNotEmpty()) {
             SwatchRow(
-                label = "Presets",
+                label = stringResource(R.string.ui_color_presets),
                 colors = presets.toList(),
                 selected = current,
                 onSelect = ::adopt,
@@ -166,7 +168,7 @@ fun ColorPicker(
 
         if (recents.isNotEmpty()) {
             SwatchRow(
-                label = "Recent",
+                label = stringResource(R.string.ui_color_recent),
                 colors = recents,
                 selected = current,
                 onSelect = ::adopt,

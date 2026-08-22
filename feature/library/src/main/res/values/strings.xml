@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--  SHARED ACTIONS  -->
+    <string name="library_cancel">Cancel</string>
+    <string name="library_create">Create</string>
+    <string name="library_delete">Delete</string>
+    <string name="library_rename">Rename</string>
+    <string name="library_move">Move</string>
+    <string name="library_retry">Retry</string>
+
+    <!--  ITEMS  -->
+    <!-- What the root of the library is called on screen. It is a label, not a folder on disk. -->
+    <string name="library_root_folder">Notes</string>
+    <string name="library_untitled">Untitled</string>
+    <string name="library_item_folder">Folder</string>
+    <string name="library_item_ink_note">Ink note</string>
+    <string name="library_item_text_note">Text note</string>
+
+    <!--  NEW NOTE BUTTON  -->
+    <string name="library_new">New</string>
+    <string name="library_new_close">Close</string>
+    <string name="library_new_folder">Folder</string>
+    <string name="library_new_text">Text</string>
+    <string name="library_new_ink">Ink</string>
+
+    <!--  SELECTION  -->
+    <plurals name="library_selected_x">
+        <item quantity="one">Selected %1$d</item>
+        <item quantity="other">Selected %1$d</item>
+    </plurals>
+    <string name="library_clear_selection">Clear selection</string>
+
+    <!--  MOVE  -->
+    <plurals name="library_moving_x">
+        <item quantity="one">Moving %1$d item</item>
+        <item quantity="other">Moving %1$d items</item>
+    </plurals>
+    <string name="library_move_into_x">Into %1$s</string>
+    <string name="library_move_hint">Open the folder to move them into</string>
+    <string name="library_move_here">Move here</string>
+
+    <!--  DIALOGS  -->
+    <string name="library_new_folder_title">New folder</string>
+    <string name="library_name_label">Name</string>
+    <string name="library_delete_one_x">Delete “%1$s”?</string>
+    <plurals name="library_delete_many_x">
+        <item quantity="one">Delete %1$d item?</item>
+        <item quantity="other">Delete %1$d items?</item>
+    </plurals>
+    <string name="library_delete_folder_contents_one">Everything inside this folder goes too.</string>
+    <string name="library_delete_folder_contents_many">Everything inside the selected folders goes too.</string>
+    <string name="library_delete_undone">This cannot be undone.</string>
+
+    <!--  EMPTY STATES AND SEARCH  -->
+    <string name="library_error_title">Nothing to show</string>
+    <string name="library_no_matches">No matches</string>
+    <string name="library_empty_title">Nothing here yet</string>
+    <string name="library_empty_hint">Tap the button below to start your first note.</string>
+    <string name="library_no_matches_in_x">Nothing in %1$s matches \"%2$s\".</string>
+    <string name="library_search_in_x">Search in %1$s</string>
+    <string name="library_clear_search">Clear search</string>
+    <string name="library_search_scope_x">Searching %1$s and the folders inside it.</string>
+
+    <!--  FILTERS  -->
+    <string name="library_filter_all">All</string>
+    <string name="library_filter_folders">Folders only</string>
+    <string name="library_filter_text">Text notes only</string>
+    <string name="library_filter_ink">Ink notes only</string>
+    <!--
+      Full sentences rather than a filter name dropped into one: the label is a noun phrase in some
+      languages and a clause in others, and lowercasing one to fit mid-sentence only works in English.
+    -->
+    <string name="library_filter_empty_folders">No folders in this folder.</string>
+    <string name="library_filter_empty_text">No text notes in this folder.</string>
+    <string name="library_filter_empty_ink">No ink notes in this folder.</string>
+
+    <!--  SORT  -->
+    <string name="library_sort_modified_desc">Recently edited</string>
+    <string name="library_sort_modified_asc">Oldest edited</string>
+    <string name="library_sort_title_asc">Title A–Z</string>
+    <string name="library_sort_title_desc">Title Z–A</string>
+    <string name="library_sort_created_desc">Recently created</string>
+
+    <!--  ERRORS  -->
+    <string name="library_error_no_root">No note folder is configured yet.</string>
+    <string name="library_error_create_note">Could not create the note</string>
+    <string name="library_error_create_folder">Could not create the folder</string>
+    <string name="library_error_rename">Could not rename it</string>
+    <string name="library_error_delete_x">Could not delete %1$s</string>
+    <string name="library_error_move_x">Could not move %1$s</string>
+
+</resources>
