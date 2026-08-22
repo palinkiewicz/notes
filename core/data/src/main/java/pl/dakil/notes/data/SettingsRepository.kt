@@ -11,9 +11,11 @@ import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PagePattern
 import pl.dakil.notes.model.PageSize
+import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PatternType
 import pl.dakil.notes.model.PressureCurve
 import pl.dakil.notes.model.ViewMode
+import java.util.Locale
 
 /** Where the toolbar sits, so left-handed users and tablet users can put it somewhere sensible. */
 enum class ToolbarPosition { BOTTOM, LEFT, RIGHT, TOP }
@@ -32,6 +34,8 @@ data class AppSettings(
     val libraryRoot: String? = null,
     /** Which view new notes open in. */
     val defaultView: ViewMode = ViewMode.PAGED,
+    /** The unit every paper measurement is shown and typed in. */
+    val measurementUnit: MeasurementUnit = localeDefaultUnit(),
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
     val recentColors: List<Int> = emptyList(),
     /** Zoom levels the user pinned, as whole percentages, ascending. 100% is always offered. */
@@ -86,6 +90,8 @@ class SettingsRepository(context: Context) {
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
+        measurementUnit = prefs.getString(KEY_UNIT, null)
+            ?.let(MeasurementUnit::fromKey) ?: localeDefaultUnit(),
     )
 
     // ---- Individual setters. Kept granular so a settings screen can write one field at a time. ---
@@ -138,6 +144,9 @@ class SettingsRepository(context: Context) {
     }
 
     fun setDefaultView(view: ViewMode) = prefs.edit().putString(KEY_DEFAULT_VIEW, view.key).apply()
+
+    fun setMeasurementUnit(unit: MeasurementUnit) =
+        prefs.edit().putString(KEY_UNIT, unit.key).apply()
 
     /**
      * Pins a zoom level so it can be picked again by name.
@@ -238,6 +247,7 @@ class SettingsRepository(context: Context) {
         const val KEY_LIBRARY_ROOT = "library.root"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
+        const val KEY_UNIT = "ui.measurementUnit"
         const val KEY_ZOOM_PRESETS = "ui.zoomPresets"
 
         /** Two rows on a phone; beyond that the row becomes a scroll people do not scroll. */
@@ -257,3 +267,16 @@ class SettingsRepository(context: Context) {
         const val KEY_PATTERN_MARGIN = "page.patternMargin"
     }
 }
+
+/**
+ * The unit to start out in, taken from the device locale.
+ *
+ * `Locale.getDefault()` costs nothing and needs no permission, so a user in a country that measures
+ * paper in inches should not have to go and find a setting first. It is only the *default*: the
+ * moment the setting is written it wins, so a later locale change never moves a chosen unit.
+ */
+internal fun localeDefaultUnit(): MeasurementUnit =
+    if (Locale.getDefault().country in IMPERIAL_COUNTRIES) MeasurementUnit.INCH
+    else MeasurementUnit.CENTIMETRE
+
+private val IMPERIAL_COUNTRIES = setOf("US", "LR", "MM")

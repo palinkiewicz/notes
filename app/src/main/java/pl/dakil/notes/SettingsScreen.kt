@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.SettingsRepository
+import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PressureCurve
 import kotlin.math.roundToInt
 
@@ -146,6 +147,8 @@ fun SettingsScreen(settings: SettingsRepository) {
             HorizontalDivider()
             SectionHeader("Appearance")
 
+            MeasurementUnitPicker(current, settings)
+
             ListItem(
                 headlineContent = { Text("Show paper pattern in text mode") },
                 supportingContent = { Text("Keeps grid or rule lines behind reflowing text.") },
@@ -156,6 +159,40 @@ fun SettingsScreen(settings: SettingsRepository) {
                     )
                 },
             )
+        }
+    }
+}
+
+/**
+ * The unit every paper measurement is shown and typed in.
+ *
+ * Presentation only — the document is always points — so switching it never rewrites a note, and
+ * the same file reads as 21 cm on one device and 8.27 in on another.
+ */
+@Composable
+private fun MeasurementUnitPicker(current: AppSettings, settings: SettingsRepository) {
+    val units = listOf(
+        "Centimetres" to MeasurementUnit.CENTIMETRE,
+        "Millimetres" to MeasurementUnit.MILLIMETRE,
+        "Inches" to MeasurementUnit.INCH,
+    )
+
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("Measurements", style = MaterialTheme.typography.titleSmall)
+        Text(
+            text = "The unit page margins, rule spacing and paper sizes are shown in.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            units.forEachIndexed { i, (label, unit) ->
+                SegmentedButton(
+                    selected = current.measurementUnit == unit,
+                    onClick = { settings.setMeasurementUnit(unit) },
+                    shape = SegmentedButtonDefaults.itemShape(index = i, count = units.size),
+                ) { Text(label) }
+            }
         }
     }
 }

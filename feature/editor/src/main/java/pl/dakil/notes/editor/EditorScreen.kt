@@ -82,6 +82,7 @@ fun EditorScreen(
             pageCount = sheet.pageCount(),
             view = state.view,
             onViewChange = viewModel::setView,
+            unit = state.measurementUnit,
             onDismiss = { pageSetupOpen = false },
         )
     }

@@ -35,6 +35,7 @@ import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
+import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.ViewMode
 
 /** A lasso selection, held as block/stroke indices rather than copies of the geometry. */
@@ -101,6 +102,8 @@ data class EditorUiState(
     /** Bumped on every document mutation, so the ink overlay can invalidate without deep diffing. */
     val documentVersion: Int = 0,
     val scrollRequest: ScrollRequest? = null,
+    /** The unit paper measurements are shown and typed in. An app setting, not a document one. */
+    val measurementUnit: MeasurementUnit = MeasurementUnit.CENTIMETRE,
     val isLoading: Boolean = true,
     val error: String? = null,
 ) {
@@ -135,6 +138,7 @@ class NoteViewModel(
                         inputConfig = app.input,
                         recentColors = app.recentColors,
                         zoomPresets = app.zoomPresets,
+                        measurementUnit = app.measurementUnit,
                     )
                 }
             }

@@ -220,6 +220,11 @@ object NotesIcons {
         strokedIcon("ExpandMore", "M6.5 9.5 L12 15 L17.5 9.5")
     }
 
+    /** Trailing affordance on a settings row that opens something rather than toggling it. */
+    val ChevronRight: ImageVector by lazy {
+        strokedIcon("ChevronRight", "M9.5 6.5 L15 12 L9.5 17.5")
+    }
+
     /**
      * Scale the page until it spans the window sideways: an arrow pushing out to two walls.
      *

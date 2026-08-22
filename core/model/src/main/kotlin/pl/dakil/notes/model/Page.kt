@@ -17,12 +17,34 @@ sealed interface PageSize {
 
     data class Custom(override val width: Float, override val height: Float) : PageSize
 
-    enum class Kind(val width: Float, val height: Float) {
-        A4(595f, 842f),
-        A3(842f, 1191f),
-        A5(420f, 595f),
-        LETTER(612f, 792f),
-        LEGAL(612f, 1008f);
+    /** Which family a [Kind] belongs to, so the picker can keep the series apart. */
+    enum class SizeGroup { A, B, US }
+
+    /**
+     * The sizes on offer, ISO 216 A and B plus the two North American ones.
+     *
+     * Declaration order is the order they are offered in: by family, smallest first. Nothing
+     * serializes the ordinal — the file and the preferences both store [name] — so this list can be
+     * reordered or extended without touching a single saved note.
+     */
+    enum class Kind(val width: Float, val height: Float, val group: SizeGroup) {
+        A5(420f, 595f, SizeGroup.A),
+        A4(595f, 842f, SizeGroup.A),
+        A3(842f, 1191f, SizeGroup.A),
+        A2(1191f, 1684f, SizeGroup.A),
+        A1(1684f, 2384f, SizeGroup.A),
+        B5(499f, 709f, SizeGroup.B),
+        B4(709f, 1001f, SizeGroup.B),
+        B3(1001f, 1417f, SizeGroup.B),
+        B2(1417f, 2004f, SizeGroup.B),
+        B1(2004f, 2835f, SizeGroup.B),
+        LETTER(612f, 792f, SizeGroup.US),
+        LEGAL(612f, 1008f, SizeGroup.US);
+
+        /** "A4" stays shouted, "LETTER" does not. */
+        val label: String
+            get() = if (group == SizeGroup.US) name.lowercase().replaceFirstChar { it.uppercase() }
+            else name
     }
 
     companion object {

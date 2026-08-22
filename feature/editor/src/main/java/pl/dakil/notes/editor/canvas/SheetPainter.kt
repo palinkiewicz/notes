@@ -159,7 +159,14 @@ object SheetPainter {
     internal fun ruleCoverage(ptToPx: Float, zoom: Float): Float =
         (LINE_PT * ptToPx * zoom).coerceIn(0f, 1f)
 
-    private fun DrawScope.drawPattern(
+    /**
+     * Draws just the rules, with no paper under them.
+     *
+     * `internal` rather than private so the page-setup previews can render a crop of the real paper
+     * through the same code that draws the sheet — a preview that guesses at the pattern is a
+     * preview that will eventually disagree with it.
+     */
+    internal fun DrawScope.drawPattern(
         format: PageFormat,
         ptToPx: Float,
         pageTopPx: Float,

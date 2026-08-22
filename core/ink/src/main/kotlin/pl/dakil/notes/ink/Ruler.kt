@@ -1,5 +1,6 @@
 package pl.dakil.notes.ink
 
+import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PointerSample
 import kotlin.math.abs
 import kotlin.math.cos
@@ -12,8 +13,12 @@ import kotlin.math.sin
  * The ruler measures the *paper*, not the glass: a point is a real 1/72", so a centimetre is a
  * fixed number of document units and a tick lands on the same spot of the sheet whatever the note
  * is magnified to. That is what makes a measurement taken on screen survive printing.
+ *
+ * Derived from [MeasurementUnit] rather than spelled out again, so the ruler's centimetre and the
+ * one the page-setup dialogs measure in can never drift apart. Not `const` for that reason — an
+ * enum property is not a compile-time constant — which costs a field read and nothing else.
  */
-const val CM_IN_POINTS: Float = 72f / 2.54f
+val CM_IN_POINTS: Float = 1f / MeasurementUnit.CENTIMETRE.perPoint
 
 /** How long the ruler starts out, in centimetres of paper. Slightly under the width of an A4 sheet. */
 const val RULER_DEFAULT_LENGTH_CM: Float = 20f
