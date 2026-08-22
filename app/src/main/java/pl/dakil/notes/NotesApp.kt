@@ -55,7 +55,12 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
         .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
 
     val libraryViewModel: LibraryViewModel = viewModel(
-        factory = LibraryViewModel.factory(container.store, container.index, container.repository)
+        factory = LibraryViewModel.factory(
+            container.store,
+            container.index,
+            container.repository,
+            container.settings,
+        )
     )
     val noteViewModel: NoteViewModel = viewModel(
         factory = NoteViewModel.factory(container.repository, container.settings)

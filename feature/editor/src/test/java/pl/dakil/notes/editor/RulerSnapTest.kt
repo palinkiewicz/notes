@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
-import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.rulerEdgeAt
 import pl.dakil.notes.ink.CM_IN_POINTS
 import pl.dakil.notes.ink.RulerGuide

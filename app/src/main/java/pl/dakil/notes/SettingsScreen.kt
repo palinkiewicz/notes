@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.data.AppSettings
+import pl.dakil.notes.data.LibraryLayout
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PressureCurve
@@ -147,6 +148,8 @@ fun SettingsScreen(settings: SettingsRepository) {
             HorizontalDivider()
             SectionHeader("Appearance")
 
+            LibraryLayoutPicker(current, settings)
+
             MeasurementUnitPicker(current, settings)
 
             ListItem(
@@ -159,6 +162,34 @@ fun SettingsScreen(settings: SettingsRepository) {
                     )
                 },
             )
+        }
+    }
+}
+
+/** How the note library draws its contents. Presentation only; it moves nothing on disk. */
+@Composable
+private fun LibraryLayoutPicker(current: AppSettings, settings: SettingsRepository) {
+    val layouts = listOf(
+        "Floating cards" to LibraryLayout.CARDS,
+        "List" to LibraryLayout.LIST,
+    )
+
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("Notes layout", style = MaterialTheme.typography.titleSmall)
+        Text(
+            text = "Cards show a preview of each note; the list fits more of them on screen.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            layouts.forEachIndexed { i, (label, layout) ->
+                SegmentedButton(
+                    selected = current.libraryLayout == layout,
+                    onClick = { settings.setLibraryLayout(layout) },
+                    shape = SegmentedButtonDefaults.itemShape(index = i, count = layouts.size),
+                ) { Text(label) }
+            }
         }
     }
 }

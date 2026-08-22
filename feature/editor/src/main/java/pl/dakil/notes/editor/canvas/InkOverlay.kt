@@ -33,6 +33,8 @@ import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import kotlin.math.abs
 import kotlin.math.hypot
+import pl.dakil.notes.ui.sheet.StrokeRenderer
+import pl.dakil.notes.ui.sheet.SheetPainter
 
 /** What the overlay reports back when the user finishes an action. */
 interface InkCallbacks {

@@ -15,6 +15,7 @@ import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.format.DakNoteFormatException
 import pl.dakil.notes.format.DakNoteReader
 import pl.dakil.notes.format.DakNoteWriter
+import pl.dakil.notes.format.FrontmatterCodec
 import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
@@ -118,16 +119,18 @@ class NoteRepository(
         kind: NoteKind = NoteKind.INK,
         size: PageSize = PageSize.A4,
         background: PageBackground = PageBackground.DEFAULT,
+        path: String = "",
     ): Result<StoreRef> = runCatching {
         val ref = store.newChild(parent, "${title.sanitizeFileName()}.${kind.extension}", kind.mimeType)
         when (kind) {
             NoteKind.INK -> writeInk(
                 ref,
                 DakNote.newNote(title = title, size = size, background = background, now = clock()),
+                path,
             )
             // Deliberately empty rather than seeded with "# $title": the file name is already the
             // title, and a heading the user did not type is one they have to delete.
-            NoteKind.TEXT -> writeText(ref, "")
+            NoteKind.TEXT -> writeText(ref, "", path)
         }
         ref
     }
@@ -184,12 +187,12 @@ class NoteRepository(
         }
     }
 
-    private suspend fun writeInk(ref: StoreRef, note: Note) {
+    private suspend fun writeInk(ref: StoreRef, note: Note, path: String? = null) {
         val stamped = note.copy(
             meta = note.meta.copy(modified = clock(), revision = note.meta.revision + 1),
         )
         store.write(ref) { out -> DakNoteWriter.write(stamped, out) }
-        index.put(ref, stamped)
+        index.put(ref, stamped, path ?: index.pathOf(ref))
     }
 
     /**
@@ -199,24 +202,30 @@ class NoteRepository(
      * The file's own timestamp is the modification time, which is also what any other editor
      * touching the same file would leave behind.
      */
-    private suspend fun writeText(ref: StoreRef, markdown: String) {
+    private suspend fun writeText(ref: StoreRef, markdown: String, path: String? = null) {
         store.write(ref) { out -> out.write(markdown.toByteArray(Charsets.UTF_8)) }
-        indexText(ref, markdown, store.metadata(ref))
+        indexText(ref, markdown, store.metadata(ref), path ?: index.pathOf(ref))
     }
 
-    private suspend fun indexText(ref: StoreRef, markdown: String, entry: StoreEntry?) {
+    private suspend fun indexText(ref: StoreRef, markdown: String, entry: StoreEntry?, path: String) {
         val name = entry?.name ?: ref.value.substringAfterLast('/')
         val modified = entry?.modifiedAt ?: clock()
+        // A `.md` note keeps its tags in YAML frontmatter, because it has no manifest to keep them
+        // in and frontmatter is what every other Markdown tool already reads.
+        val parsed = FrontmatterCodec.parse(markdown)
         index.put(
             ref = ref,
+            path = path,
             kind = NoteKind.TEXT,
             // A plain Markdown file has no id of its own; its location is the only stable handle.
             noteId = ref.value,
             title = NoteKind.titleOf(name),
-            tags = emptyList(),
+            tags = parsed.tags,
             created = modified,
             modified = modified,
-            body = markdown,
+            // The block is metadata, not prose: indexing it would make every tagged note a hit for
+            // the word "tags".
+            body = parsed.body,
             fileModified = modified,
             fileSize = entry?.sizeBytes ?: markdown.toByteArray(Charsets.UTF_8).size.toLong(),
         )
@@ -225,16 +234,49 @@ class NoteRepository(
     // ---- Library -------------------------------------------------------------------------------
 
     /**
-     * Scans [dir] and refreshes the index.
+     * Scans [dir] and refreshes the index, optionally descending into its subfolders.
      *
      * Only the manifest is parsed for entries whose size and timestamp are unchanged, so opening
-     * the library does not deserialise every stroke on disk.
+     * the library does not deserialise every stroke on disk — and so a whole-tree pass costs little
+     * more than a directory walk once the first one has run.
+     *
+     * [path] is [dir]'s logical path from the library root, which the walk carries down to its
+     * children. The scanner is the only thing that knows it: a ref cannot be asked, because a SAF
+     * ref is an opaque document URI.
+     *
+     * [recursive] is what search needs. A folder-scoped search is a search of that folder *and
+     * everything under it*, so a note in a subfolder the user has never opened still has to be in
+     * the index. Navigation asks for the shallow scan, which is instant, and the recursive one runs
+     * from the root in the background.
      */
-    suspend fun refreshIndex(dir: StoreRef): Result<Int> = runCatching {
+    suspend fun refreshIndex(
+        dir: StoreRef,
+        path: String = "",
+        recursive: Boolean = false,
+    ): Result<Int> = runCatching {
+        val visited = HashSet<String>()
+        val count = scan(dir, path, recursive, visited)
+        // A folder that has gone since the last pass leaves its rows behind, and nothing in a
+        // per-folder retainOnly would ever reach them.
+        if (recursive) index.retainPaths(path, visited)
+        count
+    }
+
+    private suspend fun scan(
+        dir: StoreRef,
+        path: String,
+        recursive: Boolean,
+        visited: MutableSet<String>,
+    ): Int {
+        visited += path
         var count = 0
         val seen = HashSet<String>()
+        val folders = ArrayList<StoreEntry>()
         for (entry in store.list(dir)) {
-            if (entry.isDirectory) continue
+            if (entry.isDirectory) {
+                if (recursive) folders += entry
+                continue
+            }
             val kind = NoteKind.of(entry.name) ?: continue
             // Must happen before the isCurrent shortcut: retainOnly below purges everything the
             // scan did not report, current or not.
@@ -244,20 +286,23 @@ class NoteRepository(
                 NoteKind.INK -> {
                     val note = runCatching { store.read(entry.ref) { DakNoteReader.read(it) } }
                         .getOrNull() ?: continue
-                    index.put(entry.ref, note, entry.modifiedAt, entry.sizeBytes)
+                    index.put(entry.ref, note, path, entry.modifiedAt, entry.sizeBytes)
                 }
 
                 NoteKind.TEXT -> {
                     val markdown = runCatching {
                         store.read(entry.ref) { it.readBytes().toString(Charsets.UTF_8) }
                     }.getOrNull() ?: continue
-                    indexText(entry.ref, markdown, entry)
+                    indexText(entry.ref, markdown, entry, path)
                 }
             }
             count++
         }
-        index.retainOnly(dir, seen)
-        count
+        index.retainOnly(path, seen)
+        for (folder in folders) {
+            count += scan(folder.ref, childPath(path, folder.name), recursive, visited)
+        }
+        return count
     }
 
     /**
@@ -270,8 +315,9 @@ class NoteRepository(
      * half of this — retitling an ink note's manifest — is a read-modify-write of the file a save
      * may be in the middle of replacing.
      */
-    suspend fun rename(ref: StoreRef, newTitle: String): Result<StoreRef> = runCatching {
+    suspend fun rename(ref: StoreRef, newTitle: String, path: String? = null): Result<StoreRef> = runCatching {
         writeLock.withLock {
+            val folder = path ?: index.pathOf(ref)
             val current = ref.value.substringAfterLast('/')
             val kind = NoteKind.of(current) ?: NoteKind.INK
             val title = newTitle.sanitizeFileName()
@@ -287,8 +333,49 @@ class NoteRepository(
             // the note under its new title as a side effect. Hence the null: setting the title here
             // would either be undone a line later or, for a note this build may only read, claim a
             // title the file does not have.
-            index.move(ref, moved, landed.takeIf { kind == NoteKind.TEXT })
-            if (kind == NoteKind.INK) retitle(moved, landed)
+            index.move(ref, moved, folder, landed.takeIf { kind == NoteKind.TEXT })
+            if (kind == NoteKind.INK) retitle(moved, landed, folder)
+            moved
+        }
+    }
+
+    /**
+     * Renames a folder, and drops the index rows beneath it.
+     *
+     * The rows are not rewritten because they cannot be cheaply: every descendant's path changes,
+     * and the index is a cache of files that are all still on disk. The caller rescans the folder
+     * afterwards, which puts them back where they now live.
+     */
+    suspend fun renameFolder(ref: StoreRef, newName: String, path: String): Result<StoreRef> = runCatching {
+        val moved = store.move(ref, StoreRef(newName.sanitizeFileName()))
+        index.removeSubtree(path)
+        moved
+    }
+
+    /**
+     * Moves a note or a folder from one folder to another.
+     *
+     * Under the write lock and redirecting a queued save for the same reason [rename] is: a note
+     * autosaved a moment before being moved would otherwise be written back to the path it no
+     * longer has, recreating it where it used to be.
+     */
+    suspend fun moveTo(
+        ref: StoreRef,
+        fromParent: StoreRef,
+        toParent: StoreRef,
+        fromPath: String,
+        toPath: String,
+        directoryName: String? = null,
+    ): Result<StoreRef> = runCatching {
+        writeLock.withLock {
+            val moved = store.moveTo(ref, fromParent, toParent)
+            redirectPendingSave(ref, moved)
+            if (directoryName != null) {
+                // Its descendants' paths all changed; the destination rescan reindexes them.
+                index.removeSubtree(childPath(fromPath, directoryName))
+            } else {
+                index.move(ref, moved, toPath)
+            }
             moved
         }
     }
@@ -299,10 +386,18 @@ class NoteRepository(
      * A note this build may only read keeps the title it has: a `minReaderVersion` gate is worth
      * more than a tidy name, and the index then goes on reporting what the file actually says.
      */
-    private suspend fun retitle(ref: StoreRef, title: String) {
+    private suspend fun retitle(ref: StoreRef, title: String, path: String) {
         val note = runCatching { store.read(ref) { DakNoteReader.read(it) } }.getOrNull() ?: return
         if (note.readOnly || note.meta.title == title) return
-        writeInk(ref, note.copy(meta = note.meta.copy(title = title)))
+        writeInk(ref, note.copy(meta = note.meta.copy(title = title)), path)
+    }
+
+    /** Rewrites an ink note's tags in place, without going through the editor. */
+    suspend fun setTags(ref: StoreRef, tags: List<String>, path: String? = null): Result<Unit> = runCatching {
+        writeLock.withLock {
+            val note = store.read(ref) { DakNoteReader.read(it) }
+            if (!note.readOnly) writeInk(ref, note.copy(meta = note.meta.copy(tags = tags)), path)
+        }
     }
 
     /** Points a write queued before the rename at the file's new home; see [pendingMove]. */
@@ -312,14 +407,35 @@ class NoteRepository(
         pendingMove = origin to to
     }
 
-    suspend fun delete(ref: StoreRef): Result<Unit> = runCatching {
+    /**
+     * Deletes a note, or a folder and everything in it.
+     *
+     * [path] is the folder the item sits in. [directoryName] is non-null only for a folder, and is
+     * the name rather than something parsed back out of [ref]: a ref is a path in one store and an
+     * opaque document URI in another, so its last segment is not reliably a name at all. With it,
+     * the rows for the folder's contents go when the folder does, rather than lingering as search
+     * results that open nothing.
+     */
+    suspend fun delete(
+        ref: StoreRef,
+        path: String? = null,
+        directoryName: String? = null,
+    ): Result<Unit> = runCatching {
         store.delete(ref)
-        index.remove(ref)
+        if (directoryName != null) {
+            index.removeSubtree(childPath(path ?: index.pathOf(ref), directoryName))
+        } else {
+            index.remove(ref)
+        }
     }
 
     fun meta(note: Note): NoteMeta = note.meta
 
     companion object {
+        /** Appends one folder name to a logical path. The root is `""`, so it grows no leading slash. */
+        fun childPath(parent: String, name: String): String =
+            if (parent.isEmpty()) name else "$parent/$name"
+
         /**
          * Long enough that a burst of strokes collapses into one write, short enough that a user
          * who backgrounds the app right after writing does not notice a gap.

@@ -31,7 +31,7 @@ import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
- * The "new note" button, expanding into one pill per note kind.
+ * The "new" button, expanding into one pill per thing that can be made here.
  *
  * Material 3 grew a real `FloatingActionButtonMenu`, but only in 1.5.0-alpha — the Compose BOM this
  * project pins ships 1.4.0. Taking it would mean overriding the BOM and moving the app's *entire*
@@ -46,6 +46,7 @@ fun NewNoteFab(
     open: Boolean,
     onOpenChange: (Boolean) -> Unit,
     onCreate: (NoteKind) -> Unit,
+    onCreateFolder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // The single `+` glyph doubles as the close affordance: a quarter turn makes it an ×, which
@@ -63,10 +64,20 @@ fun NewNoteFab(
     ) {
         MenuItem(
             visible = open,
-            // The lower item is nearest the thumb, so it animates in first and out last.
+            // The lowest item is nearest the thumb, so it animates in first and out last.
+            index = 2,
+            icon = NotesIcons.NewFolder,
+            label = "Folder",
+            onClick = {
+                onOpenChange(false)
+                onCreateFolder()
+            },
+        )
+        MenuItem(
+            visible = open,
             index = 1,
             icon = NotesIcons.TextNote,
-            label = "Text note",
+            label = "Text",
             onClick = {
                 onOpenChange(false)
                 onCreate(NoteKind.TEXT)
@@ -75,8 +86,8 @@ fun NewNoteFab(
         MenuItem(
             visible = open,
             index = 0,
-            icon = NotesIcons.Note,
-            label = "Ink note",
+            icon = NotesIcons.InkNote,
+            label = "Ink",
             onClick = {
                 onOpenChange(false)
                 onCreate(NoteKind.INK)
@@ -89,7 +100,7 @@ fun NewNoteFab(
                 imageVector = NotesIcons.Add,
                 // The label has to follow the state, or a screen reader announces "new note" for a
                 // button that now closes the menu.
-                contentDescription = if (open) "Close" else "New note",
+                contentDescription = if (open) "Close" else "New",
                 modifier = Modifier.rotate(rotation),
             )
         }

@@ -5,6 +5,7 @@ import pl.dakil.notes.ink.RulerPose
 import pl.dakil.notes.ink.RulerSide
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.model.PageFormat
+import pl.dakil.notes.ui.sheet.SheetPainter
 
 /**
  * The edge a stroke starting at ([docX], [docY]) should be drawn against, in document points, or

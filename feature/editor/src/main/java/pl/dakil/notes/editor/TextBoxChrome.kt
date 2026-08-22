@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.markdown.MarkdownEditor
 import pl.dakil.notes.model.Rect

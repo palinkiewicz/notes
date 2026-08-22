@@ -20,7 +20,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.markdown.MarkdownStaticText
 import pl.dakil.notes.editor.markdown.MarkdownStyles
 import pl.dakil.notes.model.Sheet

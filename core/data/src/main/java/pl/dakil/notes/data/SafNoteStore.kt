@@ -172,6 +172,42 @@ class SafNoteStore(
         }
     }
 
+    /**
+     * Moves a document or folder between parents with `DocumentsContract.moveDocument`.
+     *
+     * This is the operation [move] deliberately is not, and the reason [fromParent] is in the
+     * signature at all: the provider needs to be told which parent to detach from, and a document
+     * URI has no way to say.
+     *
+     * A name already taken in the destination is stepped aside from by renaming first — the
+     * provider would otherwise either fail or silently produce a duplicate, depending on which
+     * provider it is.
+     */
+    override suspend fun moveTo(
+        from: StoreRef,
+        fromParent: StoreRef,
+        toParent: StoreRef,
+    ): StoreRef = withContext(io) {
+        if (fromParent == toParent) return@withContext from
+        try {
+            val name = metadata(from)?.name.orEmpty()
+            val taken = list(toParent).mapTo(HashSet()) { it.name }
+            val source = if (name.isNotEmpty() && name in taken) {
+                DocumentsContract.renameDocument(resolver, uriOf(from), uniqueIn(taken, name))
+                    ?: throw StoreException("Could not rename ${from.value} before moving it")
+            } else {
+                uriOf(from)
+            }
+            val moved = DocumentsContract.moveDocument(resolver, source, uriOf(fromParent), uriOf(toParent))
+                ?: throw StoreException("Could not move ${from.value}")
+            StoreRef(moved.toString())
+        } catch (e: StoreException) {
+            throw e
+        } catch (e: Exception) {
+            throw StoreException("Could not move ${from.value}", e)
+        }
+    }
+
     override suspend fun createDirectory(parent: StoreRef, name: String): StoreRef = withContext(io) {
         create(parent, DocumentsContract.Document.MIME_TYPE_DIR, name.sanitizeFileName())
     }
@@ -181,17 +217,18 @@ class SafNoteStore(
 
     override suspend fun newChild(parent: StoreRef, name: String, mimeType: String): StoreRef = withContext(io) {
         val taken = list(parent).mapTo(HashSet()) { it.name }
-        val safe = name.sanitizeFileName()
-        var candidate = safe
-        if (candidate in taken) {
-            val dot = safe.lastIndexOf('.')
-            val stem = if (dot > 0) safe.substring(0, dot) else safe
-            val extension = if (dot > 0) safe.substring(dot) else ""
-            var n = 2
-            while ("$stem ($n)$extension" in taken) n++
-            candidate = "$stem ($n)$extension"
-        }
-        create(parent, mimeType, candidate)
+        create(parent, mimeType, uniqueIn(taken, name.sanitizeFileName()))
+    }
+
+    /** Appends ` (2)`, ` (3)`… until the name is free, matching [uniqueName] on the file store. */
+    private fun uniqueIn(taken: Set<String>, name: String): String {
+        if (name !in taken) return name
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val extension = if (dot > 0) name.substring(dot) else ""
+        var n = 2
+        while ("$stem ($n)$extension" in taken) n++
+        return "$stem ($n)$extension"
     }
 
     private fun create(parent: StoreRef, mimeType: String, displayName: String): StoreRef {

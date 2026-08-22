@@ -22,6 +22,7 @@ import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.ui.icons.NotesIcons
 import kotlin.math.min
 import kotlin.math.roundToInt
+import pl.dakil.notes.ui.sheet.SheetPainter
 
 /**
  * The controls that belong to a page rather than to the document: its number, and the two things

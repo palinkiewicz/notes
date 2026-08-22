@@ -27,6 +27,8 @@ android {
 dependencies {
     // Colour maths and document-level colour constants live in the model.
     api(project(":core:model"))
+    // The sheet painters tessellate variable-width strokes; see ui/sheet.
+    implementation(project(":core:ink"))
     api(platform(libs.androidx.compose.bom))
     api(libs.androidx.compose.ui)
     api(libs.androidx.compose.ui.graphics)
@@ -40,4 +42,5 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     debugImplementation(libs.androidx.compose.ui.tooling)
     api(libs.androidx.compose.ui.tooling.preview)
+    testImplementation(libs.junit)
 }

@@ -2,7 +2,7 @@ package pl.dakil.notes.editor
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.documentPointAt
 import pl.dakil.notes.model.PageFormat
 

@@ -31,9 +31,9 @@ import pl.dakil.notes.editor.canvas.RULER_SNAP_BAND
 import pl.dakil.notes.editor.canvas.RULER_THICKNESS
 import pl.dakil.notes.editor.canvas.RulerOverlay
 import pl.dakil.notes.editor.canvas.RulerState
-import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.rulerEdgeAt
-import pl.dakil.notes.editor.canvas.SheetPainter.drawSheet
+import pl.dakil.notes.ui.sheet.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.ZoomChip
 import pl.dakil.notes.editor.canvas.sheetTransformGestures

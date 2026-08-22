@@ -105,6 +105,33 @@ class FileNoteStore(
         StoreRef(target.absolutePath)
     }
 
+    /**
+     * Moves a note or a whole folder into another directory, keeping its name.
+     *
+     * [fromParent] is unused here — a path already knows where it lives — but it is part of the
+     * contract because SAF cannot manage without it.
+     */
+    override suspend fun moveTo(
+        from: StoreRef,
+        fromParent: StoreRef,
+        toParent: StoreRef,
+    ): StoreRef = withContext(io) {
+        val source = fileOf(from)
+        val destination = fileOf(toParent)
+        if (source.parentFile == destination) return@withContext from
+        if (!destination.isDirectory) throw StoreException("${toParent.value} is not a folder")
+        // Same reasoning as `move`: `renameTo` would overwrite a note of the same name in the
+        // destination without a word, so step aside from the collision instead.
+        val target = File(destination, uniqueName(destination, source.name))
+        if (!source.renameTo(target)) {
+            // Cross-device, which `renameTo` cannot do; copy and remove the original.
+            if (source.isDirectory) source.copyRecursively(target, overwrite = false) else source.copyTo(target)
+            val removed = if (source.isDirectory) source.deleteRecursively() else source.delete()
+            if (!removed) throw StoreException("Could not remove ${from.value} after copying it")
+        }
+        StoreRef(target.absolutePath)
+    }
+
     override suspend fun createDirectory(parent: StoreRef, name: String): StoreRef = withContext(io) {
         val dir = File(fileOf(parent), name.sanitizeFileName())
         if (!dir.exists() && !dir.mkdirs()) throw StoreException("Could not create ${dir.absolutePath}")

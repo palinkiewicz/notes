@@ -22,6 +22,25 @@ enum class ToolbarPosition { BOTTOM, LEFT, RIGHT, TOP }
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/**
+ * How the note library draws its contents.
+ *
+ * Keyed by a stable string rather than by ordinal, like [pl.dakil.notes.model.ViewMode] and unlike
+ * [ThemeMode]: reordering the enum then cannot silently turn everyone's saved choice into a
+ * different one.
+ */
+enum class LibraryLayout(val key: String) {
+    /** A card each, with a preview of what is in the note. */
+    CARDS("cards"),
+
+    /** One row each, the denser view for a long library. */
+    LIST("list");
+
+    companion object {
+        fun fromKey(key: String): LibraryLayout = entries.firstOrNull { it.key == key } ?: CARDS
+    }
+}
+
 /** Everything the user can configure. Defaults are what a casual note-taker should never touch. */
 data class AppSettings(
     val input: InputConfig = InputConfig(),
@@ -34,6 +53,8 @@ data class AppSettings(
     val libraryRoot: String? = null,
     /** Which view new notes open in. */
     val defaultView: ViewMode = ViewMode.PAGED,
+    /** How the note library draws its contents. */
+    val libraryLayout: LibraryLayout = LibraryLayout.CARDS,
     /** The unit every paper measurement is shown and typed in. */
     val measurementUnit: MeasurementUnit = localeDefaultUnit(),
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
@@ -90,6 +111,9 @@ class SettingsRepository(context: Context) {
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
+        libraryLayout = LibraryLayout.fromKey(
+            prefs.getString(KEY_LIBRARY_LAYOUT, LibraryLayout.CARDS.key) ?: LibraryLayout.CARDS.key
+        ),
         measurementUnit = prefs.getString(KEY_UNIT, null)
             ?.let(MeasurementUnit::fromKey) ?: localeDefaultUnit(),
     )
@@ -129,6 +153,9 @@ class SettingsRepository(context: Context) {
         prefs.edit().putBoolean(KEY_PATTERN_IN_DOC, enabled).apply()
 
     fun setLibraryRoot(ref: String?) = prefs.edit().putString(KEY_LIBRARY_ROOT, ref).apply()
+
+    fun setLibraryLayout(layout: LibraryLayout) =
+        prefs.edit().putString(KEY_LIBRARY_LAYOUT, layout.key).apply()
 
     /**
      * Records a colour the user chose, newest first, de-duplicated.
@@ -245,6 +272,7 @@ class SettingsRepository(context: Context) {
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"
         const val KEY_PATTERN_IN_DOC = "ui.patternInDocumentMode"
         const val KEY_LIBRARY_ROOT = "library.root"
+        const val KEY_LIBRARY_LAYOUT = "ui.libraryLayout"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

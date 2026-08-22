@@ -1,9 +1,9 @@
-package pl.dakil.notes.editor
+package pl.dakil.notes.ui.sheet
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import pl.dakil.notes.editor.canvas.SheetPainter
+import pl.dakil.notes.ui.sheet.SheetPainter
 
 /**
  * How thick the paper's rules are drawn.

@@ -1,4 +1,4 @@
-package pl.dakil.notes.editor.canvas
+package pl.dakil.notes.ui.sheet
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -144,7 +144,7 @@ object SheetPainter {
      * to come off somewhere, or a zoomed-out pattern draws full-strength pixels between rules that
      * are converging and floods the paper grey.
      */
-    internal fun ruleWidthPx(ptToPx: Float, zoom: Float): Float {
+    fun ruleWidthPx(ptToPx: Float, zoom: Float): Float {
         val paperWidth = LINE_PT * ptToPx
         return if (paperWidth * zoom < 1f) 1f / zoom else paperWidth
     }
@@ -156,17 +156,17 @@ object SheetPainter {
      * rule that wanted to be a third of a pixel is drawn as a whole pixel at a third the strength,
      * so the ink-to-paper ratio holds at every zoom and the sheet just gets smaller.
      */
-    internal fun ruleCoverage(ptToPx: Float, zoom: Float): Float =
+    fun ruleCoverage(ptToPx: Float, zoom: Float): Float =
         (LINE_PT * ptToPx * zoom).coerceIn(0f, 1f)
 
     /**
      * Draws just the rules, with no paper under them.
      *
-     * `internal` rather than private so the page-setup previews can render a crop of the real paper
+     * Public rather than private so the page-setup previews can render a crop of the real paper
      * through the same code that draws the sheet — a preview that guesses at the pattern is a
      * preview that will eventually disagree with it.
      */
-    internal fun DrawScope.drawPattern(
+    fun DrawScope.drawPattern(
         format: PageFormat,
         ptToPx: Float,
         pageTopPx: Float,

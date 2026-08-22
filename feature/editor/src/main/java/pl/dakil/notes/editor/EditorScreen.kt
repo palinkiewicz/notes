@@ -43,6 +43,7 @@ import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorPickerSheet
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
+import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -65,6 +66,7 @@ fun EditorScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pageSetupOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var tagging by remember { mutableStateOf(false) }
     var editingPen by remember { mutableStateOf<ToolId?>(null) }
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
     // Held here rather than in the toolbar: the sheet and the app bar close it too.
@@ -187,6 +189,17 @@ fun EditorScreen(
         )
     }
 
+    if (tagging) {
+        TagEditorDialog(
+            initial = state.note?.meta?.tags.orEmpty(),
+            onDismiss = { tagging = false },
+            onConfirm = { tags ->
+                tagging = false
+                viewModel.setTags(tags)
+            },
+        )
+    }
+
     Scaffold(
         // On the whole scaffold rather than on the sheet: the formatting bar is the one control the
         // user needs *while* the keyboard is up, so the bar has to rise with it. The sheet loses the
@@ -219,6 +232,9 @@ fun EditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { tagging = true }) {
+                        Icon(NotesIcons.Tag, contentDescription = "Tags")
+                    }
                     IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
                         Icon(NotesIcons.Undo, contentDescription = "Undo")
                     }

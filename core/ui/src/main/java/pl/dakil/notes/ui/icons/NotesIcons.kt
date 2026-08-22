@@ -153,7 +153,33 @@ object NotesIcons {
     }
 
     val Folder: ImageVector by lazy {
-        strokedIcon("Folder", "M3 6.5 a1.5 1.5 0 0 1 1.5 -1.5 h4.5 l2 2.5 h8 a1.5 1.5 0 0 1 1.5 1.5 v9 a1.5 1.5 0 0 1 -1.5 1.5 h-15 a1.5 1.5 0 0 1 -1.5 -1.5 Z")
+        strokedIcon("Folder", FOLDER_PATH)
+    }
+
+    /** A folder with a plus in it: make a new one here. */
+    val NewFolder: ImageVector by lazy {
+        strokedIcon("NewFolder", FOLDER_PATH + " M12 10.5 v6 M9 13.5 h6")
+    }
+
+    /**
+     * A page with two handwritten waves on it: a note that is drawn rather than typed.
+     *
+     * Waves rather than the straight rules of [TextNote] on purpose — the two glyphs sit next to
+     * each other in the new-note menu, and a lined page beside a lined page tells nobody which is
+     * which.
+     */
+    val InkNote: ImageVector by lazy {
+        strokedIcon(
+            "InkNote",
+            "M5.5 3.5 h13 v17 h-13 Z " +
+                "M8.5 9.5 c1.1 -2.2 2.2 -2.2 3.3 0 c1.1 2.2 2.2 2.2 3.3 0 " +
+                "M8.5 15.5 c1.1 -2.2 2.2 -2.2 3.3 0",
+        )
+    }
+
+    /** A funnel: narrow the list to one kind of thing. */
+    val Filter: ImageVector by lazy {
+        strokedIcon("Filter", "M3.5 5 h17 l-6.5 7.5 v6.5 l-4 -2 v-4.5 Z")
     }
 
     val Note: ImageVector by lazy {
@@ -409,6 +435,11 @@ object NotesIcons {
      * `PathParser` is part of `ui-graphics`, so this needs no extra dependency and no generated
      * XML resources.
      */
+    /** Shared by [Folder] and [NewFolder], so the two can never drift apart. */
+    private const val FOLDER_PATH =
+        "M3 6.5 a1.5 1.5 0 0 1 1.5 -1.5 h4.5 l2 2.5 h8 a1.5 1.5 0 0 1 1.5 1.5 " +
+            "v9 a1.5 1.5 0 0 1 -1.5 1.5 h-15 a1.5 1.5 0 0 1 -1.5 -1.5 Z"
+
     private fun strokedIcon(name: String, pathData: String): ImageVector =
         ImageVector.Builder(
             name = name,

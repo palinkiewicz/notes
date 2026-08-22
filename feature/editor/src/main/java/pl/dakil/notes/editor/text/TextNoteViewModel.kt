@@ -22,6 +22,7 @@ import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
+import pl.dakil.notes.format.FrontmatterCodec
 
 @Immutable
 data class TextNoteUiState(
@@ -29,6 +30,7 @@ data class TextNoteUiState(
     val title: String = "",
     /** Raw Markdown in a monospace font, rather than the formatted view. */
     val sourceMode: Boolean = false,
+    val tags: List<String> = emptyList(),
     val saveState: SaveState = SaveState.Idle,
     val isLoading: Boolean = true,
     val error: String? = null,
@@ -53,6 +55,23 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
 
     private var autosave: Job? = null
 
+    /**
+     * Frontmatter keys this app does not read, kept aside while the note is open.
+     *
+     * The field holds the note's *body* and nothing else — the block above it is metadata, and a
+     * caret has no business in it. That means anything in it has to be remembered here so the file
+     * goes back to disk with it, which is the same promise the `.daknote` format makes about
+     * unknown JSON keys and unknown ZIP entries.
+     */
+    private var frontmatterRemainder: List<String> = emptyList()
+
+    /** The bytes that belong on disk: the body the user is editing, with its metadata put back on. */
+    private fun composed(): String = FrontmatterCodec.render(
+        tags = _state.value.tags,
+        remainder = frontmatterRemainder,
+        body = text.text.toString(),
+    )
+
     init {
         repository.saveState
             .onEach { save -> _state.update { it.copy(saveState = save) } }
@@ -67,10 +86,13 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         viewModelScope.launch {
             repository.loadMarkdown(ref).fold(
                 onSuccess = { markdown ->
-                    text = TextFieldState(markdown)
+                    val parsed = FrontmatterCodec.parse(markdown)
+                    frontmatterRemainder = parsed.remainder
+                    text = TextFieldState(parsed.body)
                     _state.update {
                         it.copy(
                             title = ref.noteTitle(),
+                            tags = parsed.tags,
                             isLoading = false,
                         )
                     }
@@ -93,9 +115,9 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         // next save instead of writing the note back to the name it no longer has.
         autosave = snapshotFlow { text.text.toString() }
             .drop(1)
-            .onEach { markdown ->
+            .onEach {
                 val ref = _state.value.ref ?: return@onEach
-                repository.requestSaveMarkdown(ref, markdown)
+                repository.requestSaveMarkdown(ref, composed())
             }
             .launchIn(viewModelScope)
     }
@@ -122,12 +144,25 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
+    /**
+     * Replaces the note's tags, which for a `.md` note means rewriting its YAML frontmatter.
+     *
+     * Saved explicitly rather than left to the autosave: the field's text has not changed — the
+     * tags live outside it — so nothing would ever notice.
+     */
+    fun setTags(tags: List<String>) {
+        if (tags == _state.value.tags) return
+        _state.update { it.copy(tags = tags) }
+        val ref = _state.value.ref ?: return
+        repository.requestSaveMarkdown(ref, composed())
+    }
+
     fun setSourceMode(source: Boolean) = _state.update { it.copy(sourceMode = source) }
 
     /** Writes immediately, for when the editor is closing rather than pausing. */
     fun flush() {
         val ref = _state.value.ref ?: return
-        val markdown = text.text.toString()
+        val markdown = composed()
         viewModelScope.launch { repository.flushMarkdown(ref, markdown) }
     }
 

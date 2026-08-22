@@ -37,6 +37,7 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
+import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -65,6 +66,7 @@ fun TextNoteScreen(
     var popup by remember { mutableStateOf<FormatPopup?>(null) }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
     var renaming by remember { mutableStateOf(false) }
+    var tagging by remember { mutableStateOf(false) }
     val title = state.title.ifBlank { "Untitled" }
 
     if (renaming) {
@@ -74,6 +76,17 @@ fun TextNoteScreen(
             onConfirm = { name ->
                 renaming = false
                 viewModel.rename(name, onRenamed)
+            },
+        )
+    }
+
+    if (tagging) {
+        TagEditorDialog(
+            initial = state.tags,
+            onDismiss = { tagging = false },
+            onConfirm = { tags ->
+                tagging = false
+                viewModel.setTags(tags)
             },
         )
     }
@@ -129,6 +142,9 @@ fun TextNoteScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { tagging = true }) {
+                        Icon(NotesIcons.Tag, contentDescription = "Tags")
+                    }
                     IconButton(onClick = { undo.undo() }, enabled = undo.canUndo) {
                         Icon(NotesIcons.Undo, contentDescription = "Undo")
                     }

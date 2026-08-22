@@ -20,6 +20,8 @@ data class NoteSummary(
     val modifiedAt: Long,
     val createdAt: Long,
     val snippet: String,
+    /** The folder this note sits in, as a logical path from the root: "", "Work", "Work/Q3". */
+    val path: String = "",
 )
 
 enum class NoteSort {
@@ -69,7 +71,7 @@ class NoteIndex(
               ref TEXT PRIMARY KEY,
               note_id TEXT NOT NULL,
               kind TEXT NOT NULL,
-              parent TEXT NOT NULL,
+              path TEXT NOT NULL,
               title TEXT NOT NULL,
               tags TEXT NOT NULL,
               created INTEGER NOT NULL,
@@ -80,7 +82,7 @@ class NoteIndex(
             )
             """.trimIndent()
         )
-        db.execSQL("CREATE INDEX idx_notes_parent ON notes(parent)")
+        db.execSQL("CREATE INDEX idx_notes_path ON notes(path)")
         db.execSQL("CREATE INDEX idx_notes_modified ON notes(modified)")
         // FTS4 rather than FTS5: FTS4 is present on every Android version this app supports,
         // whereas FTS5 availability varies by device.
@@ -97,10 +99,12 @@ class NoteIndex(
     suspend fun put(
         ref: StoreRef,
         note: Note,
+        path: String,
         fileModified: Long = note.meta.modified,
         fileSize: Long = 0L,
     ) = put(
         ref = ref,
+        path = path,
         kind = NoteKind.INK,
         noteId = note.meta.id.raw,
         title = note.meta.title,
@@ -118,9 +122,14 @@ class NoteIndex(
      * Spelled out in fields rather than taking a [Note], because a `.md` file has no manifest and so
      * no [pl.dakil.notes.model.NoteMeta] to hand over — its title is its file name and its id is its
      * path.
+     *
+     * [path] is the note's folder as a logical path from the library root, and has to be passed in
+     * rather than parsed out of [ref]: a filesystem ref is a path and a SAF ref is a document URI
+     * whose last segment is an opaque id, so there is no string surgery that is right for both.
      */
     suspend fun put(
         ref: StoreRef,
+        path: String,
         kind: NoteKind,
         noteId: String,
         title: String,
@@ -140,7 +149,7 @@ class NoteIndex(
                     put("ref", ref.value)
                     put("note_id", noteId)
                     put("kind", kind.name)
-                    put("parent", parentOf(ref.value))
+                    put("path", path)
                     put("title", title)
                     put("tags", tags.joinToString(TAG_SEPARATOR))
                     put("created", created)
@@ -182,7 +191,12 @@ class NoteIndex(
      * change the file's size or timestamp, so the next scan sees the row as current and never
      * re-reads it.
      */
-    suspend fun move(from: StoreRef, to: StoreRef, title: String? = null) = withContext(io) {
+    suspend fun move(
+        from: StoreRef,
+        to: StoreRef,
+        path: String,
+        title: String? = null,
+    ) = withContext(io) {
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
@@ -190,7 +204,7 @@ class NoteIndex(
                 "notes",
                 ContentValues().apply {
                     put("ref", to.value)
-                    put("parent", parentOf(to.value))
+                    put("path", path)
                     if (title != null) put("title", title)
                 },
                 "ref = ?",
@@ -212,11 +226,10 @@ class NoteIndex(
         Unit
     }
 
-    /** Drops index rows for notes that no longer exist under [dir]. */
-    suspend fun retainOnly(dir: StoreRef, refs: Set<String>) = withContext(io) {
+    /** Drops index rows for notes that the latest scan of the folder at [path] did not report. */
+    suspend fun retainOnly(path: String, refs: Set<String>) = withContext(io) {
         val db = helper.writableDatabase
-        val parent = dir.value
-        db.rawQuery("SELECT ref FROM notes WHERE parent = ?", arrayOf(parent)).use { cursor ->
+        db.rawQuery("SELECT ref FROM notes WHERE path = ?", arrayOf(path)).use { cursor ->
             val stale = ArrayList<String>()
             while (cursor.moveToNext()) {
                 val ref = cursor.getString(0)
@@ -227,6 +240,62 @@ class NoteIndex(
                 db.delete("notes_fts", "ref = ?", arrayOf(ref))
             }
         }
+    }
+
+    /**
+     * Drops every row at [path] and below it.
+     *
+     * What a deleted, renamed or moved folder needs. Rewriting each descendant's path instead would
+     * be more code for no gain: the rows are a cache of files that are all still there to be read,
+     * and the scan that follows puts them back where they now live.
+     */
+    suspend fun removeSubtree(path: String) = withContext(io) {
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val where = subtreePredicate("path")
+            db.execSQL(
+                "DELETE FROM notes_fts WHERE ref IN (SELECT ref FROM notes WHERE $where)",
+                subtreeArgs(path),
+            )
+            db.execSQL("DELETE FROM notes WHERE $where", subtreeArgs(path))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        Unit
+    }
+
+    /**
+     * Drops rows for every folder under [root] that [visited] does not name.
+     *
+     * The per-folder [retainOnly] cannot see a folder that has stopped existing — nothing scans it,
+     * so nothing reports it empty — and its notes would go on turning up in search results that
+     * open nothing. Only a recursive scan may call this: a shallow one visits a single folder and
+     * would take the rest of the library with it.
+     */
+    suspend fun retainPaths(root: String, visited: Set<String>) = withContext(io) {
+        val db = helper.writableDatabase
+        val stale = ArrayList<String>()
+        db.rawQuery(
+            "SELECT DISTINCT path FROM notes WHERE " + subtreePredicate("path"),
+            subtreeArgs(root),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val path = cursor.getString(0)
+                if (path !in visited) stale += path
+            }
+        }
+        for (path in stale) removeSubtree(path)
+        Unit
+    }
+
+    /** Where the index believes [ref] lives, or the root if it has never seen it. */
+    suspend fun pathOf(ref: StoreRef): String = withContext(io) {
+        helper.readableDatabase.rawQuery(
+            "SELECT path FROM notes WHERE ref = ?",
+            arrayOf(ref.value),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else "" }
     }
 
     /** True when the indexed copy already matches the file on disk, so it can be skipped. */
@@ -242,7 +311,7 @@ class NoteIndex(
     // ---- Reads ---------------------------------------------------------------------------------
 
     suspend fun list(
-        parent: StoreRef,
+        path: String,
         sort: NoteSort = NoteSort.MODIFIED_DESC,
         tags: Set<String> = emptySet(),
     ): List<NoteSummary> = withContext(io) {
@@ -254,30 +323,44 @@ class NoteIndex(
             NoteSort.CREATED_DESC -> "created DESC"
         }
         helper.readableDatabase.rawQuery(
-            "SELECT ref, note_id, kind, title, tags, created, modified, snippet FROM notes " +
-                "WHERE parent = ? ORDER BY $order",
-            arrayOf(parent.value),
+            "SELECT ref, note_id, kind, title, tags, created, modified, snippet, path FROM notes " +
+                "WHERE path = ? ORDER BY $order",
+            arrayOf(path),
         ).use { it.toSummaries() }.filter { summary ->
             tags.isEmpty() || summary.tags.any { it in tags }
         }
     }
 
     /**
-     * Full-text search. [query] is treated as a prefix match on the final term, which is what makes
-     * results appear while the user is still typing.
+     * Full-text search under [path] and everything below it.
+     *
+     * [query] is treated as a prefix match on the final term, which is what makes results appear
+     * while the user is still typing. The subtree rather than the one folder, because a folder the
+     * user is standing in is a place they think of as containing its children — a search that
+     * stopped at the first level would silently miss the note they filed one folder deeper. Root
+     * passes `""`, which matches the whole library.
      */
-    suspend fun search(query: String, limit: Int = 100): List<NoteSummary> = withContext(io) {
-        val match = buildMatchExpression(query) ?: return@withContext emptyList()
-        helper.readableDatabase.rawQuery(
-            """
-            SELECT n.ref, n.note_id, n.kind, n.title, n.tags, n.created, n.modified, n.snippet
-            FROM notes_fts f JOIN notes n ON n.ref = f.ref
-            WHERE notes_fts MATCH ?
-            ORDER BY n.modified DESC
-            LIMIT ?
-            """.trimIndent(),
-            arrayOf(match, limit.toString()),
-        ).use { it.toSummaries() }
+    suspend fun search(
+        query: String,
+        path: String = "",
+        limit: Int = 100,
+    ): List<NoteSummary> = withContext(io) {
+        val match = ftsMatchExpression(query) ?: return@withContext emptyList()
+        // Defensive: the terms are stripped to word characters before they get here, so a syntax
+        // error should be impossible — but a thrown query would take the library screen down with
+        // it, and no results is a better answer than no screen.
+        runCatching {
+            helper.readableDatabase.rawQuery(
+                """
+                SELECT n.ref, n.note_id, n.kind, n.title, n.tags, n.created, n.modified, n.snippet, n.path
+                FROM notes_fts f JOIN notes n ON n.ref = f.ref
+                WHERE notes_fts MATCH ? AND ${subtreePredicate("n.path")}
+                ORDER BY n.modified DESC
+                LIMIT ?
+                """.trimIndent(),
+                arrayOf(match) + subtreeArgs(path) + limit.toString(),
+            ).use { it.toSummaries() }
+        }.getOrDefault(emptyList())
     }
 
     suspend fun allTags(): List<String> = withContext(io) {
@@ -312,40 +395,40 @@ class NoteIndex(
                 createdAt = getLong(5),
                 modifiedAt = getLong(6),
                 snippet = getString(7),
+                path = getString(8),
             )
         }
         return out
     }
 
-    /**
-     * Builds an FTS MATCH expression, quoting each term.
-     *
-     * Quoting matters: FTS treats `-`, `*`, `"`, `(`, `)` and `OR` as operators, so a user typing
-     * a hyphenated word or an unbalanced quote would otherwise get a syntax error rather than
-     * results.
-     */
-    private fun buildMatchExpression(query: String): String? {
-        val terms = query.split(WHITESPACE)
-            .map { it.filter { c -> c.isLetterOrDigit() || c == '_' } }
-            .filter { it.isNotEmpty() }
-        if (terms.isEmpty()) return null
-        return terms.mapIndexed { i, term ->
-            // Prefix-match the final term so results narrow as the user types.
-            if (i == terms.lastIndex) "\"$term\"*" else "\"$term\""
-        }.joinToString(" ")
-    }
-
-    private fun parentOf(ref: String): String = ref.substringBeforeLast('/', "")
-
     private companion object {
         const val DATABASE_NAME = "note-index.db"
 
         /** Bumping this rebuilds the index from the files, which are the source of truth. */
-        const val VERSION = 2
+        const val VERSION = 3
+
+        /**
+         * Matches a folder path and everything beneath it.
+         *
+         * An empty path is the root and matches the lot, which is why the first branch is a plain
+         * equality test rather than a prefix: `LIKE '/%'` would miss the root's own notes.
+         */
+        fun subtreePredicate(column: String) =
+            "(? = '' OR $column = ? OR $column LIKE ? ESCAPE '\\')"
+
+        /**
+         * The three bindings [SUBTREE_PREDICATE] wants.
+         *
+         * `%` and `_` are ordinary characters in a folder name and wildcards in `LIKE`, so a folder
+         * called "50%" would otherwise match half the library.
+         */
+        fun subtreeArgs(path: String): Array<String> {
+            val escaped = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return arrayOf(path, path, "$escaped/%")
+        }
 
         /** ASCII unit separator: it cannot occur in a user-typed tag, so no escaping is needed. */
         const val TAG_SEPARATOR = "\u001F"
         const val SNIPPET_LENGTH = 240
-        val WHITESPACE = Regex("\\s+")
     }
 }

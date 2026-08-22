@@ -27,7 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import pl.dakil.notes.editor.canvas.SheetPainter.drawPattern
+import pl.dakil.notes.ui.sheet.SheetPainter.drawPattern
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageFormat

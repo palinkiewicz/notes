@@ -1,4 +1,4 @@
-package pl.dakil.notes.editor.canvas
+package pl.dakil.notes.ui.sheet
 
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color

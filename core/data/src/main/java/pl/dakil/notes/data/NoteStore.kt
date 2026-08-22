@@ -102,6 +102,19 @@ interface NoteStore {
      */
     suspend fun move(from: StoreRef, to: StoreRef): StoreRef
 
+    /**
+     * Moves [from] out of [fromParent] and into [toParent], keeping its name.
+     *
+     * Separate from [move] because the two are separate operations in SAF, and because this one
+     * needs the source's parent: `DocumentsContract.moveDocument` takes it, and a document URI
+     * cannot be walked upwards to find it. The browser always knows the folder it is listing, so
+     * asking for it costs the caller nothing.
+     *
+     * Works on directories as well as notes. Implementations must step aside from a name already
+     * taken in [toParent] rather than overwriting it, exactly as [move] does.
+     */
+    suspend fun moveTo(from: StoreRef, fromParent: StoreRef, toParent: StoreRef): StoreRef
+
     suspend fun createDirectory(parent: StoreRef, name: String): StoreRef
 
     /** Resolves a child by name, creating nothing. */
