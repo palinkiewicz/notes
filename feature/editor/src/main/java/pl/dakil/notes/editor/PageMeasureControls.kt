@@ -280,9 +280,9 @@ private fun MarginsDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     val options = listOf(
-                        "All" to MarginLink.ALL,
-                        "Axes" to MarginLink.AXES,
-                        "Each" to MarginLink.EACH,
+                        stringResource(R.string.editor_margins_link_all) to MarginLink.ALL,
+                        stringResource(R.string.editor_margins_link_axes) to MarginLink.AXES,
+                        stringResource(R.string.editor_margins_link_each) to MarginLink.EACH,
                     )
                     options.forEachIndexed { i, (label, mode) ->
                         SegmentedButton(
@@ -322,12 +322,24 @@ private fun MarginsDialog(
 
                     MarginLink.EACH -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            LengthTextField("Top", top, unit, { top = it }, Modifier.weight(1f))
-                            LengthTextField("Right", right, unit, { right = it }, Modifier.weight(1f))
+                            LengthTextField(
+                                stringResource(R.string.editor_margin_top),
+                                top, unit, { top = it }, Modifier.weight(1f),
+                            )
+                            LengthTextField(
+                                stringResource(R.string.editor_margin_right),
+                                right, unit, { right = it }, Modifier.weight(1f),
+                            )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            LengthTextField("Bottom", bottom, unit, { bottom = it }, Modifier.weight(1f))
-                            LengthTextField("Left", left, unit, { left = it }, Modifier.weight(1f))
+                            LengthTextField(
+                                stringResource(R.string.editor_margin_bottom),
+                                bottom, unit, { bottom = it }, Modifier.weight(1f),
+                            )
+                            LengthTextField(
+                                stringResource(R.string.editor_margin_left),
+                                left, unit, { left = it }, Modifier.weight(1f),
+                            )
                         }
                     }
                 }

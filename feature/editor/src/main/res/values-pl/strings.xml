@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--  SHARED ACTIONS  -->
+    <string name="editor_cancel">Anuluj</string>
+    <string name="editor_back">Wstecz</string>
+    <string name="editor_untitled">Bez tytułu</string>
+
+    <!--  EDITOR TOP BAR  -->
+    <string name="editor_tags">Tagi</string>
+    <string name="editor_undo">Cofnij</string>
+    <string name="editor_redo">Ponów</string>
+    <string name="editor_page_setup">Ustawienia strony</string>
+    <string name="editor_show_formatted">Pokaż sformatowany tekst</string>
+    <string name="editor_edit_source">Edytuj źródło Markdown</string>
+    <string name="editor_error_open">Nie udało się otworzyć notatki</string>
+
+    <!--  COLOUR PICKERS  -->
+    <string name="editor_pen_colour">Kolor pióra</string>
+    <string name="editor_paper_colour">Kolor papieru</string>
+    <string name="editor_line_colour">Kolor linii</string>
+    <string name="editor_margin_colour">Kolor marginesu</string>
+    <string name="editor_custom_colour">Własny kolor</string>
+    <string name="editor_colour">Kolor</string>
+
+    <!--  TOOLBAR  -->
+    <string name="editor_tool">Narzędzie</string>
+    <string name="editor_finger_drawing">Rysowanie palcem</string>
+    <string name="editor_ruler">Linijka</string>
+    <string name="editor_more_options">Więcej opcji</string>
+    <string name="editor_tool_pen">Pióro</string>
+    <string name="editor_tool_fountain">Wieczne</string>
+    <string name="editor_tool_pencil">Ołówek</string>
+    <string name="editor_tool_highlighter">Zakreślacz</string>
+    <string name="editor_tool_erase_stroke">Wymaż pociągnięcie</string>
+    <string name="editor_tool_erase_area">Wymaż obszar</string>
+    <string name="editor_tool_select">Zaznacz</string>
+    <string name="editor_tool_text">Tekst</string>
+    <string name="editor_width">Szerokość</string>
+    <string name="editor_opacity">Krycie</string>
+    <string name="editor_smoothing">Wygładzanie</string>
+    <string name="editor_pressure_sensitivity">Czułość na nacisk</string>
+    <string name="editor_speed_thinning">Zwężanie przy szybkim ruchu</string>
+    <string name="editor_eraser_size">Rozmiar gumki</string>
+
+    <!--  ZOOM CHIP  -->
+    <string name="editor_zoom_lock">Zablokuj powiększenie</string>
+    <string name="editor_zoom_unlock">Odblokuj powiększenie</string>
+    <string name="editor_zoom_set">Ustaw powiększenie</string>
+    <string name="editor_zoom_fill_width">Dopasuj do szerokości</string>
+    <string name="editor_zoom_fill_height">Dopasuj do wysokości</string>
+    <string name="editor_zoom_current">Bieżące powiększenie</string>
+    <string name="editor_zoom_make_preset">Zapisz jako własne</string>
+    <string name="editor_zoom_forget_x">Usuń %1$d%%</string>
+
+    <!--  PAGES  -->
+    <string name="editor_pages_paged">Strony</string>
+    <string name="editor_pages_scroll">Przewijanie</string>
+    <plurals name="editor_page_count_x">
+        <item quantity="one">%1$d strona</item>
+        <item quantity="few">%1$d strony</item>
+        <item quantity="many">%1$d stron</item>
+        <item quantity="other">%1$d strony</item>
+    </plurals>
+    <string name="editor_page_x">Strona %1$d</string>
+    <string name="editor_page_move_up_x">Przenieś stronę %1$d w górę</string>
+    <string name="editor_page_move_down_x">Przenieś stronę %1$d w dół</string>
+    <string name="editor_page_duplicate_x">Duplikuj stronę %1$d</string>
+    <string name="editor_page_delete_x">Usuń stronę %1$d</string>
+    <string name="editor_add_page">Dodaj stronę</string>
+
+    <!--  PAGE SETUP  -->
+    <string name="editor_page">Strona</string>
+    <string name="editor_size">Rozmiar</string>
+    <string name="editor_paper">Papier</string>
+    <string name="editor_spacing">Odstęp</string>
+    <string name="editor_spacing_staves">Odstęp między dwiema liniami pięciolinii.</string>
+    <string name="editor_spacing_dotted">Odstęp między sąsiednimi kropkami.</string>
+    <string name="editor_spacing_rules">Odstęp między sąsiednimi liniami.</string>
+    <string name="editor_margin_rule">Linia marginesu</string>
+    <string name="editor_margin_rule_summary">Jak daleko od krawędzi rysowana jest pionowa linia.</string>
+    <string name="editor_none">Brak</string>
+    <string name="editor_staff_spacing">Odstęp pięciolinii</string>
+    <string name="editor_staff_spacing_summary">Odstęp między jedną pięciolinią a następną.</string>
+    <string name="editor_auto">Auto</string>
+
+    <!--  PAPER PATTERNS  -->
+    <string name="editor_pattern_plain">Gładki</string>
+    <string name="editor_pattern_grid">Kratka</string>
+    <string name="editor_pattern_ruled">Linie</string>
+    <string name="editor_pattern_dotted">Kropki</string>
+    <string name="editor_pattern_isometric">Izometryczny</string>
+    <string name="editor_pattern_staves">Pięciolinia</string>
+
+    <!--  MARGINS  -->
+    <string name="editor_margins">Marginesy</string>
+    <string name="editor_margins_summary">Kolumna, w której płynie tekst.</string>
+    <string name="editor_margins_all_sides">Wszystkie strony</string>
+    <string name="editor_margins_vertical">Pionowe</string>
+    <string name="editor_margins_horizontal">Poziome</string>
+    <string name="editor_margins_link_all">Wszystkie</string>
+    <string name="editor_margins_link_axes">Osie</string>
+    <string name="editor_margins_link_each">Każdy</string>
+    <string name="editor_margin_top">Górny</string>
+    <string name="editor_margin_right">Prawy</string>
+    <string name="editor_margin_bottom">Dolny</string>
+    <string name="editor_margin_left">Lewy</string>
+
+    <!--  TEXT BOXES  -->
+    <string name="editor_text_box_move">Przesuń pole tekstowe</string>
+    <string name="editor_text_box_width_left">Ustaw szerokość pola od lewej</string>
+    <string name="editor_text_box_width_right">Ustaw szerokość pola od prawej</string>
+    <string name="editor_text_box_delete">Usuń pole tekstowe</string>
+    <string name="editor_type_here">Pisz tutaj…</string>
+
+    <!--  MARKDOWN EDITOR  -->
+    <string name="markdown_placeholder">Napisz coś…</string>
+    <string name="markdown_copy_code">Kopiuj kod</string>
+    <string name="markdown_code">Kod</string>
+    <string name="markdown_table_options">Opcje tabeli</string>
+    <string name="markdown_insert_row">Wstaw wiersz</string>
+    <string name="markdown_insert_column">Wstaw kolumnę</string>
+    <string name="markdown_row_above">Wstaw wiersz powyżej</string>
+    <string name="markdown_row_below">Wstaw wiersz poniżej</string>
+    <string name="markdown_column_left">Wstaw kolumnę z lewej</string>
+    <string name="markdown_column_right">Wstaw kolumnę z prawej</string>
+    <string name="markdown_delete_row">Usuń wiersz</string>
+    <string name="markdown_delete_column">Usuń kolumnę</string>
+    <string name="markdown_delete_table">Usuń tabelę</string>
+    <string name="markdown_insert_link">Wstaw odnośnik</string>
+    <string name="markdown_insert_image">Wstaw obraz</string>
+    <string name="markdown_link_text">Tekst</string>
+    <string name="markdown_image_description">Opis</string>
+    <string name="markdown_address">Adres</string>
+    <string name="markdown_insert">Wstaw</string>
+
+    <!--  FORMAT BAR  -->
+    <string name="markdown_paragraph_style">Styl akapitu</string>
+    <string name="markdown_font_size">Rozmiar czcionki</string>
+    <string name="markdown_bold">Pogrubienie</string>
+    <string name="markdown_italic">Kursywa</string>
+    <string name="markdown_strikethrough">Przekreślenie</string>
+    <string name="markdown_bulleted_list">Lista punktowana</string>
+    <string name="markdown_numbered_list">Lista numerowana</string>
+    <string name="markdown_task_list">Lista zadań</string>
+    <string name="markdown_indent_decrease">Zmniejsz wcięcie</string>
+    <string name="markdown_indent_increase">Zwiększ wcięcie</string>
+    <string name="markdown_link">Odnośnik</string>
+    <string name="markdown_image">Obraz</string>
+    <string name="markdown_code_block">Blok kodu</string>
+    <string name="markdown_table">Tabela</string>
+    <string name="markdown_divider">Linia oddzielająca</string>
+
+    <!--  BLOCK STYLES  -->
+    <string name="markdown_block_body">Tekst</string>
+    <string name="markdown_block_quote">Cytat</string>
+    <string name="markdown_block_bullet">Lista</string>
+    <string name="markdown_block_task">Zadania</string>
+    <string name="markdown_block_ordered">Numery</string>
+
+</resources>

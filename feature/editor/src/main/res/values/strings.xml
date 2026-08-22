@@ -2,7 +2,7 @@
 <resources>
 
     <!--  SHARED ACTIONS  -->
-    <string name="editor_ok">OK</string>
+    <string name="editor_ok" translatable="false">OK</string>
     <string name="editor_cancel">Cancel</string>
     <string name="editor_back">Back</string>
     <string name="editor_untitled">Untitled</string>
@@ -52,7 +52,7 @@
     <string name="editor_zoom_fill_height">Fill height</string>
     <string name="editor_zoom_current">Current zoom</string>
     <string name="editor_zoom_make_preset">Make preset</string>
-    <string name="editor_zoom_percent_x">%1$d%%</string>
+    <string name="editor_zoom_percent_x" translatable="false">%1$d%%</string>
     <string name="editor_zoom_forget_x">Forget %1$d%%</string>
 
     <!--  PAGES  -->
@@ -96,6 +96,13 @@
     <string name="editor_margins">Margins</string>
     <string name="editor_margins_summary">The column the text flows in.</string>
     <string name="editor_margins_all_sides">All sides</string>
+    <string name="editor_margins_link_all">All</string>
+    <string name="editor_margins_link_axes">Axes</string>
+    <string name="editor_margins_link_each">Each</string>
+    <string name="editor_margin_top">Top</string>
+    <string name="editor_margin_right">Right</string>
+    <string name="editor_margin_bottom">Bottom</string>
+    <string name="editor_margin_left">Left</string>
     <string name="editor_margins_vertical">Vertical</string>
     <string name="editor_margins_horizontal">Horizontal</string>
 

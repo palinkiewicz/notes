@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--  SHARED ACTIONS  -->
+    <string name="library_cancel">Anuluj</string>
+    <string name="library_create">Utwórz</string>
+    <string name="library_delete">Usuń</string>
+    <string name="library_rename">Zmień nazwę</string>
+    <string name="library_move">Przenieś</string>
+    <string name="library_retry">Spróbuj ponownie</string>
+
+    <!--  ITEMS  -->
+    <string name="library_root_folder">Notatki</string>
+    <string name="library_untitled">Bez tytułu</string>
+    <string name="library_item_folder">Folder</string>
+    <string name="library_item_ink_note">Notatka odręczna</string>
+    <string name="library_item_text_note">Notatka tekstowa</string>
+
+    <!--  NEW NOTE BUTTON  -->
+    <string name="library_new">Nowa</string>
+    <string name="library_new_close">Zamknij</string>
+    <string name="library_new_folder">Folder</string>
+    <string name="library_new_text">Tekst</string>
+    <string name="library_new_ink">Odręczna</string>
+
+    <!--  SELECTION  -->
+    <plurals name="library_selected_x">
+        <item quantity="one">Zaznaczono %1$d</item>
+        <item quantity="few">Zaznaczono %1$d</item>
+        <item quantity="many">Zaznaczono %1$d</item>
+        <item quantity="other">Zaznaczono %1$d</item>
+    </plurals>
+    <string name="library_clear_selection">Wyczyść zaznaczenie</string>
+
+    <!--  MOVE  -->
+    <plurals name="library_moving_x">
+        <item quantity="one">Przenoszenie %1$d elementu</item>
+        <item quantity="few">Przenoszenie %1$d elementów</item>
+        <item quantity="many">Przenoszenie %1$d elementów</item>
+        <item quantity="other">Przenoszenie %1$d elementów</item>
+    </plurals>
+    <string name="library_move_into_x">Do: %1$s</string>
+    <string name="library_move_hint">Otwórz folder, do którego chcesz je przenieść</string>
+    <string name="library_move_here">Przenieś tutaj</string>
+
+    <!--  DIALOGS  -->
+    <string name="library_new_folder_title">Nowy folder</string>
+    <string name="library_name_label">Nazwa</string>
+    <string name="library_delete_one_x">Usunąć „%1$s”?</string>
+    <plurals name="library_delete_many_x">
+        <item quantity="one">Usunąć %1$d element?</item>
+        <item quantity="few">Usunąć %1$d elementy?</item>
+        <item quantity="many">Usunąć %1$d elementów?</item>
+        <item quantity="other">Usunąć %1$d elementów?</item>
+    </plurals>
+    <string name="library_delete_folder_contents_one">Wszystko w tym folderze zniknie razem z nim.</string>
+    <string name="library_delete_folder_contents_many">Wszystko w zaznaczonych folderach zniknie razem z nimi.</string>
+    <string name="library_delete_undone">Tej operacji nie można cofnąć.</string>
+
+    <!--  EMPTY STATES AND SEARCH  -->
+    <string name="library_error_title">Nie ma czego pokazać</string>
+    <string name="library_no_matches">Brak wyników</string>
+    <string name="library_empty_title">Jeszcze tu pusto</string>
+    <string name="library_empty_hint">Dotknij przycisku poniżej, aby zacząć pierwszą notatkę.</string>
+    <string name="library_no_matches_in_x">Nic w folderze %1$s nie pasuje do „%2$s”.</string>
+    <string name="library_search_in_x">Szukaj w: %1$s</string>
+    <string name="library_clear_search">Wyczyść wyszukiwanie</string>
+    <string name="library_search_scope_x">Przeszukiwanie folderu %1$s i folderów w nim zawartych.</string>
+
+    <!--  FILTERS  -->
+    <string name="library_filter_all">Wszystko</string>
+    <string name="library_filter_folders">Tylko foldery</string>
+    <string name="library_filter_text">Tylko notatki tekstowe</string>
+    <string name="library_filter_ink">Tylko notatki odręczne</string>
+    <string name="library_filter_empty_folders">W tym folderze nie ma folderów.</string>
+    <string name="library_filter_empty_text">W tym folderze nie ma notatek tekstowych.</string>
+    <string name="library_filter_empty_ink">W tym folderze nie ma notatek odręcznych.</string>
+
+    <!--  SORT  -->
+    <string name="library_sort_modified_desc">Ostatnio edytowane</string>
+    <string name="library_sort_modified_asc">Najdawniej edytowane</string>
+    <string name="library_sort_title_asc">Tytuł A–Z</string>
+    <string name="library_sort_title_desc">Tytuł Z–A</string>
+    <string name="library_sort_created_desc">Ostatnio utworzone</string>
+
+    <!--  ERRORS  -->
+    <string name="library_error_no_root">Nie skonfigurowano jeszcze folderu na notatki.</string>
+    <string name="library_error_create_note">Nie udało się utworzyć notatki</string>
+    <string name="library_error_create_folder">Nie udało się utworzyć folderu</string>
+    <string name="library_error_rename">Nie udało się zmienić nazwy</string>
+    <string name="library_error_delete_x">Nie udało się usunąć: %1$s</string>
+    <string name="library_error_move_x">Nie udało się przenieść: %1$s</string>
+
+</resources>

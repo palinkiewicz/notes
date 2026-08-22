@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--  COMMON  -->
+    <string name="common_back">Wstecz</string>
+    <string name="common_close">Zamknij</string>
+
+    <!--  NAVIGATION  -->
+    <string name="nav_notes">Notatki</string>
+    <string name="nav_settings">Ustawienia</string>
+
+    <!--  SETTINGS  -->
+    <string name="settings_title">Ustawienia</string>
+    <string name="settings_appearance">Wygląd</string>
+    <string name="settings_appearance_summary">Motyw, kolory i układ</string>
+    <string name="settings_input">Wprowadzanie</string>
+    <string name="settings_input_summary">Rysik, odrzucanie dłoni i nacisk</string>
+    <string name="settings_about">O aplikacji</string>
+    <string name="settings_about_summary">Wersja i twórcy</string>
+
+    <!--  APPEARANCE SETTINGS  -->
+    <string name="settings_theme_colors">Kolory motywu</string>
+    <string name="settings_dark_mode">Tryb ciemny</string>
+    <string name="settings_pure_black">Czysta czerń</string>
+    <string name="settings_pure_black_description">Całkowicie czarne tło w trybie ciemnym, aby oszczędzać energię na ekranie OLED.</string>
+    <string name="settings_library">Biblioteka</string>
+    <string name="settings_notes_layout">Układ notatek</string>
+    <string name="settings_notes_layout_description">Karty pokazują podgląd każdej notatki; lista mieści ich więcej na ekranie.</string>
+    <string name="settings_paper">Papier</string>
+    <string name="settings_measurements">Jednostki miary</string>
+    <string name="settings_measurements_description">Jednostka, w której pokazywane są marginesy, odstępy linii i rozmiary papieru.</string>
+    <string name="settings_pattern_in_document">Pokazuj wzór papieru w trybie tekstowym</string>
+    <string name="settings_pattern_in_document_description">Zachowuje kratkę lub linie za przepływającym tekstem.</string>
+
+    <!--  THEME NAMES  -->
+    <string name="theme_dakils_notes">Notatki Dakila</string>
+    <string name="theme_dynamic">Dynamiczny</string>
+    <string name="theme_ocean">Ocean</string>
+    <string name="theme_lavender">Lawenda</string>
+    <string name="theme_sunset">Zachód słońca</string>
+    <string name="theme_rose">Róż</string>
+    <string name="theme_teal">Turkus</string>
+
+    <string name="dark_theme_system">Systemowy</string>
+    <string name="dark_theme_light">Jasny</string>
+    <string name="dark_theme_dark">Ciemny</string>
+
+    <string name="library_layout_cards">Pływające karty</string>
+    <string name="library_layout_list">Lista</string>
+
+    <string name="unit_centimetres">Centymetry</string>
+    <string name="unit_millimetres">Milimetry</string>
+    <string name="unit_inches">Cale</string>
+
+    <!--  INPUT SETTINGS  -->
+    <string name="settings_finger_drawing">Rysowanie palcem</string>
+    <string name="settings_finger_drawing_description">Włącz, jeśli Twoje urządzenie nie ma rysika. Dwa palce nadal przesuwają i powiększają.</string>
+    <string name="settings_multitouch_nav">Dwa palce nawigują</string>
+    <string name="settings_multitouch_nav_description">Pozostawia przesuwanie i powiększanie dostępne podczas rysowania palcem.</string>
+    <string name="settings_palm_window">Okno odrzucania dłoni</string>
+    <string name="settings_palm_window_description">Dotknięcia w tym czasie od próbki rysika są ignorowane. Zwiększ, jeśli dłoń nadal rysuje; zmniejsz, jeśli dotyk reaguje zbyt wolno.</string>
+    <string name="settings_palm_size">Próg rozmiaru dłoni</string>
+    <string name="settings_palm_size_description">Punkty styku szersze niż ten próg są traktowane jak dłoń, a nie opuszek palca.</string>
+    <string name="settings_smoothing">Wygładzanie pociągnięć</string>
+    <string name="settings_smoothing_description">Globalny mnożnik wygładzania każdego narzędzia.</string>
+    <string name="settings_min_pressure">Minimalny nacisk</string>
+    <string name="settings_min_pressure_description">Ignoruje słaby ślad unoszonego pióra.</string>
+    <string name="settings_pressure_curve">Reakcja na nacisk</string>
+    <string name="settings_pressure_curve_description">Miękka osiąga pełną szerokość przy lżejszym dotyku; twarda wymaga większej siły.</string>
+    <string name="settings_auto_shape">Automatyczne kształty</string>
+    <string name="settings_auto_shape_description">Przytrzymaj pióro nieruchomo na końcu pociągnięcia, aby zamienić je w linię, kwadrat, koło lub wielokąt. Unieś je normalnie, a pociągnięcie zostanie takie, jak narysowane.</string>
+    <string name="settings_auto_shape_hold">Czas przytrzymania</string>
+    <string name="settings_auto_shape_hold_description">Jak długo pióro musi spoczywać, zanim kształt zostanie rozpoznany.</string>
+
+    <string name="pressure_curve_soft">Miękka</string>
+    <string name="pressure_curve_linear">Liniowa</string>
+    <string name="pressure_curve_firm">Twarda</string>
+
+    <!--  SETTINGS VALUE READOUTS  -->
+    <string name="settings_off">Wył.</string>
+
+    <!--  ABOUT DIALOG  -->
+    <string name="about_title">O aplikacji DakNote</string>
+    <string name="about_version_x">Wersja %1$s</string>
+    <string name="about_description">Jedna kartka papieru z tekstem Markdown i wektorowym atramentem, w otwartym formacie, który da się po prostu rozpakować.</string>
+    <string name="about_repository">Repozytorium</string>
+    <string name="about_author">Autor</string>
+    <string name="about_credit">Pomysł i kochana dziewczyna</string>
+
+</resources>

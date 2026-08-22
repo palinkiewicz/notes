@@ -164,11 +164,10 @@ fun TextNoteScreen(
                     ) {
                         Icon(
                             imageVector = if (state.sourceMode) NotesIcons.Preview else NotesIcons.Source,
-                            contentDescription = if (state.sourceMode) {
-                                "Show formatted text"
-                            } else {
-                                "Edit Markdown source"
-                            },
+                            contentDescription = stringResource(
+                                if (state.sourceMode) R.string.editor_show_formatted
+                                else R.string.editor_edit_source,
+                            ),
                         )
                     }
                 },

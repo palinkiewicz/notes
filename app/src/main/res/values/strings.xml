@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">DakNote</string>
+    <string name="app_name" translatable="false">Notes</string>
 
     <!--  COMMON  -->
     <string name="common_back">Back</string>
@@ -79,9 +79,9 @@
     <string name="pressure_curve_firm">Firm</string>
 
     <!--  SETTINGS VALUE READOUTS  -->
-    <string name="settings_milliseconds_x">%1$d ms</string>
-    <string name="settings_pixels_x">%1$d px</string>
-    <string name="settings_multiplier_x">%1$s×</string>
+    <string name="settings_milliseconds_x" translatable="false">%1$d ms</string>
+    <string name="settings_pixels_x" translatable="false">%1$d px</string>
+    <string name="settings_multiplier_x" translatable="false">%1$s×</string>
     <string name="settings_off">Off</string>
 
     <!--  ABOUT DIALOG  -->
@@ -89,7 +89,7 @@
     <string name="about_version_x">Version %1$s</string>
     <string name="about_description">One sheet of paper carrying Markdown text and vector ink, in an open, unzippable file format.</string>
     <string name="about_repository">Repository</string>
-    <string name="about_repository_link">GitHub</string>
+    <string name="about_repository_link" translatable="false">GitHub</string>
     <string name="about_author">Author</string>
     <string name="about_credit">Idea, and a loving girlfriend</string>
 
