@@ -42,15 +42,6 @@ sealed interface Edit {
         override fun invert(): Edit = AddBlock(block)
     }
 
-    /** The note's base Markdown. */
-    data class SetText(val before: String, val after: String) : Edit {
-        override fun apply(note: Note): Note = note.withSheet(note.sheet.copy(markdown = after))
-        override fun invert(): Edit = SetText(after, before)
-
-        override fun mergeWith(next: Edit): Edit? =
-            if (next is SetText) SetText(before, next.after) else null
-    }
-
     /**
      * A whole-sheet swap, for edits that move many blocks at once.
      *

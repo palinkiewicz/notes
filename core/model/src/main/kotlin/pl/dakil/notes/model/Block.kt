@@ -28,6 +28,40 @@ sealed interface Block {
     fun worldBounds(): Rect = transform.mapBounds(rect)
 }
 
+/**
+ * The same block, shifted across the paper.
+ *
+ * A block that has never been rotated or scaled — which is every box this app creates — carries the
+ * move in its [Block.rect], so its geometry stays readable in the file and a later resize has plain
+ * numbers to work from. Anything with a transform of its own gets the translation composed onto it
+ * instead, because shifting the rect underneath a rotation would move the block somewhere else
+ * entirely.
+ */
+fun Block.translated(dx: Float, dy: Float): Block {
+    if (dx == 0f && dy == 0f) return this
+    if (!transform.isIdentity) {
+        val moved = Affine.translate(dx, dy).then(transform)
+        return when (this) {
+            is InkBlock -> copy(transform = moved)
+            is TextBlock -> copy(transform = moved)
+            is OpaqueBlock -> copy(transform = moved)
+        }
+    }
+    val moved = Rect(rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy)
+    return when (this) {
+        is InkBlock -> copy(rect = moved)
+        is TextBlock -> copy(rect = moved)
+        is OpaqueBlock -> copy(rect = moved)
+    }
+}
+
+/** The same block under a different id, for the copy a page duplication leaves behind. */
+fun Block.withId(id: BlockId): Block = when (this) {
+    is InkBlock -> copy(id = id)
+    is TextBlock -> copy(id = id)
+    is OpaqueBlock -> copy(id = id)
+}
+
 /** A layer of vector strokes. A page normally has one; more exist when the user adds layers. */
 data class InkBlock(
     override val id: BlockId,
@@ -45,7 +79,7 @@ data class InkBlock(
      * Re-derives [rect] from the strokes actually in the layer.
      *
      * Needed after any operation that moves or deletes strokes wholesale — duplicating a page, say.
-     * A stale rect is not cosmetic: it feeds culling and [Sheet.inkBottom], so a layer claiming to
+     * A stale rect is not cosmetic: it feeds culling and [Sheet.contentBottom], so a layer claiming to
      * extend further than it does silently holds pages open that nothing is drawn on.
      */
     fun withRecomputedBounds(): InkBlock {
@@ -57,10 +91,15 @@ data class InkBlock(
 }
 
 /**
- * A floating Markdown text box, positioned on the sheet rather than in the main flow.
+ * A box of Markdown, positioned on the paper.
  *
- * The note's primary text is [Sheet.markdown], which reflows and paginates. This is for labels
- * pinned beside a diagram — text that belongs at a place on the paper, not in the argument.
+ * This is *all* the typed text a sheet has. There was once a second kind — one continuous flow
+ * anchored to the top of the note — and it is gone because it could not answer the questions a page
+ * asks: which page is this text on, and where does it go when that page moves? A box can answer
+ * both, so a sheet's text now moves with its paper exactly as its ink does.
+ *
+ * [rect] is the box in strip coordinates and [transform] is left identity by everything this app
+ * creates; text wraps to [rect]'s width and the box grows downwards to fit what is typed in it.
  */
 data class TextBlock(
     override val id: BlockId,

@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
-import pl.dakil.notes.editor.text.ContinueList
+import pl.dakil.notes.editor.markdown.ContinueList
 
 /**
  * The formatting bar's own transformations.

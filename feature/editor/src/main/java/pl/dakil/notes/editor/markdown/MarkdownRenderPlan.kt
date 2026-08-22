@@ -56,6 +56,17 @@ enum class MdStyle {
     /** The same again, sized to hold a table's rows off the rules drawn between them. */
     LEADING_CELL,
 
+    /**
+     * Text set at a size the author picked, in sp, carried in [MdStyleRange.arg].
+     *
+     * The one thing a sheet's text can do that a `.md` note's cannot. A note is a Markdown *file*
+     * and has to stay one — a size baked into it would render as literal punctuation in every other
+     * editor the user opens it in — whereas a sheet is a page of paper, where a heading three times
+     * the size of the body is the most ordinary thing in the world. Both understand the syntax and
+     * both hide it; only one of them acts on it. See `rememberMarkdownStyles`.
+     */
+    SIZE,
+
     /** A blank line standing between one paragraph and the next. */
     PARAGRAPH_GAP,
 
@@ -80,7 +91,14 @@ data class MdEdit(
     val hides: Boolean = replacement.isEmpty(),
 )
 
-data class MdStyleRange(val start: Int, val end: Int, val style: MdStyle)
+/**
+ * A run of characters wearing one [MdStyle].
+ *
+ * [arg] is the style's parameter where it has one, and zero where it does not. Only [MdStyle.SIZE]
+ * uses it. A whole parallel list of sized ranges would have been the alternative, and would have
+ * meant every consumer of a plan learning that styles come in two kinds.
+ */
+data class MdStyleRange(val start: Int, val end: Int, val style: MdStyle, val arg: Int = 0)
 
 /**
  * Something to be *drawn* rather than spelled out in characters.
@@ -210,6 +228,16 @@ object MarkdownRenderer {
 
     /** Beyond this a table cell is a paragraph, and padding it out would waste more than it buys. */
     private const val MAX_CELL_WIDTH = 200
+
+    /**
+     * What counts as a font size, in sp.
+     *
+     * Bounded at both ends because the tag is text a user can type by hand, and neither `{size=0}`
+     * nor `{size=99999}` is a document anyone meant to write — one is invisible and the other is a
+     * single letter filling the page, and both are easier to create by accident than to undo.
+     */
+    const val MIN_SIZE_SP = 4
+    const val MAX_SIZE_SP = 200
 
     /**
      * The blank column kept past the end of a cell's text.
@@ -564,7 +592,7 @@ object MarkdownRenderer {
      * inserted at its last, so a cell's padding is styled along with the cell.
      */
     private fun MdStyleRange.mapped(edits: List<MdEdit>) =
-        MdStyleRange(opens(edits, start), closes(edits, end), style)
+        MdStyleRange(opens(edits, start), closes(edits, end), style, arg)
 
     private fun MdDecoration.mapped(edits: List<MdEdit>): MdDecoration = when (this) {
         is MdCodeBlock -> copy(
@@ -1140,6 +1168,15 @@ object MarkdownRenderer {
             }
 
             if (text[i] == '[') {
+                // Before the link scan, because both start with a bracket and only the *suffix*
+                // tells them apart. The two cannot be confused once past it: `scanReference` wants
+                // `](`, this wants `]{`, and each declines what the other is looking at.
+                val sized = scanSizedSpan(text, i, to, edits, styles)
+                if (sized > 0) {
+                    i = sized
+                    continue
+                }
+
                 val consumed = scanReference(text, i, to, edits, styles, image = false)
                 if (consumed > 0) {
                     i = consumed
@@ -1202,6 +1239,76 @@ object MarkdownRenderer {
             return close + length
         }
         return 0
+    }
+
+    /**
+     * Handles `[text]{size=18}`, returning the offset just past it, or 0 if this is not one.
+     *
+     * Pandoc's bracketed-span syntax, chosen over inventing something: it is a real convention, it
+     * cannot collide with a link, it nests, and a Markdown tool that does not know it shows the
+     * words with some punctuation around them rather than swallowing them. The size is in sp — the
+     * unit the platform scales with the reader's own font setting, so a note written at 24 stays
+     * proportionate to everything else when somebody turns their text size up.
+     *
+     * Brackets are counted rather than searched for, so the closing one is the one that matches the
+     * opening one. `[a [b]{size=12} c]{size=24}` is a span inside a span; taking the first `]{`
+     * would end the outer span in the middle of the inner one and style half a sentence.
+     */
+    private fun scanSizedSpan(
+        text: String,
+        i: Int,
+        to: Int,
+        edits: MutableList<MdEdit>,
+        styles: MutableList<MdStyleRange>,
+    ): Int {
+        var depth = 0
+        var k = i
+        while (k < to) {
+            when (text[k]) {
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) {
+                        val suffix = sizeSuffixAt(text, k + 1, to) ?: return 0
+                        // An empty span would style nothing and hide four characters for no reason.
+                        if (k == i + 1) return 0
+                        edits += MdEdit(i, i + 1, "")
+                        styles += MdStyleRange(i + 1, k, MdStyle.SIZE, suffix.first)
+                        scanInline(text, i + 1, k, edits, styles)
+                        edits += MdEdit(k, suffix.second, "")
+                        return suffix.second
+                    }
+                }
+            }
+            k++
+        }
+        return 0
+    }
+
+    /**
+     * `{size=N}` at [at]: its value and the offset just past it, or null if that is not there.
+     *
+     * Read character by character rather than with a pattern, and `internal` so that the formatting
+     * bar reads it the same way. One definition of the syntax, so the thing that *renders* a size
+     * and the thing that *sets* one cannot come to disagree about what one looks like — and no
+     * second regex to get subtly wrong. (The first one was: a literal `}` unescaped, which the JVM
+     * accepts and Android's ICU engine refuses, so every unit test passed and the app died on the
+     * first formatting bar it drew.)
+     */
+    internal fun sizeSuffixAt(text: String, at: Int, to: Int): Pair<Int, Int>? {
+        val open = "{size="
+        if (!text.startsWith(open, at) || at + open.length >= to) return null
+        var k = at + open.length
+        var value = 0
+        while (k < to && text[k].isDigit()) {
+            value = value * 10 + (text[k] - '0')
+            // Past this it is not a size any more, and a run of digits long enough to overflow is
+            // not something to try to make sense of.
+            if (value > MAX_SIZE_SP) return null
+            k++
+        }
+        if (value < MIN_SIZE_SP || k >= to || text[k] != '}') return null
+        return value to (k + 1)
     }
 
     /**

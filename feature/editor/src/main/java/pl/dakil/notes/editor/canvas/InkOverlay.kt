@@ -55,9 +55,10 @@ interface InkCallbacks {
  * ### Why it lets taps through
  *
  * The overlay is on top of the text, so it decides who gets each event. A stylus always draws,
- * whatever tool is selected — that is the whole point of having a pen in your hand. A finger draws
- * only when a drawing tool is active; otherwise the event is declined and falls through to the text
- * underneath, which is what makes one surface work for both writing and typing.
+ * whatever tool is selected — that is the whole point of having a pen in your hand — unless the
+ * text tool is out, which is the one thing that outranks it. A finger draws only when a drawing
+ * tool is active; otherwise the event is declined and falls through to the text underneath, which
+ * is what makes one surface work for both writing and typing.
  *
  * ### Why it has to disallow intercept
  *
@@ -96,6 +97,15 @@ fun InkOverlay(
     paged: Boolean,
     documentVersion: Int,
     callbacks: InkCallbacks,
+    /**
+     * Whether the text tool is out, in which case the overlay is a spectator.
+     *
+     * It declines every pointer, the stylus included. That is a deliberate exception to the rule
+     * below it: a pen that draws whatever the toolbar says would make the text tool unusable on
+     * precisely the devices this app is written for, since the only way to put a caret in a box
+     * would be to put the pen down and use a finger. The tool the user picked is the tool they get.
+     */
+    textToolActive: Boolean = false,
     modifier: Modifier = Modifier,
     darkTheme: Boolean = false,
     /** The scale the sheet is placed at, for anything that must stay a fixed size on screen. */
@@ -148,6 +158,20 @@ fun InkOverlay(
         modifier = modifier.pointerInteropFilter(
             requestDisallowInterceptTouchEvent = disallowIntercept,
         ) { event ->
+            // Declining outright while the text tool is out. The router is still cleared on the way
+            // past: a pointer it has already accepted — the tool can be switched mid-stroke — would
+            // otherwise stay live for ever, because a declined gesture never delivers its UP.
+            if (textToolActive) {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    router.cancel()
+                    shape.reset()
+                    guide.release()
+                    builder.reset()
+                    disallowIntercept(false)
+                }
+                return@pointerInteropFilter false
+            }
+
             val toDoc = { x: Float, y: Float ->
                 documentPointAt(x, y, ptToPx, zoom(), format, paged)
             }

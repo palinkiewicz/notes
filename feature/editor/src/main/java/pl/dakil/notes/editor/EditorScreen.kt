@@ -10,6 +10,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -25,9 +27,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.editor.markdown.FormatPopup
+import pl.dakil.notes.editor.markdown.MarkdownActions
+import pl.dakil.notes.editor.markdown.MarkdownFormatBar
+import pl.dakil.notes.editor.markdown.MarkdownFormatRail
+import pl.dakil.notes.editor.markdown.ReferenceDialog
+import pl.dakil.notes.editor.markdown.ReferenceKind
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
@@ -60,12 +69,17 @@ fun EditorScreen(
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
     // Held here rather than in the toolbar: the sheet and the app bar close it too.
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
+    var formatPopup by remember { mutableStateOf<FormatPopup?>(null) }
+    var reference by remember { mutableStateOf<ReferenceKind?>(null) }
 
     val sheet = state.sheet
     val title = state.note?.meta?.title?.takeIf { it.isNotBlank() } ?: "Untitled"
 
     // The selectors do not take focus, so back would otherwise leave the editor with one open.
-    BackHandler(enabled = toolPopup != null) { toolPopup = null }
+    BackHandler(enabled = toolPopup != null || formatPopup != null) {
+        toolPopup = null
+        formatPopup = null
+    }
 
     if (pageSetupOpen && sheet != null) {
         PageSetupSheet(
@@ -138,6 +152,30 @@ fun EditorScreen(
         )
     }
 
+    reference?.let { kind ->
+        val field = viewModel.textField
+        ReferenceDialog(
+            kind = kind,
+            initialLabel = field.text.toString().substring(field.selection.min, field.selection.max),
+            onDismiss = { reference = null },
+            onConfirm = { label, url ->
+                reference = null
+                val before = field.text.toString()
+                val result = when (kind) {
+                    ReferenceKind.LINK ->
+                        MarkdownActions.insertLink(before, field.selection.start, field.selection.end, label, url)
+
+                    ReferenceKind.IMAGE ->
+                        MarkdownActions.insertImage(before, field.selection.start, field.selection.end, label, url)
+                }
+                field.edit {
+                    replace(0, length, result.text)
+                    selection = TextRange(result.selectionStart, result.selectionEnd)
+                }
+            },
+        )
+    }
+
     if (renaming) {
         RenameNoteDialog(
             initial = title,
@@ -150,7 +188,10 @@ fun EditorScreen(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        // On the whole scaffold rather than on the sheet: the formatting bar is the one control the
+        // user needs *while* the keyboard is up, so the bar has to rise with it. The sheet loses the
+        // height, which is what lets the transform scroll a box clear of the keyboard.
+        modifier = modifier.fillMaxSize().imePadding(),
         topBar = {
             TopAppBar(
                 modifier = Modifier.dismissToolPopupOnPress { toolPopup = null },
@@ -192,17 +233,36 @@ fun EditorScreen(
         },
         bottomBar = {
             if (!expanded) {
-                EditorToolbar(
-                    state = state,
-                    openPopup = toolPopup,
-                    onPopupChange = { toolPopup = it },
-                    onSelectTool = viewModel::selectTool,
-                    onSelectTextTool = viewModel::selectTextTool,
-                    onUpdateTool = viewModel::updateTool,
-                    onToggleFingerDrawing = viewModel::setFingerDrawing,
-                    onToggleRuler = viewModel::setRuler,
-                    onOpenColorPicker = { editingPen = it },
-                )
+                // Two rows while the caret is in a box, and one otherwise. Stacked rather than
+                // swapped: the tools are how you get *out* of the text — pick a pen and the pen is
+                // what the next touch does — so taking them away while typing would make leaving a
+                // box a thing you have to discover.
+                Column {
+                    if (state.editingTextBlock != null) {
+                        MarkdownFormatBar(
+                            state = viewModel.textField,
+                            openPopup = formatPopup,
+                            onPopupChange = { formatPopup = it },
+                            onInsertLink = { reference = ReferenceKind.LINK },
+                            onInsertImage = { reference = ReferenceKind.IMAGE },
+                            // A sheet is paper, not a Markdown file: it can set its own sizes.
+                            sizes = true,
+                            compact = true,
+                        )
+                    }
+                    EditorToolbar(
+                        state = state,
+                        openPopup = toolPopup,
+                        onPopupChange = { toolPopup = it },
+                        onSelectTool = viewModel::selectTool,
+                        onSelectTextTool = viewModel::selectTextTool,
+                        onUpdateTool = viewModel::updateTool,
+                        onToggleFingerDrawing = viewModel::setFingerDrawing,
+                        onToggleRuler = viewModel::setRuler,
+                        onOpenColorPicker = { editingPen = it },
+                        compact = state.editingTextBlock != null,
+                    )
+                }
             }
         },
     ) { padding ->
@@ -228,6 +288,16 @@ fun EditorScreen(
                 else -> Row(Modifier.fillMaxSize()) {
                     // On a tablet the tools dock beside the sheet instead of taking a bottom bar,
                     // keeping the page area as tall as possible.
+                    if (expanded && state.editingTextBlock != null) {
+                        MarkdownFormatRail(
+                            state = viewModel.textField,
+                            openPopup = formatPopup,
+                            onPopupChange = { formatPopup = it },
+                            onInsertLink = { reference = ReferenceKind.LINK },
+                            onInsertImage = { reference = ReferenceKind.IMAGE },
+                            sizes = true,
+                        )
+                    }
                     if (expanded) {
                         EditorToolRail(
                             state = state,

@@ -1,4 +1,4 @@
-package pl.dakil.notes.editor.text
+package pl.dakil.notes.editor.markdown
 
 import android.content.ClipData
 import android.content.ClipboardManager

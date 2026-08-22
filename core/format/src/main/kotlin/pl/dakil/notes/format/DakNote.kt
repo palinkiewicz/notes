@@ -33,10 +33,16 @@ object DakNote {
      * The schema this build writes.
      *
      * v2 replaced v1's list of pages with a single continuous sheet: Markdown as the base flow, ink
-     * over it, and pagination derived arithmetically from the paper height. v1 files are migrated
-     * on read.
+     * over it, and pagination derived arithmetically from the paper height. v3 removed the flow —
+     * all of a sheet's text is now positioned [pl.dakil.notes.model.TextBlock]s, and `content.md`
+     * is derived from them rather than being where they live. Older files are migrated on read.
+     *
+     * The bump is not cosmetic. A v2 build renders `content.md` as the flow and does not render
+     * text blocks at all, so it would show a migrated note's words in the wrong place and, on save,
+     * write them out *twice* — once as the flow it thinks it is editing and once as the boxes it
+     * faithfully preserved. Declaring v3 sends that build down the read-only path instead.
      */
-    const val FORMAT_VERSION = 2
+    const val FORMAT_VERSION = 3
 
     /**
      * The highest `minReaderVersion` this build can safely open for writing.
@@ -46,13 +52,20 @@ object DakNote {
      * understand, but the moment a future version declares a *structural* change it can no longer
      * be edited blindly.
      */
-    const val READER_VERSION = 2
+    const val READER_VERSION = 3
 
     const val ENTRY_MIMETYPE = "mimetype"
     const val ENTRY_MANIFEST = "manifest.json"
     const val ENTRY_SHEET = "sheet.json"
 
-    /** The whole note's text, as plain Markdown any tool can read. */
+    /**
+     * The whole note's text, as plain Markdown any tool can read.
+     *
+     * Derived since v3: the boxes are where the text lives, and this is written out from them in
+     * reading order so that a user can still recover their words with nothing but an unzip tool.
+     * Read back only when a file has no boxes at all, which is what makes the v2 migration a fixed
+     * point rather than a way to duplicate a note's text on every save.
+     */
     const val ENTRY_MARKDOWN = "content.md"
 
     const val DIR_INK = "ink/"
@@ -67,7 +80,7 @@ object DakNote {
 
     fun newId(): String = UUID.randomUUID().toString()
 
-    /** A blank note: one sheet, one empty ink layer over an empty Markdown flow. */
+    /** A blank note: one sheet with one empty ink layer on it, and nothing written yet. */
     fun newNote(
         title: String = "",
         size: PageSize = PageSize.A4,
@@ -97,7 +110,9 @@ object DakNote {
                         name = "Layer 1",
                     ),
                 ),
-                contentHeight = format.height,
+                // Nothing to cache: the boxes state their own extent, and the field only exists
+                // to carry a v2 note's page count across the migration. See [Sheet.contentHeight].
+                contentHeight = 0f,
             ),
         )
     }

@@ -212,6 +212,45 @@ class SheetTransform {
         animate(from, to, animationSpec = tween(SCROLL_MS)) { value, _ -> rawOffsetY = clampY(value) }
     }
 
+    /**
+     * Scrolls the least it can to bring a band of the strip clear of the keyboard.
+     *
+     * The least it can, deliberately. Centring what the user is typing on would move the page under
+     * their eyes on every keystroke that crossed a line; this does nothing at all while the caret
+     * is already in view, and when the caret does go under the keyboard it lifts it just past the
+     * edge with a little air to spare.
+     *
+     * [top] and [bottom] are unzoomed content pixels. There is no keyboard inset to pass: the
+     * editor applies `imePadding` to the whole scaffold, so the viewport this works within has
+     * already given the keyboard its half of the screen.
+     */
+    suspend fun revealContentBand(top: Float, bottom: Float) {
+        val visibleBottom = viewportHeight
+        if (visibleBottom <= 0f) return
+        val screenTop = contentToScreenY(top)
+        val screenBottom = contentToScreenY(bottom)
+
+        val shift = when {
+            // Below the fold: lift it until its foot clears the keyboard.
+            screenBottom > visibleBottom - REVEAL_MARGIN -> visibleBottom - REVEAL_MARGIN - screenBottom
+            // Above the top of the window: drop it back down to just under the app bar.
+            screenTop < REVEAL_MARGIN -> REVEAL_MARGIN - screenTop
+            else -> return
+        }
+        // Never so far that the top of the band goes off the top: for a band taller than what is
+        // left of the window, seeing where you are typing beats seeing where it ends.
+        val wanted = clampY(offsetY + shift)
+        val limited = if (contentToScreenY(top) + (wanted - offsetY) < REVEAL_MARGIN) {
+            clampY(offsetY + REVEAL_MARGIN - screenTop)
+        } else {
+            wanted
+        }
+        if (limited == offsetY) return
+        animate(offsetY, limited, animationSpec = tween(SCROLL_MS)) { value, _ ->
+            rawOffsetY = clampY(value)
+        }
+    }
+
     /** Back to a full page width, as if the note had just been opened. */
     fun resetZoom() {
         settled = false
@@ -270,6 +309,9 @@ class SheetTransform {
 
         /** A little air around the sheet, so it never sits flush against the app bar. */
         const val EDGE_PAD = 24f
+
+        /** How much room to leave between what is being revealed and the edge that hid it. */
+        private const val REVEAL_MARGIN = 32f
 
         /** Long enough to read as travel, short enough not to be a wait. */
         private const val SCROLL_MS = 320

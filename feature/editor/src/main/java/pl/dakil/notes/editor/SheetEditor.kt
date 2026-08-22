@@ -4,10 +4,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -31,17 +37,16 @@ import pl.dakil.notes.editor.canvas.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.ZoomChip
 import pl.dakil.notes.editor.canvas.sheetTransformGestures
-import pl.dakil.notes.editor.markdown.MarkdownBlock
-import pl.dakil.notes.editor.markdown.PaginatedFlow
+import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
 import pl.dakil.notes.model.ViewMode
 
 /**
  * The note surface: one sheet of paper carrying Markdown text with ink drawn over it.
  *
  * There is no text mode and no drawing mode. Three layers are stacked in a single strip — paper,
- * then text, then ink — and the ink overlay on top decides who receives each event: a stylus always
- * draws, a finger draws only when a drawing tool is selected, and anything the overlay declines
- * falls through to the text underneath, or past it to pan and zoom.
+ * then text boxes, then ink — and the ink overlay on top decides who receives each event: a stylus
+ * draws unless the text tool is out, a finger draws only when a drawing tool is selected, and
+ * anything the overlay declines falls through to the boxes underneath, or past them to pan and zoom.
  *
  * [ViewMode] changes nothing about the document. Paged view draws page edges and a gap between
  * sheets; continuous view omits them. The pagination, and therefore what will print, is identical.
@@ -99,6 +104,18 @@ fun SheetEditor(
         )
         val tops = SheetPainter.pageTops(format, pageCount, ptToPx, paged)
         transform.animateToContentY(tops.getOrNull(request.page) ?: return@LaunchedEffect)
+    }
+
+    // Where the caret is in the strip, and the keyboard's height. The sheet is the only thing that
+    // scrolls, so bringing the caret out from under the keyboard is its job — and the inset is part
+    // of the key because the keyboard arriving is itself a reason to scroll, with the caret still
+    // exactly where it was.
+    var caretBand by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(caretBand, imeBottom) {
+        val (top, bottom) = caretBand ?: return@LaunchedEffect
+        if (state.editingTextBlock == null) return@LaunchedEffect
+        transform.revealContentBand(top, bottom)
     }
 
     // Bring a ruler that was left behind on another page back under the reader's eye. A ruler
@@ -181,6 +198,21 @@ fun SheetEditor(
                     translationY = transform.offsetY
                 }
             }
+        }
+
+        // The active box's handles. Above the sheet and outside its transform for the same reason
+        // the page headers are: a handle scaled to a quarter of itself cannot be hit.
+        if (sheet.textBlocks().isNotEmpty()) {
+            TextBoxChrome(
+                sheet = sheet,
+                state = state,
+                viewModel = viewModel,
+                transform = transform,
+                ptToPx = ptToPx,
+                paged = paged,
+                onCaretBand = { top, bottom -> caretBand = top to bottom },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // Above the sheet and outside its transform, so it stays legible and tappable at any zoom.
@@ -270,7 +302,14 @@ private fun SheetLayers(
         }
     }
 
-    Box(Modifier.fillMaxWidth()) {
+    // The strip's height, worked out from the paper rather than measured from its contents. The
+    // flow used to settle it — it was the one child tall enough to matter — and with the text in
+    // boxes there is nothing left that has to be laid out before the page count is known.
+    val stripHeight = with(density) {
+        SheetPainter.stripHeightPx(format, pageCount, ptToPx, paged).toDp()
+    }
+
+    Box(Modifier.fillMaxWidth().height(stripHeight)) {
 
         // 1. Paper: the pages, their rule pattern, and the page edges when paged.
         Canvas(Modifier.matchParentSize()) {
@@ -288,32 +327,19 @@ private fun SheetLayers(
             )
         }
 
-        // 2. Text: flows down the strip inside the margins, never breaking through a page boundary.
-        PaginatedFlow(
-            pageHeightPx = format.height * ptToPx,
-            topMarginPx = format.margins.top * ptToPx,
-            bottomMarginPx = format.margins.bottom * ptToPx,
-            pageGapPx = if (paged) SheetPainter.PAGE_GAP_PT * ptToPx else 0f,
-            minPageCount = pageCount,
-            onHeightMeasured = { heightPx -> viewModel.reportContentHeight(heightPx / ptToPx) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = with(density) { (format.margins.left * ptToPx).toDp() },
-                    end = with(density) { (format.margins.right * ptToPx).toDp() },
-                ),
-        ) {
-            MarkdownBlock(
-                markdown = sheet.markdown,
-                focused = state.editingText,
-                readOnly = state.isReadOnly,
-                onMarkdownChange = viewModel::updateText,
-                onFocusRequested = viewModel::beginTextEditing,
-                onFocusLost = viewModel::endTextEditing,
-                placeholderText = "Write, or just start drawing…",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        // 2. Text: the boxes, each standing where it was put and clipped to its own page.
+        TextBoxLayer(
+            sheet = sheet,
+            state = state,
+            viewModel = viewModel,
+            styles = rememberMarkdownStyles(sizes = true),
+            ptToPx = ptToPx,
+            paged = paged,
+            // A lambda for the same reason the lasso outline takes one: the reach around a box is a
+            // size on the screen, and reading the zoom at the tap keeps it one.
+            zoom = transform::zoom,
+            modifier = Modifier.matchParentSize(),
+        )
 
         // 3. Ink: over everything, and the arbiter of who gets each pointer event.
         InkOverlay(
@@ -324,6 +350,7 @@ private fun SheetLayers(
             paged = paged,
             documentVersion = state.documentVersion,
             callbacks = viewModel.inkCallbacks,
+            textToolActive = state.textToolActive,
             darkTheme = darkTheme,
             // A lambda, not a value: the lasso outline needs the scale to stay a constant width on
             // screen, and reading it here instead of at the call site keeps a pinch off the

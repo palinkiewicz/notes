@@ -3,7 +3,7 @@ package pl.dakil.notes.editor
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import pl.dakil.notes.editor.text.KeepFenceIntact
+import pl.dakil.notes.editor.markdown.KeepFenceIntact
 
 /**
  * The one place a caret lands on the wrong side of what it is editing.

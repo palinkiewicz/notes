@@ -22,6 +22,15 @@ import pl.dakil.notes.editor.markdown.code.CodeColors
 data class MarkdownStyles(
     private val byStyle: Map<MdStyle, SpanStyle>,
     /**
+     * Whether [MdStyle.SIZE] means anything here.
+     *
+     * False for a `.md` note, where the tag is hidden but not obeyed. That is not an omission: the
+     * file has to stay a Markdown file that other editors render sensibly, and a size is not
+     * something Markdown can say. So text pasted from a sheet arrives at the note's own body size,
+     * carries its tag along invisibly, and is that size again the moment it is pasted back.
+     */
+    private val sizesApply: Boolean = true,
+    /**
      * The blank line kept past the end of the document.
      *
      * Not one of the [MdStyle]s: it is nothing to do with what the Markdown means, only with there
@@ -34,7 +43,11 @@ data class MarkdownStyles(
     // Unstyled rather than absent for a style nobody has given a span to: a new [MdStyle] with no
     // entry here is a paragraph that looks plain, which is a bug someone will notice and fix, and
     // not a note that cannot be opened.
-    fun spanFor(style: MdStyle): SpanStyle = byStyle[style] ?: SpanStyle()
+    fun spanFor(style: MdStyle, arg: Int = 0): SpanStyle = when {
+        style != MdStyle.SIZE -> byStyle[style] ?: SpanStyle()
+        sizesApply && arg > 0 -> SpanStyle(fontSize = arg.sp)
+        else -> SpanStyle()
+    }
 }
 
 /**
@@ -64,7 +77,9 @@ class MarkdownOutputTransformation(
                 replace(edit.start, edit.end, edit.replacement)
             }
             for (range in plan.styles) {
-                if (range.end > range.start) addStyle(styles.spanFor(range.style), range.start, range.end)
+                if (range.end > range.start) {
+                    addStyle(styles.spanFor(range.style, range.arg), range.start, range.end)
+                }
             }
         }
 
@@ -84,11 +99,17 @@ class MarkdownOutputTransformation(
     override fun hashCode(): Int = 31 * styles.hashCode() + formatted.hashCode()
 }
 
+/**
+ * The Material theme, resolved into one `SpanStyle` per [MdStyle].
+ *
+ * [sizes] says whether this document may set its own font sizes — true on a sheet, false in a `.md`
+ * note. See [MarkdownStyles.sizesApply].
+ */
 @Composable
-fun rememberMarkdownStyles(): MarkdownStyles {
+fun rememberMarkdownStyles(sizes: Boolean = true): MarkdownStyles {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
-    return remember(colors, typography) {
+    return remember(colors, typography, sizes) {
         // Sizes come from the heading styles the rendered view already uses, so a note looks the
         // same whether it is being edited here or displayed on a sheet.
         fun heading(size: TextUnit) = SpanStyle(fontSize = size, fontWeight = FontWeight.SemiBold)
@@ -108,6 +129,7 @@ fun rememberMarkdownStyles(): MarkdownStyles {
         )
 
         MarkdownStyles(
+            sizesApply = sizes,
             // A blank line of a 14 sp face comes out at about 16 dp, which is what holds the last
             // line of a note off the formatting bar once it has been scrolled to.
             trailingSpace = SpanStyle(fontSize = 14.sp),

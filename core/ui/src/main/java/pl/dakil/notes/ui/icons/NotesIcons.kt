@@ -109,6 +109,24 @@ object NotesIcons {
         strokedIcon("TextBox", "M5 5 L19 5 M12 5 L12 19 M8.5 19 L15.5 19")
     }
 
+    /** Four-way arrows: the grip that carries a text box around the page. */
+    val Move: ImageVector by lazy {
+        strokedIcon(
+            "Move",
+            "M12 3 L12 21 M3 12 L21 12 " +
+                "M9 6 L12 3 L15 6 M9 18 L12 21 L15 18 " +
+                "M6 9 L3 12 L6 15 M18 9 L21 12 L18 15",
+        )
+    }
+
+    /** A vertical bar between two arrows: the grip that sets a text box's width. */
+    val ResizeWidth: ImageVector by lazy {
+        strokedIcon(
+            "ResizeWidth",
+            "M12 4 L12 20 M4 12 L20 12 M7 9 L4 12 L7 15 M17 9 L20 12 L17 15",
+        )
+    }
+
     val Layers: ImageVector by lazy {
         strokedIcon(
             "Layers",

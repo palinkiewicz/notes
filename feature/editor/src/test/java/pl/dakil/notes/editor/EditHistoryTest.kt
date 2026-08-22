@@ -8,9 +8,12 @@ import org.junit.Test
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.model.BlendId
+import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Note
+import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
 
 class EditHistoryTest {
@@ -22,6 +25,20 @@ class EditHistoryTest {
     private fun stroke(x: Float) = Stroke(
         ToolId.PEN, -1, 2f, BlendId.NORMAL, floatArrayOf(x, x + 10f), floatArrayOf(0f, 10f),
     )
+
+    private fun Note.box(): TextBlock = sheet.textBlocks().single()
+
+    /** A note with one empty text box on it, which is what typing edits. */
+    private fun noteWithBox(): Note {
+        val base = note()
+        val box = TextBlock(
+            id = base.sheet.nextBlockId(), z = 1, rect = Rect(50f, 50f, 400f, 80f),
+        )
+        return base.withSheet(base.sheet.withBlock(box))
+    }
+
+    private fun typed(note: Note, text: String): Edit =
+        Edit.ReplaceBlock(note.box(), note.box().copy(markdown = text))
 
     @Test
     fun `an edit and its inverse round-trip the document`() {
@@ -86,31 +103,52 @@ class EditHistoryTest {
     fun `rapid text edits merge into one undo step`() {
         // This is what makes undo step back through words rather than characters while typing.
         val history = EditHistory()
-        var current = note()
+        var current = noteWithBox()
 
         for ((i, word) in listOf("a", "ab", "abc").withIndex()) {
-            val edit = Edit.SetText(current.sheet.markdown, word)
+            val edit = typed(current, word)
             current = edit.apply(current)
             history.push(edit, nowMs = i * 100L)
         }
 
         assertEquals(1, history.depth)
-        assertEquals("", history.undo(current)!!.sheet.markdown)
+        assertEquals("", history.undo(current)!!.box().markdown)
     }
 
     @Test
     fun `text edits separated by a pause stay distinct`() {
         val history = EditHistory()
-        var current = note()
+        var current = noteWithBox()
 
         for ((i, word) in listOf("a", "ab").withIndex()) {
-            val edit = Edit.SetText(current.sheet.markdown, word)
+            val edit = typed(current, word)
             current = edit.apply(current)
             history.push(edit, nowMs = i * 5_000L)
         }
 
         assertEquals(2, history.depth)
-        assertEquals("a", history.undo(current)!!.sheet.markdown)
+        assertEquals("a", history.undo(current)!!.box().markdown)
+    }
+
+    @Test
+    fun `typing in one box never merges with typing in another`() {
+        // The merge rule is per block, and it has to be: two boxes are two different things to say,
+        // and undoing back through one must not quietly rewind the other.
+        val history = EditHistory()
+        val base = noteWithBox()
+        val one = base.box()
+        val second = TextBlock(id = BlockId("bx"), z = 2, rect = Rect(50f, 200f, 400f, 230f))
+        var current = base.withSheet(base.sheet.withBlock(second))
+
+        val first = Edit.ReplaceBlock(one, one.copy(markdown = "one"))
+        current = first.apply(current)
+        history.push(first, nowMs = 0)
+
+        val other = Edit.ReplaceBlock(second, second.copy(markdown = "two"))
+        current = other.apply(current)
+        history.push(other, nowMs = 100)
+
+        assertEquals(2, history.depth)
     }
 
     @Test
@@ -132,23 +170,23 @@ class EditHistoryTest {
     fun `a batch of text and ink undoes as a single step`() {
         // The unified sheet makes this the normal case: one gesture can touch both layers.
         val history = EditHistory()
-        var current = note()
+        var current = noteWithBox()
 
         val batch = Edit.Batch(
             listOf(
                 Edit.ReplaceBlock(current.ink(), current.ink().copy(strokes = listOf(stroke(0f)))),
-                Edit.SetText("", "hi"),
+                Edit.ReplaceBlock(current.box(), current.box().copy(markdown = "hi")),
             )
         )
         current = batch.apply(current)
         history.push(batch, nowMs = 0)
 
         assertEquals(1, current.ink().strokes.size)
-        assertEquals("hi", current.sheet.markdown)
+        assertEquals("hi", current.box().markdown)
 
         current = history.undo(current)!!
         assertEquals(0, current.ink().strokes.size)
-        assertEquals("", current.sheet.markdown)
+        assertEquals("", current.box().markdown)
     }
 
     @Test
@@ -185,7 +223,7 @@ class EditHistoryTest {
     @Test
     fun `adding and removing an ink layer invert cleanly`() {
         val current = note()
-        val layer = InkBlock(id = current.sheet.nextBlockId(), z = 5, rect = pl.dakil.notes.model.Rect.ZERO)
+        val layer = InkBlock(id = current.sheet.nextBlockId(), z = 5, rect = Rect.ZERO)
         val edit = Edit.AddBlock(layer)
 
         val added = edit.apply(current)

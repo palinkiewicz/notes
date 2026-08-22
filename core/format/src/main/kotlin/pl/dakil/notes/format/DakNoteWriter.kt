@@ -46,13 +46,12 @@ object DakNoteWriter {
             written += DakNote.ENTRY_MANIFEST
 
             // The note's text as plain Markdown, at the top level of the archive: a user must be
-            // able to recover their words with nothing but an unzip tool.
-            if (note.sheet.markdown.isNotEmpty()) {
-                writeDeflated(
-                    zip,
-                    DakNote.ENTRY_MARKDOWN,
-                    note.sheet.markdown.toByteArray(Charsets.UTF_8),
-                )
+            // able to recover their words with nothing but an unzip tool. Derived from the boxes
+            // rather than stored, so there is exactly one copy of the text in the document and no
+            // way for the two to drift apart. Reading order is fixed, so this stays byte-stable.
+            val text = note.sheet.textInReadingOrder()
+            if (text.isNotEmpty()) {
+                writeDeflated(zip, DakNote.ENTRY_MARKDOWN, text.toByteArray(Charsets.UTF_8))
                 written += DakNote.ENTRY_MARKDOWN
             }
 

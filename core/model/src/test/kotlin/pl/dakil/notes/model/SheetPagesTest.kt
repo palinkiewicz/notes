@@ -43,7 +43,9 @@ class SheetPagesTest {
     }
 
     @Test
-    fun `text running past the last page still adds paper under it`() {
+    fun `a v2 note's cached flow height still holds its pages open`() {
+        // The flow is gone, but a file written before it went still states how far it reached, and
+        // opening one must not silently drop the pages its text was on.
         val sheet = Sheet(contentHeight = pageHeight * 2.5f).withPages(1)
         assertEquals(3, sheet.pageCount())
     }
@@ -115,14 +117,103 @@ class SheetPagesTest {
     private fun Sheet.strokeYs(): List<Float> =
         inkLayers().single().strokes.map { it.ys[0] }
 
+    /** A box a third of the way down page [page], named so it can be followed as pages move. */
+    private fun textAt(page: Int, id: String = "t$page") = TextBlock(
+        id = BlockId(id),
+        z = 1,
+        rect = Rect(50f, page * pageHeight + 100f, 400f, page * pageHeight + 300f),
+        markdown = "page $page",
+    )
+
+    private fun Sheet.textTops(): List<Float> = textBlocks().map { it.rect.top }
+
+    // ---- Text boxes travel with their page ------------------------------------------------------
+
     @Test
-    fun `a page the text flows through cannot be duplicated or removed`() {
-        // Ink is anchored to the paper and text is not, so inserting paper under flowing text would
-        // slide the ink out from under the words it was written against.
-        val sheet = Sheet(contentHeight = pageHeight * 2.5f).withPages(4)
-        assertFalse(sheet.canEditPage(0))
-        assertFalse(sheet.canEditPage(2))
-        assertTrue(sheet.canEditPage(3))
+    fun `a text box moves with the page it is on`() {
+        val sheet = Sheet(blocks = listOf(textAt(0), textAt(2))).withPages(3)
+        val swapped = sheet.withPagesSwapped(0, 2)
+
+        // The two boxes have exchanged pages; nothing else has moved.
+        assertEquals(listOf(100f, pageHeight * 2 + 100f), swapped.textTops().sorted())
+        assertEquals("page 2", swapped.textBlocks().first().markdown)
+        assertEquals("page 0", swapped.textBlocks().last().markdown)
+    }
+
+    @Test
+    fun `a box on an untouched page stays exactly where it was`() {
+        val sheet = Sheet(blocks = listOf(textAt(0), textAt(2))).withPages(4)
+        val swapped = sheet.withPagesSwapped(2, 3)
+        assertEquals(100f, swapped.textBlocks().first().rect.top, 0.01f)
+    }
+
+    @Test
+    fun `removing a page takes its boxes and slides the rest up`() {
+        val sheet = Sheet(blocks = listOf(textAt(0), textAt(1), textAt(2))).withPages(3)
+        val result = sheet.withPageRemoved(1)
+
+        assertEquals(listOf("page 0", "page 2"), result.textBlocks().map { it.markdown })
+        assertEquals(listOf(100f, pageHeight + 100f), result.textTops().sorted())
+    }
+
+    @Test
+    fun `duplicating a page copies its boxes onto the new sheet`() {
+        val sheet = Sheet(blocks = listOf(textAt(1), textAt(2))).withPages(3)
+        val result = sheet.withPageDuplicated(1)
+
+        // The original stays on page 1, its copy lands on page 2, and page 2's box moves to page 3.
+        assertEquals(
+            listOf(pageHeight + 100f, pageHeight * 2 + 100f, pageHeight * 3 + 100f),
+            result.textTops().sorted(),
+        )
+        assertEquals(listOf("page 1", "page 1", "page 2"), result.textBlocks().map { it.markdown })
+    }
+
+    @Test
+    fun `a duplicated box gets an id of its own`() {
+        // Two blocks under one id is a document whose blocks cannot be told apart — selecting one
+        // would select both, and saving would write one over the other.
+        val sheet = Sheet(blocks = listOf(textAt(1, "a"), textAt(1, "b"))).withPages(2)
+        val ids = sheet.withPageDuplicated(1).blocks.map { it.id.raw }
+        assertEquals(ids.size, ids.toSet().size)
+    }
+
+    @Test
+    fun `a box is on the page it starts on, however far it runs`() {
+        // Judged by its top-left corner, like a stroke by its centreline. A box whose last line
+        // pokes over the boundary must not be dragged onto the next page behind the user's back.
+        val overhanging = TextBlock(
+            id = BlockId("t0"), z = 1,
+            rect = Rect(50f, pageHeight - 40f, 400f, pageHeight + 200f),
+            markdown = "spills over",
+        )
+        val sheet = Sheet(blocks = listOf(overhanging)).withPages(2)
+        assertEquals(0, sheet.pageOf(overhanging))
+        // Removing page 1 does not take it, and removing page 0 does.
+        assertEquals(1, sheet.withPageRemoved(1).textBlocks().size)
+        assertEquals(0, sheet.withPageRemoved(0).textBlocks().size)
+    }
+
+    @Test
+    fun `a swap of pages carrying text is its own inverse`() {
+        val sheet = Sheet(blocks = listOf(textAt(0), textAt(1), textAt(2))).withPages(3)
+        assertEquals(sheet.blocks.toSet(), sheet.withPagesSwapped(0, 2).withPagesSwapped(0, 2).blocks.toSet())
+    }
+
+    @Test
+    fun `a text box alone can extend the sheet`() {
+        assertEquals(3, Sheet(blocks = listOf(textAt(2))).pageCount())
+    }
+
+    @Test
+    fun `every page a note has can be duplicated or removed`() {
+        // There used to be a second rule here: a page the document flow reached was off limits,
+        // because inserting paper under flowing text slid the ink out from under the words it was
+        // written against. Text is in boxes now, and a box is on a page the way a stroke is.
+        val sheet = Sheet(blocks = listOf(textAt(0), textAt(2))).withPages(4)
+        for (page in 0 until 4) assertTrue("page $page should be editable", sheet.canEditPage(page))
+        assertFalse(sheet.canEditPage(4))
+        assertFalse(sheet.canEditPage(-1))
     }
 
     @Test
@@ -159,9 +250,11 @@ class SheetPagesTest {
 
     @Test
     fun `a refused operation changes nothing at all`() {
-        val sheet = Sheet(contentHeight = pageHeight * 2.5f).withPages(3)
-        assertEquals(sheet, sheet.withPageDuplicated(0))
-        assertEquals(sheet, sheet.withPageRemoved(1))
+        val sheet = drawingSheet()
+        // A page that is not there, and the last page of a one-page note: the only two refusals left.
+        assertEquals(sheet, sheet.withPageDuplicated(9))
+        assertEquals(sheet, sheet.withPageRemoved(-1))
+        assertEquals(Sheet(), Sheet().withPageRemoved(0))
     }
 
     /** One stroke running from the middle of page 1 to the middle of page 2. */

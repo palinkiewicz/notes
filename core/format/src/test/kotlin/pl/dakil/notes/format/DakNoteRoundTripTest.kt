@@ -54,11 +54,15 @@ class DakNoteRoundTripTest {
                 ),
             ),
         )
+        val text = TextBlock(
+            id = BlockId("b1"), z = 1,
+            rect = Rect(60f, 50f, 555f, 400f),
+            markdown = markdown,
+        )
         return base.copy(
             meta = base.meta.copy(tags = listOf("uni", "math"), view = ViewMode.CONTINUOUS),
             sheet = base.sheet.copy(
-                markdown = markdown,
-                blocks = listOf(ink),
+                blocks = listOf(ink, text),
                 contentHeight = 1400f,
                 format = base.sheet.format.copy(
                     background = PageBackground(
@@ -107,7 +111,8 @@ class DakNoteRoundTripTest {
         assertEquals(listOf("uni", "math"), restored.meta.tags)
         assertEquals(ViewMode.CONTINUOUS, restored.meta.view)
 
-        assertEquals(markdown, restored.sheet.markdown)
+        assertEquals(markdown, restored.sheet.textBlocks().single().markdown)
+        assertEquals(Rect(60f, 50f, 555f, 400f), restored.sheet.textBlocks().single().rect)
         assertEquals(PageSize.A4, restored.sheet.format.size)
         assertEquals(PageMargins(60f, 50f, 40f, 70f), restored.sheet.format.margins)
         assertEquals(PatternType.RULED, restored.sheet.format.background.pattern.type)
@@ -139,8 +144,26 @@ class DakNoteRoundTripTest {
     @Test
     fun `the note's text is a plain readable markdown file`() {
         // Recoverable with nothing but an unzip tool, and at the top level where it is obvious.
+        // Derived from the boxes rather than stored, so it says what the note says.
         val entries = entriesOf(DakNoteWriter.toByteArray(sampleNote()))
         assertEquals(markdown, entries["content.md"]!!.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun `the derived markdown file reads the boxes down the page`() {
+        val base = DakNote.newNote(now = 0L)
+        fun box(id: String, top: Float, text: String) =
+            TextBlock(BlockId(id), z = 1, rect = Rect(50f, top, 500f, top + 40f), markdown = text)
+
+        // Deliberately out of document order in the list: reading order is a fact about where the
+        // boxes are on the paper, not about which one the user happened to type first.
+        val note = base.copy(
+            sheet = base.sheet.copy(
+                blocks = listOf(box("b1", 900f, "second"), box("b2", 100f, "first")),
+            )
+        )
+        val entries = entriesOf(DakNoteWriter.toByteArray(note))
+        assertEquals("first\n\nsecond", entries["content.md"]!!.toString(Charsets.UTF_8))
     }
 
     @Test
@@ -166,9 +189,10 @@ class DakNoteRoundTripTest {
     @Test
     fun `a text-only note round-trips with no ink`() {
         val base = DakNote.newNote(now = 0L)
-        val note = base.copy(sheet = base.sheet.copy(markdown = "just words", blocks = emptyList()))
+        val box = TextBlock(BlockId("b1"), z = 0, rect = Rect(50f, 50f, 500f, 100f), markdown = "just words")
+        val note = base.copy(sheet = base.sheet.copy(blocks = listOf(box)))
         val restored = roundTrip(note)
-        assertEquals("just words", restored.sheet.markdown)
+        assertEquals("just words", restored.sheet.textBlocks().single().markdown)
         assertTrue(restored.sheet.inkLayers().isEmpty())
     }
 
@@ -261,8 +285,14 @@ class DakNoteRoundTripTest {
         assertEquals("Legacy", note.meta.title)
         assertEquals(listOf("old"), note.meta.tags)
 
-        // Both pages' document text becomes one flow, in page order.
-        assertEquals("# Page one\n\n# Page two", note.sheet.markdown)
+        // Each page's document text stays on its own page, in the column it filled — where v2
+        // would have dragged both onto page one by concatenating them into a single flow.
+        val boxes = note.sheet.textBlocks()
+        assertEquals(listOf("# Page one", "# Page two"), boxes.map { it.markdown })
+        // Each keeps the column the v1 file gave it, shifted into strip coordinates.
+        assertEquals(48f, boxes[0].rect.top, 0.5f)
+        assertEquals(842f + 48f, boxes[1].rect.top, 0.5f)
+        assertEquals("", note.sheet.markdown)
 
         // Page two's ink is shifted into strip coordinates rather than overlapping page one's.
         val ys = note.sheet.inkLayers()
@@ -276,17 +306,106 @@ class DakNoteRoundTripTest {
     }
 
     @Test
-    fun `a migrated v1 note saves as v2 and keeps its foreign entries`() {
+    fun `a migrated v1 note saves at the current version and keeps its foreign entries`() {
         val note = DakNoteReader.read(ByteArrayInputStream(zipOf(legacyV1())))
         assertTrue("assets/legacy.bin" in note.foreignEntries)
 
         val entries = entriesOf(DakNoteWriter.toByteArray(note))
         val manifest = JsonReader.parseObject(entries["manifest.json"]!!.toString(Charsets.UTF_8))
-        assertEquals(2, manifest.int("formatVersion"))
+        assertEquals(DakNote.FORMAT_VERSION, manifest.int("formatVersion"))
         assertEquals("old-note", manifest.string("id"))
         assertTrue("sheet.json" in entries)
         assertFalse(entries.keys.any { it.startsWith("pages/") })
         assertArrayEquals(byteArrayOf(9, 8, 7), entries["assets/legacy.bin"])
+    }
+
+    // ---- v2 flow migration -------------------------------------------------------------------
+
+    /** A v2 file: a document flow in `content.md`, and no text block anywhere. */
+    private fun legacyV2(text: String, contentHeight: Float): LinkedHashMap<String, ByteArray> {
+        val manifest = """
+            {"formatVersion":2,"minReaderVersion":2,"id":"flow-note","revision":3,
+             "created":1,"modified":2,"title":"Flow","tags":[],"view":"paged"}
+        """.trimIndent()
+
+        val sheet = """
+            {"size":{"kind":"A4"},
+             "margins":{"left":56,"top":56,"right":56,"bottom":56},
+             "background":{"color":"#FFFFFFFF","pattern":{"type":"none"}},
+             "contentHeight":$contentHeight,"pages":1,
+             "blocks":[{"id":"b0","type":"ink","z":0,"rect":[0,0,595,842],
+                        "transform":[1,0,0,1,0,0],"name":"Layer 1","visible":true,"locked":false}]}
+        """.trimIndent()
+
+        return linkedMapOf(
+            "mimetype" to DakNote.MIME_TYPE.toByteArray(),
+            "manifest.json" to manifest.toByteArray(),
+            "sheet.json" to sheet.toByteArray(),
+            "content.md" to text.toByteArray(),
+        )
+    }
+
+    @Test
+    fun `a v2 document flow opens as a text box on the text column`() {
+        val note = DakNoteReader.read(ByteArrayInputStream(zipOf(legacyV2("# Notes\n\nbody", 1200f))))
+        val format = note.sheet.format
+        val box = note.sheet.textBlocks().single()
+
+        assertEquals("# Notes\n\nbody", box.markdown)
+        // Exactly the band the flow occupied, so the words come back where the file last showed them.
+        assertEquals(format.contentLeft, box.rect.left, 0.5f)
+        assertEquals(format.margins.top, box.rect.top, 0.5f)
+        assertEquals(format.contentRight, box.rect.right, 0.5f)
+        assertEquals(1200f, box.rect.bottom, 0.5f)
+        assertEquals("", note.sheet.markdown)
+    }
+
+    @Test
+    fun `migrating a v2 flow does not change how many pages the note has`() {
+        val note = DakNoteReader.read(ByteArrayInputStream(zipOf(legacyV2("body", 1200f))))
+        // The flow reached onto page two; the box that replaced it has to reach just as far, or
+        // the note loses a page the moment it is opened.
+        assertEquals(2, note.sheet.pageCount())
+    }
+
+    @Test
+    fun `migrating twice is a fixed point`() {
+        // The trap this guards: content.md is derived from the boxes on save, so a reader that
+        // hydrated it unconditionally would add a second copy of the whole note on every open.
+        val once = DakNoteReader.read(ByteArrayInputStream(zipOf(legacyV2("# Notes\n\nbody", 1200f))))
+        val twice = roundTrip(once)
+        val thrice = roundTrip(twice)
+
+        assertEquals(1, twice.sheet.textBlocks().size)
+        assertEquals(1, thrice.sheet.textBlocks().size)
+        assertEquals("# Notes\n\nbody", thrice.sheet.textBlocks().single().markdown)
+        assertArrayEquals(DakNoteWriter.toByteArray(twice), DakNoteWriter.toByteArray(thrice))
+    }
+
+    @Test
+    fun `a v2 flow beside a text box is left to the box`() {
+        // Some other tool could write both. The boxes are the document; content.md is a copy of it.
+        val entries = legacyV2("stale copy", 400f)
+        val note = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+        val withBox = note.copy(
+            sheet = note.sheet.copy(
+                blocks = listOf(TextBlock(BlockId("bx"), 0, Rect(1f, 2f, 3f, 4f), markdown = "real")),
+            )
+        )
+        val entriesWithBoth = entriesOf(DakNoteWriter.toByteArray(withBox)).also {
+            it["content.md"] = "stale copy".toByteArray()
+        }
+        val reread = DakNoteReader.read(ByteArrayInputStream(zipOf(entriesWithBoth)))
+        assertEquals(listOf("real"), reread.sheet.textBlocks().map { it.markdown })
+    }
+
+    @Test
+    fun `a note written now is closed to older builds`() {
+        // A v2 build renders content.md as the flow and cannot see text blocks at all, so it would
+        // show a migrated note's words in the wrong place and write them out twice on save.
+        val manifest = entriesOf(DakNoteWriter.toByteArray(sampleNote()))["manifest.json"]!!
+        val json = JsonReader.parseObject(manifest.toString(Charsets.UTF_8))
+        assertEquals(3, json.int("minReaderVersion"))
     }
 
     @Test
@@ -518,12 +637,14 @@ class DakNoteRoundTripTest {
 
     @Test
     fun `a corrupt sheet descriptor still yields the text`() {
-        // The words are the irreplaceable part; they live in their own entry for exactly this reason.
+        // The words are the irreplaceable part, and content.md is the copy of them that survives
+        // losing every block descriptor. It comes back as a box on the text column: the geometry
+        // was in the entry that was lost, but the writing was not.
         val entries = entriesOf(DakNoteWriter.toByteArray(sampleNote()))
         entries["sheet.json"] = "{ this is not json".toByteArray()
 
         val note = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
-        assertEquals(markdown, note.sheet.markdown)
+        assertEquals(markdown, note.sheet.textBlocks().single().markdown)
         assertEquals("Linear Algebra — Week 3", note.meta.title)
     }
 
@@ -546,7 +667,7 @@ class DakNoteRoundTripTest {
             markdown = "a pinned label",
         )
         val back = roundTrip(note.withSheet(note.sheet.withBlock(label)))
-            .sheet.blocks.filterIsInstance<TextBlock>().single()
+            .sheet.textBlocks().single { it.id == BlockId("b7") }
         assertEquals(Rect(12f, 934f, 200f, 1000f), back.rect)
         assertEquals(Affine(1f, 0f, 0f, 1f, 5f, 7f), back.transform)
         assertEquals("a pinned label", back.markdown)

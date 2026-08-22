@@ -81,10 +81,18 @@ fun EditorToolbar(
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
+    /**
+     * Whether the formatting bar is stacked above this one.
+     *
+     * Two app bars at their full height take a third of a phone screen and leave most of it empty,
+     * so the pair is drawn tighter than either would be alone. The buttons do not change size —
+     * only the air around them does.
+     */
+    compact: Boolean = false,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
 
-    BottomAppBar {
+    BottomAppBar(modifier = if (compact) Modifier.height(CompactBarHeight) else Modifier) {
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -859,3 +867,6 @@ private val ERASER_TOOLS = listOf(
 
 private val TOOL_ENTRIES = DRAWING_TOOLS + ERASER_TOOLS +
     ToolEntry(ToolId.LASSO, "Select", NotesIcons.Lasso)
+
+/** The height of the tool bar when it is the lower of two. See [EditorToolbar]'s `compact`. */
+private val CompactBarHeight = 56.dp

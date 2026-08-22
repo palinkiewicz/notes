@@ -1,4 +1,4 @@
-package pl.dakil.notes.editor.text
+package pl.dakil.notes.editor.markdown
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.input.InputTransformation

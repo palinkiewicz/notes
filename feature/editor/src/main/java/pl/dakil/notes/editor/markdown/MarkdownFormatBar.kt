@@ -1,4 +1,4 @@
-package pl.dakil.notes.editor.text
+package pl.dakil.notes.editor.markdown
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.BottomAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,12 +46,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.InlineSelector
 import pl.dakil.notes.editor.PopupPlacement
-import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** Which of the format bar's popups is open. */
-enum class FormatPopup { BLOCK }
+enum class FormatPopup { BLOCK, SIZE }
 
 /**
  * The Markdown formatting controls, as a bottom bar.
@@ -66,8 +67,23 @@ fun MarkdownFormatBar(
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Whether this document may set its own font sizes. See [MdStyle.SIZE]. */
+    sizes: Boolean = false,
+    /**
+     * Whether another bar stands below this one.
+     *
+     * A sheet keeps its tools out while the caret is in a box, so the two bars are stacked — and a
+     * pair of full-height app bars is a third of a phone screen, most of it empty. The one that is
+     * not at the bottom of the window also has no business padding itself clear of the navigation
+     * bar: the bar below it is what the system insets belong to, and paying them twice is the gap
+     * that appears between the two.
+     */
+    compact: Boolean = false,
 ) {
-    BottomAppBar(modifier = modifier) {
+    BottomAppBar(
+        modifier = if (compact) modifier.height(CompactBarHeight) else modifier,
+        windowInsets = if (compact) WindowInsets(0, 0, 0, 0) else BottomAppBarDefaults.windowInsets,
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -83,6 +99,7 @@ fun MarkdownFormatBar(
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
+                sizes = sizes,
             )
         }
     }
@@ -97,6 +114,8 @@ fun MarkdownFormatRail(
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Whether this document may set its own font sizes. See [MdStyle.SIZE]. */
+    sizes: Boolean = false,
 ) {
     NavigationRail(modifier = modifier) {
         Column(
@@ -113,6 +132,7 @@ fun MarkdownFormatRail(
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
+                sizes = sizes,
             )
         }
     }
@@ -132,6 +152,7 @@ private fun FormatControls(
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
+    sizes: Boolean,
 ) {
     val source = state.text.toString()
     val selection = state.selection
@@ -170,6 +191,36 @@ private fun FormatControls(
                             state.applyBlockToggle(style)
                         },
                     )
+                }
+            }
+        }
+    }
+
+    if (sizes) {
+        val size = remember(source, selection) {
+            MarkdownActions.sizeIn(source, selection.start, selection.end)
+        }
+        FormatButton(
+            // The number rather than a glyph: the whole point of the control is which size is in
+            // force, and a letter A with arrows beside it can only say "some size, possibly".
+            label = size?.toString() ?: "Aa",
+            description = "Font size",
+            selected = openPopup == FormatPopup.SIZE,
+            onClick = { onPopupChange(if (openPopup == FormatPopup.SIZE) null else FormatPopup.SIZE) },
+            content = { Text(size?.toString() ?: "Aa", fontWeight = FontWeight.Medium) },
+        ) {
+            if (openPopup == FormatPopup.SIZE) {
+                InlineSelector(placement = placement, onDismiss = { onPopupChange(null) }) {
+                    SizeChoice(label = "Body", selected = size == null) {
+                        onPopupChange(null)
+                        state.applySize(null)
+                    }
+                    for (choice in SIZE_CHOICES) {
+                        SizeChoice(label = choice.toString(), selected = size == choice) {
+                            onPopupChange(null)
+                            state.applySize(choice)
+                        }
+                    }
                 }
             }
         }
@@ -326,6 +377,28 @@ private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Uni
 }
 
 @Composable
+private fun SizeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                LocalContentColor.current
+            },
+        )
+    }
+}
+
+@Composable
 private fun IconFormatButton(
     icon: ImageVector,
     description: String,
@@ -410,6 +483,28 @@ private fun TextFieldState.applyWrap(marker: String) = applyAction { text, start
 private fun TextFieldState.applyBlockToggle(style: BlockStyle) = applyAction { text, start, end ->
     MarkdownActions.toggleBlockStyle(text, start, end, style)
 }
+
+private fun TextFieldState.applySize(sp: Int?) = applyAction { text, start, end ->
+    MarkdownActions.setSize(text, start, end, sp)
+}
+
+/**
+ * The ladder offered in the size menu.
+ *
+ * A short list of sizes people actually reach for rather than a stepper or a free field: every one
+ * of them is one tap, and the sizes in a note that used this list will agree with each other, which
+ * is most of what makes a page look deliberate. Anything else can still be typed by hand in source
+ * mode — the tag is ordinary text.
+ */
+private val SIZE_CHOICES = listOf(10, 12, 14, 16, 20, 24, 32, 48)
+
+/**
+ * The height of a bar stacked above another one.
+ *
+ * Every control in it is a 40 dp button, so this is the buttons plus a hair — enough to sit them
+ * apart from the row below without spending a second app bar's worth of screen on air.
+ */
+private val CompactBarHeight = 48.dp
 
 /**
  * Runs a [MarkdownActions] transform over the field's current text and selection.

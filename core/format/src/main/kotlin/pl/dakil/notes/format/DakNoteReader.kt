@@ -6,6 +6,7 @@ import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.PageFormat
+import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ViewMode
@@ -49,11 +50,13 @@ object DakNoteReader {
         consumed += DakNote.ENTRY_MANIFEST
         consumed += DakNote.ENTRY_MIMETYPE
 
-        val sheet = if (manifest.formatVersion >= 2) {
-            readSheet(entries, consumed)
-        } else {
-            migrateV1(manifest, entries, consumed)
-        }
+        val sheet = hydrateFlowText(
+            if (manifest.formatVersion >= 2) {
+                readSheet(entries, consumed)
+            } else {
+                migrateV1(manifest, entries, consumed)
+            }
+        )
 
         // A v1 file that declared an "infinite" page was really asking for a continuous view.
         val view = if (manifest.formatVersion < 2 && wasInfinite(manifest, entries)) {
@@ -101,6 +104,40 @@ object DakNoteReader {
         )
     }
 
+    /**
+     * Turns a v2 document flow into the text box that replaced it.
+     *
+     * The box is laid over the text column of the first page and made as deep as the flow was, so
+     * the words come back on screen exactly where the file last showed them.
+     *
+     * The guard is the important half. From v3 on, `content.md` is *derived* from the boxes on
+     * save, so a file that has boxes already has its text in them — hydrating that entry as well
+     * would add a second copy of the whole note on every open. Testing for boxes rather than for a
+     * version number also covers the file some other tool wrote, and makes migrating twice a fixed
+     * point rather than a way to lose a note to duplication.
+     */
+    private fun hydrateFlowText(sheet: Sheet): Sheet {
+        if (sheet.markdown.isEmpty()) return sheet
+        if (sheet.blocks.any { it is TextBlock }) return sheet.copy(markdown = "")
+
+        val format = sheet.format
+        val box = TextBlock(
+            id = sheet.nextBlockId(),
+            // Under the ink, which is where the flow was drawn: strokes were laid over the words.
+            z = (sheet.blocks.minOfOrNull { it.z } ?: 0) - 1,
+            rect = Rect(
+                format.contentLeft,
+                format.margins.top,
+                format.contentRight,
+                maxOf(sheet.contentHeight, format.margins.top + format.usableHeight),
+            ),
+            markdown = sheet.markdown,
+        )
+        // The cached flow height goes with the flow: the box states its own extent in its rect, and
+        // a leftover floor would hold pages open after the box it was measured from is deleted.
+        return sheet.copy(markdown = "", blocks = sheet.blocks + box, contentHeight = 0f)
+    }
+
     private fun readMarkdown(entries: Map<String, ByteArray>, consumed: MutableSet<String>): String {
         val bytes = entries[DakNote.ENTRY_MARKDOWN] ?: return ""
         consumed += DakNote.ENTRY_MARKDOWN
@@ -113,9 +150,13 @@ object DakNoteReader {
      * Flattens a v1 multi-page note into one continuous sheet.
      *
      * Each old page's blocks are shifted down by `pageIndex × pageHeight`, which is exactly the
-     * strip coordinate they already occupied visually, and the per-page document text is
-     * concatenated in page order to form the base Markdown flow. Nothing moves on screen; only the
-     * coordinate origin changes.
+     * strip coordinate they already occupied visually. Nothing moves on screen; only the coordinate
+     * origin changes.
+     *
+     * v1's per-page document text stays one box per page, standing in that page's text column. It
+     * used to be concatenated into the single flow v2 had, which was the only thing v2 could
+     * represent — and it moved every page's words onto page one. A box goes where its page is, so
+     * the round trip is now faithful.
      */
     private fun migrateV1(
         manifest: Schema.ManifestData,
@@ -124,7 +165,6 @@ object DakNoteReader {
     ): Sheet {
         var format = PageFormat.DEFAULT
         val blocks = ArrayList<Block>()
-        val text = StringBuilder()
         var pageIndex = 0
         var maxBottom = 0f
 
@@ -153,17 +193,19 @@ object DakNoteReader {
                 val blockJson = item as? JsonObject ?: return@forEach
                 val block = Schema.readBlock(blockJson) { src -> entries[src]?.also { consumed += src } }
 
-                // v1 document-flow text becomes part of the base Markdown flow; everything else
-                // keeps its place on the paper, shifted into strip coordinates.
-                if (block is TextBlock && Schema.isLegacyFlowText(blockJson)) {
-                    if (block.markdown.isNotEmpty()) {
-                        if (text.isNotEmpty()) text.append("\n\n")
-                        text.append(block.markdown)
-                    }
-                    return@forEach
+                // v1 document-flow text filled its page's text column, and the file usually says
+                // so in the block's own rect. Only when it does not — a flow block was allowed to
+                // leave its geometry implicit — is the column filled in here. Everything else
+                // already knows where it is and only needs shifting into strip coordinates.
+                val placed = if (
+                    block is TextBlock && Schema.isLegacyFlowText(blockJson) && block.rect.isEmpty
+                ) {
+                    block.copy(rect = textColumnOf(format))
+                } else {
+                    block
                 }
 
-                val shifted = shiftDown(block, offsetY)
+                val shifted = shiftDown(placed, offsetY)
                 blocks += shifted
                 maxBottom = maxOf(maxBottom, shifted.worldBounds().bottom)
             }
@@ -173,11 +215,18 @@ object DakNoteReader {
 
         return Sheet(
             format = format,
-            markdown = text.toString(),
             blocks = blocks,
             contentHeight = maxOf(maxBottom, pageIndex * format.height),
         )
     }
+
+    /** The band a page's text occupied: the full column, between the margins. */
+    private fun textColumnOf(format: PageFormat): Rect = Rect(
+        format.contentLeft,
+        format.margins.top,
+        format.contentRight,
+        format.height - format.margins.bottom,
+    )
 
     private fun shiftDown(block: Block, dy: Float): Block {
         if (dy == 0f) return block

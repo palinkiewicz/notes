@@ -1,10 +1,9 @@
-package pl.dakil.notes.editor.text
+package pl.dakil.notes.editor.markdown
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.ui.text.TextRange
-import pl.dakil.notes.editor.markdown.MarkdownActions
 
 /**
  * Space and backspace, pressed with the caret standing between a list marker and its label.

@@ -1,12 +1,9 @@
-package pl.dakil.notes.editor.text
+package pl.dakil.notes.editor.markdown
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.ui.text.TextRange
-import pl.dakil.notes.editor.markdown.MarkdownRenderer
-import pl.dakil.notes.editor.markdown.MarkdownStructure
-import pl.dakil.notes.editor.markdown.MdBackspace
 
 /**
  * Makes backspace mean what it looks like it means at the edge of a block.

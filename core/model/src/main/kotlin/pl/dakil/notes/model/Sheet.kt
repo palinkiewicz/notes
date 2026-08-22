@@ -60,12 +60,12 @@ enum class ViewMode {
 }
 
 /**
- * One continuous sheet of paper: Markdown text as the base layer, ink drawn over it.
+ * One continuous sheet of paper: text boxes and ink, side by side on the same surface.
  *
- * There is no "text mode" and no "drawing mode" — there is one surface. [markdown] flows down the
- * strip inside the page margins; [blocks] (ink layers, and later charts or stickers) sit on top of
- * it in the same coordinate space. A note that is only typed simply has no ink; a note that is only
- * drawn simply has no text.
+ * There is no "text mode" and no "drawing mode" — there is one surface. Everything on it is a
+ * [Block] in the same coordinate space: [TextBlock]s carry the typed words, [InkBlock]s the
+ * strokes. A note that is only typed simply has no ink; a note that is only drawn simply has no
+ * boxes.
  *
  * ### Coordinates
  *
@@ -73,25 +73,32 @@ enum class ViewMode {
  * first page downwards without limit. Page `k` occupies `y ∈ [k·height, (k+1)·height)`, so
  * pagination is arithmetic rather than stored state, and printing is a matter of slicing.
  *
- * ### Ink does not follow reflow
+ * ### Nothing moves under anything else
  *
- * Strokes are positioned on the paper, not attached to the text. Typing above a stroke does not
- * drag it down — the same contract as annotating a printed page. It is the only model that stays
- * predictable when a stroke spans several paragraphs, and it means text editing can never silently
- * rearrange a drawing.
+ * Strokes and boxes alike are positioned on the paper. Typing does not drag a stroke down and
+ * drawing does not push a box aside — the same contract as annotating a printed page. It is the
+ * only model that stays predictable when a stroke spans several paragraphs, and it is what lets a
+ * page operation move a whole page's worth of work without having to ask what any of it means.
  */
 data class Sheet(
     val format: PageFormat = PageFormat.DEFAULT,
-    /** The base Markdown flow. Empty for a pure drawing note. */
+    /**
+     * The v2 document flow, kept only so a file written before text boxes existed can be migrated.
+     *
+     * `DakNoteReader` empties this into a [TextBlock] on open, so a sheet in the editor's hands
+     * always has it blank. Nothing renders it and nothing writes it back; `content.md` is derived
+     * from the boxes instead.
+     */
     val markdown: String = "",
     /** Ink layers and future block types, in strip coordinates, drawn over the text. */
     val blocks: List<Block> = emptyList(),
     /**
-     * Height of the strip in points, as last laid out.
+     * A floor on the strip height in points, carried over from files that had a document flow.
      *
-     * Cached from the renderer because pagination depends on how tall the text turned out, which
-     * only the text layout engine knows. Persisted so a note reopens with the right page count
-     * before its text has been measured.
+     * It existed because pagination once depended on how tall the flow turned out, which only the
+     * text layout engine knew. A box states its own extent in its [Block.rect], so nothing needs to
+     * be cached any more — but a v2 note's page count must not change under the user on the way to
+     * v3, so the value is still read, still honoured by [contentPageCount], and still written back.
      */
     val contentHeight: Float = 0f,
     /**
@@ -112,19 +119,34 @@ data class Sheet(
 
     fun inkLayers(): List<InkBlock> = blocks.filterIsInstance<InkBlock>()
 
+    /**
+     * Every text box, in reading order.
+     *
+     * Down the strip and then across, which is page order too: page `k` owns a contiguous band of
+     * y, so sorting by y alone already puts page one's boxes before page two's. This is the order
+     * the note's words are written to `content.md` and handed to the search index in.
+     */
+    fun textBlocks(): List<TextBlock> = blocks.filterIsInstance<TextBlock>()
+        .sortedWith(compareBy({ it.worldBounds().top }, { it.worldBounds().left }))
+
+    /** Every box's Markdown, in reading order, as one document. */
+    fun textInReadingOrder(): String =
+        textBlocks().map { it.markdown }.filter { it.isNotEmpty() }.joinToString("\n\n")
+
     /** The layer new strokes land on: the topmost visible, unlocked one. */
     fun defaultInkLayer(): InkBlock? =
         inkLayers().filter { it.visible && !it.locked }.maxByOrNull { it.z }
 
     /**
-     * Bottom-most extent of anything drawn, ignoring the text.
+     * Bottom-most extent of everything on the sheet.
      *
-     * Measured along the centreline of the ink rather than its inked extent, because this decides
-     * *how many pages there are*. A stroke cut at a page boundary ends exactly on it; judged by the
-     * inked extent it reaches half a stroke width onto the page below, and that page can then never
-     * be deleted — it is being held open by the end cap of a stroke on the page before it.
+     * Ink is measured along the centreline of the stroke rather than its inked extent, because this
+     * decides *how many pages there are*. A stroke cut at a page boundary ends exactly on it; judged
+     * by the inked extent it reaches half a stroke width onto the page below, and that page can then
+     * never be deleted — it is being held open by the end cap of a stroke on the page before it.
+     * Everything else states its extent plainly in its bounds.
      */
-    fun inkBottom(): Float {
+    fun contentBottom(): Float {
         var bottom = 0f
         for (block in blocks) {
             val b = when (block) {
@@ -156,7 +178,7 @@ data class Sheet(
     fun contentPageCount(): Int {
         val height = format.height
         if (height <= 0f) return 1
-        val extent = maxOf(contentHeight, inkBottom(), 1f)
+        val extent = maxOf(contentHeight, contentBottom(), 1f)
         return maxOf(1, ceil(extent / height - 1e-4f).toInt())
     }
 
@@ -168,28 +190,15 @@ data class Sheet(
     // ---- Page operations -------------------------------------------------------------------------
 
     /**
-     * How many pages the Markdown flow reaches onto.
+     * Whether page [index] can be duplicated or removed — that is, unless there is no such page.
      *
-     * Text is a continuous flow, not a per-page thing, so it is the one part of the sheet that
-     * cannot be addressed a page at a time. That makes it the boundary for [canEditPage].
+     * There used to be a second condition here: a page the document flow reached could not be
+     * touched, because inserting or deleting paper under flowing text would have slid the ink out
+     * from under the words it was written against, and no page number can answer "which paragraph
+     * did you mean to delete". Text lives in boxes now, and a box is on a page in exactly the way a
+     * stroke is, so both questions have ordinary answers and the restriction is gone.
      */
-    fun textPageCount(): Int {
-        val height = format.height
-        if (height <= 0f) return 1
-        return maxOf(1, ceil(contentHeight / height - 1e-4f).toInt())
-    }
-
-    /**
-     * Whether page [index] can be duplicated or removed.
-     *
-     * Only pages the text flow does not reach. Inserting or deleting paper under flowing text would
-     * slide the ink out from under the words it was written against, since ink is anchored to the
-     * paper and text is not — and there is no answer to "which paragraph did you mean to delete"
-     * that a page number can give. So the operation is offered where it is exact and refused, with
-     * a reason, where it is not.
-     */
-    fun canEditPage(index: Int): Boolean =
-        index in 0 until pageCount() && index >= textPageCount()
+    fun canEditPage(index: Int): Boolean = index in 0 until pageCount()
 
     /** Whether removing page [index] would leave at least one page standing. */
     fun canRemovePage(index: Int): Boolean = canEditPage(index) && pageCount() > 1
@@ -210,9 +219,11 @@ data class Sheet(
     /**
      * Inserts a copy of page [index] directly after it, sliding everything below down one page.
      *
-     * Only the ink actually *on* the page is copied. A stroke running across the page break is cut
+     * Only what is actually *on* the page is copied. A stroke running across the page break is cut
      * at the boundary: the part on this page is what gets duplicated, and the part on the next page
-     * travels down with the page it belongs to rather than being left overlapping the new sheet.
+     * travels down with the page it belongs to rather than being left overlapping the new sheet. A
+     * box is never cut — it goes wherever [pageOf] says it is — and its copy is given an id of its
+     * own, since two blocks sharing one is a document that cannot be edited.
      */
     fun withPageDuplicated(index: Int): Sheet {
         if (!canEditPage(index)) return this
@@ -220,18 +231,29 @@ data class Sheet(
         val top = index * height
         val bottom = top + height
         val down = Affine.translate(0f, height)
+        val ids = IdAllocator(blocks.map { it.id.raw })
 
-        val moved = mapInk { stroke ->
-            buildList {
-                addAll(stroke.clippedToBand(ABOVE_ALL, bottom))
-                for (piece in stroke.clippedToBand(top, bottom)) add(piece.transformed(down))
-                for (piece in stroke.clippedToBand(bottom, BELOW_ALL)) add(piece.transformed(down))
-            }
-        }
+        val moved = mapBlocks(
+            ink = { stroke ->
+                buildList {
+                    addAll(stroke.clippedToBand(ABOVE_ALL, bottom))
+                    for (piece in stroke.clippedToBand(top, bottom)) add(piece.transformed(down))
+                    for (piece in stroke.clippedToBand(bottom, BELOW_ALL)) add(piece.transformed(down))
+                }
+            },
+            placed = { block ->
+                when {
+                    pageOf(block) < index -> listOf(block)
+                    pageOf(block) == index ->
+                        listOf(block, block.translated(0f, height).withId(ids.next()))
+                    else -> listOf(block.translated(0f, height))
+                }
+            },
+        )
         return copy(blocks = moved, pages = pageCount() + 1)
     }
 
-    /** Removes page [index] along with the ink on it, sliding everything below up one page. */
+    /** Removes page [index] along with everything on it, sliding what is below up one page. */
     fun withPageRemoved(index: Int): Sheet {
         if (!canRemovePage(index)) return this
         val height = format.height
@@ -239,12 +261,21 @@ data class Sheet(
         val bottom = top + height
         val up = Affine.translate(0f, -height)
 
-        val moved = mapInk { stroke ->
-            buildList {
-                addAll(stroke.clippedToBand(ABOVE_ALL, top))
-                for (piece in stroke.clippedToBand(bottom, BELOW_ALL)) add(piece.transformed(up))
-            }
-        }
+        val moved = mapBlocks(
+            ink = { stroke ->
+                buildList {
+                    addAll(stroke.clippedToBand(ABOVE_ALL, top))
+                    for (piece in stroke.clippedToBand(bottom, BELOW_ALL)) add(piece.transformed(up))
+                }
+            },
+            placed = { block ->
+                when {
+                    pageOf(block) < index -> listOf(block)
+                    pageOf(block) == index -> emptyList()
+                    else -> listOf(block.translated(0f, -height))
+                }
+            },
+        )
         return copy(blocks = moved, pages = (pageCount() - 1).coerceAtLeast(1))
     }
 
@@ -253,7 +284,7 @@ data class Sheet(
      *
      * Everything between them, and everything outside them, stays exactly where it was — so moving
      * a page up repeatedly walks it through the note one position at a time without disturbing the
-     * rest.
+     * rest. Boxes travel with their page; strokes are cut at the boundaries and travel by the piece.
      */
     fun withPagesSwapped(a: Int, b: Int): Sheet {
         val range = 0 until pageCount()
@@ -265,32 +296,81 @@ data class Sheet(
         val secondTop = second * height
         val shift = secondTop - firstTop
 
-        val moved = mapInk { stroke ->
-            buildList {
-                addAll(stroke.clippedToBand(ABOVE_ALL, firstTop))
-                for (piece in stroke.clippedToBand(firstTop, firstTop + height)) {
-                    add(piece.transformed(Affine.translate(0f, shift)))
+        val moved = mapBlocks(
+            ink = { stroke ->
+                buildList {
+                    addAll(stroke.clippedToBand(ABOVE_ALL, firstTop))
+                    for (piece in stroke.clippedToBand(firstTop, firstTop + height)) {
+                        add(piece.transformed(Affine.translate(0f, shift)))
+                    }
+                    addAll(stroke.clippedToBand(firstTop + height, secondTop))
+                    for (piece in stroke.clippedToBand(secondTop, secondTop + height)) {
+                        add(piece.transformed(Affine.translate(0f, -shift)))
+                    }
+                    addAll(stroke.clippedToBand(secondTop + height, BELOW_ALL))
                 }
-                addAll(stroke.clippedToBand(firstTop + height, secondTop))
-                for (piece in stroke.clippedToBand(secondTop, secondTop + height)) {
-                    add(piece.transformed(Affine.translate(0f, -shift)))
-                }
-                addAll(stroke.clippedToBand(secondTop + height, BELOW_ALL))
-            }
-        }
+            },
+            placed = { block ->
+                listOf(
+                    when (pageOf(block)) {
+                        first -> block.translated(0f, shift)
+                        second -> block.translated(0f, -shift)
+                        else -> block
+                    }
+                )
+            },
+        )
         return copy(blocks = moved)
     }
 
-    /** Rebuilds every ink layer by replacing each stroke with zero or more successors. */
-    private fun mapInk(transform: (Stroke) -> List<Stroke>): List<Block> = blocks.map { block ->
-        if (block !is InkBlock) return@map block
+    /**
+     * Rebuilds the sheet a page operation at a time.
+     *
+     * The two halves are separate because they are addressed differently. An ink *layer* is not on
+     * any page — it spans the whole strip — so it survives every operation and only its strokes
+     * move, each cut at the page boundaries it crosses. Everything else is a positioned block that
+     * belongs to one page, so [placed] is asked what becomes of the whole thing: nothing, itself
+     * shifted, a copy alongside it, or gone.
+     */
+    private fun mapBlocks(
+        ink: (Stroke) -> List<Stroke>,
+        placed: (Block) -> List<Block>,
+    ): List<Block> = blocks.flatMap { block ->
+        if (block !is InkBlock) return@flatMap placed(block)
         val out = ArrayList<Stroke>(block.strokes.size)
-        for (stroke in block.strokes) out += transform(stroke)
-        block.copy(strokes = out).withRecomputedBounds()
+        for (stroke in block.strokes) out += ink(stroke)
+        listOf(block.copy(strokes = out).withRecomputedBounds())
+    }
+
+    /**
+     * Hands out block ids that are free, and stay free as more are asked for.
+     *
+     * [nextBlockId] answers for one block at a time and would give the same id twice when a page
+     * carrying two boxes is duplicated, which is a document whose blocks cannot be told apart.
+     */
+    private class IdAllocator(taken: Collection<String>) {
+        private val used = HashSet(taken)
+        private var n = used.size
+
+        fun next(): BlockId {
+            while ("b$n" in used) n++
+            used += "b$n"
+            return BlockId("b$n")
+        }
     }
 
     /** Total strip height including the trailing part-page, in points. */
     fun stripHeight(): Float = pageCount() * format.height
+
+    /**
+     * The page a positioned block belongs to.
+     *
+     * Judged by the top-left corner of its bounds and nothing else, for the same reason a stroke's
+     * page is judged by its centreline: a box whose last line pokes past the boundary is still on
+     * the page it starts on. Deciding otherwise would let a box hold open the page below it, or —
+     * worse — send it there behind the user's back the moment they typed one line too many.
+     */
+    fun pageOf(block: Block): Int = pageAt(block.worldBounds().top)
 
     /** The page index containing strip coordinate [y]. */
     fun pageAt(y: Float): Int =

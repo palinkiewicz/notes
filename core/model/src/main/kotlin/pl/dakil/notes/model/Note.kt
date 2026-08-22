@@ -43,8 +43,8 @@ data class Note(
     val readOnly: Boolean = false,
     val foreignEntries: Map<String, ByteArray> = emptyMap(),
 ) {
-    /** The text handed to the search indexer. */
-    fun plainText(): String = sheet.markdown
+    /** The text handed to the search indexer: every box's words, in reading order. */
+    fun plainText(): String = sheet.textInReadingOrder()
 
     fun withSheet(sheet: Sheet): Note = copy(sheet = sheet)
 

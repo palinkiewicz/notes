@@ -1,10 +1,18 @@
 package pl.dakil.notes.editor
 
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
@@ -80,7 +88,13 @@ data class EditorUiState(
      */
     val lastDrawingTool: ToolId = ToolId.PEN,
     val lastEraser: ToolId = ToolId.ERASER_STROKE,
-    /** True when the text tool is chosen: a finger tap edits text rather than drawing. */
+    /**
+     * True when the text tool is chosen: a tap makes or opens a text box rather than drawing.
+     *
+     * This overrides the overlay's usual "a stylus always draws" rule, and deliberately. The tool
+     * in the user's hand is the one they picked, and a text tool a pen cannot use is a text tool
+     * that does nothing on the devices this app is for. Picking a pen again goes back to drawing.
+     */
     val textToolActive: Boolean = false,
     /**
      * Whether the straightedge is out.
@@ -89,7 +103,10 @@ data class EditorUiState(
      * erasing or typing, so this is independent of [tool] and of [textToolActive].
      */
     val rulerEnabled: Boolean = false,
-    val editingText: Boolean = false,
+    /** The box the caret is in, if any. Its text is in [NoteViewModel.textField]. */
+    val editingTextBlock: BlockId? = null,
+    /** The box under the handles: the one being edited, or one tapped with the text tool. */
+    val activeTextBlock: BlockId? = null,
     val activeLayerId: BlockId? = null,
     val selection: Selection? = null,
     val inputConfig: InputConfig = InputConfig(),
@@ -113,12 +130,18 @@ data class EditorUiState(
 }
 
 /**
- * Owns the open document: one sheet, Markdown underneath and ink on top.
+ * Owns the open document: one sheet, text boxes and ink side by side on it.
  *
  * The state split is the important part. Screen state is a [StateFlow] read during composition; the
  * document is immutable data replaced wholesale on each edit; and the stroke under the pen never
  * reaches this class at all — the overlay hands over a finished [Stroke] on pointer-up. That is
  * what keeps a 240 Hz input stream off the recomposition path.
+ *
+ * Typing is the third rate. A keystroke goes into [textField] and no further, and only when the
+ * user pauses does it become an [Edit] on the document. Committing per keystroke would push a whole
+ * `Sheet` through the state flow for every character, and would fill the undo stack with one entry
+ * per letter — [Edit.ReplaceBlock] merges runs on the same block, so a pause is what separates one
+ * undo from the next.
  */
 class NoteViewModel(
     private val repository: NoteRepository,
@@ -129,6 +152,27 @@ class NoteViewModel(
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
     private val history = EditHistory()
+
+    /**
+     * The live buffer for the box being edited, replaced wholesale when a different one opens.
+     *
+     * A `TextFieldState` per box would put every box's buffer and undo history on the heap at once
+     * and let one box's edits reach another's; one field that is handed to whichever box has the
+     * caret cannot. Its own undo is deliberately never wired up — the editor's [EditHistory] is the
+     * single authority, so that one press of undo steps back through typing and ink in the order
+     * they happened rather than through whichever stack happens to be listening.
+     */
+    var textField by mutableStateOf(TextFieldState())
+        private set
+
+    /** Watches [textField] and turns pauses in typing into document edits. */
+    private var typingJob: Job? = null
+
+    /** The box as it stood when a move or resize began. See [beginTextBlockDrag]. */
+    private var dragOrigin: TextBlock? = null
+
+    /** A box that has been put on the page but not yet into the history. See [createTextBlock]. */
+    private var pendingBox: BlockId? = null
 
     init {
         settings.settings
@@ -172,13 +216,15 @@ class NoteViewModel(
 
     private fun adopt(note: Note, ref: StoreRef?) {
         history.clear()
+        closeTextField()
         _state.update { current ->
             current.copy(
                 note = note,
                 ref = ref,
                 view = note.meta.view,
                 activeLayerId = note.sheet.defaultInkLayer()?.id,
-                editingText = false,
+                editingTextBlock = null,
+                activeTextBlock = null,
                 selection = null,
                 isLoading = false,
                 error = null,
@@ -237,6 +283,10 @@ class NoteViewModel(
     // ---- Tools ---------------------------------------------------------------------------------
 
     fun selectTool(tool: ToolId) {
+        // Leaving the text tool takes the caret out of the box with it. A caret still blinking in a
+        // box while the pen draws over the page is a keyboard the user cannot get rid of, and a
+        // Backspace away from deleting something they are no longer looking at.
+        clearTextSelection()
         _state.update { current ->
             val spec = current.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool)
             current.copy(
@@ -250,7 +300,13 @@ class NoteViewModel(
         }
     }
 
-    /** The text tool: taps land in the text rather than laying down ink. A stylus still draws. */
+    /**
+     * The text tool: a tap makes or opens a box instead of laying down ink, pen included.
+     *
+     * The lasso selection goes, because the two are different ways of pointing at the same paper
+     * and leaving handles from one under the tool for the other is how a drag ends up doing
+     * something nobody asked for.
+     */
     fun selectTextTool() {
         _state.update { it.copy(textToolActive = true, selection = null) }
     }
@@ -374,27 +430,272 @@ class NoteViewModel(
         return true
     }
 
-    /** Reported by the text layout once it knows how tall the flow turned out. */
-    fun reportContentHeight(heightPt: Float) {
-        val note = _state.value.note ?: return
-        if (kotlin.math.abs(note.sheet.contentHeight - heightPt) < 0.5f) return
-        // Not an undoable edit: it is a measurement, not something the user did.
-        _state.update { it.copy(note = note.withSheet(note.sheet.copy(contentHeight = heightPt))) }
+    // ---- Text boxes ----------------------------------------------------------------------------
+
+    /**
+     * Opens a new box at a point on the paper, and puts the caret in it.
+     *
+     * The width is the page's text column from the tap rightwards, so a box made anywhere near the
+     * left margin lines up with the one above it and a box made out in the margin is still as wide
+     * as there is room for. Height is a starting guess only: the box reports what it measures and
+     * grows to fit from the first keystroke on.
+     */
+    fun createTextBlock(x: Float, y: Float) {
+        val current = _state.value
+        val note = current.note ?: return
+        val sheet = note.sheet
+        if (current.isReadOnly) return
+
+        val format = sheet.format
+        val left = x.coerceIn(0f, (format.contentRight - MIN_TEXT_WIDTH).coerceAtLeast(0f))
+        val top = y.coerceAtLeast(0f)
+        val box = TextBlock(
+            id = sheet.nextBlockId(),
+            // Over the ink, because this box is the thing the user is about to type into and a
+            // stroke drawn earlier must not be painted across the words going onto it.
+            z = (sheet.blocks.maxOfOrNull { it.z } ?: 0) + 1,
+            rect = Rect(left, top, maxOf(format.contentRight, left + MIN_TEXT_WIDTH), top + NEW_TEXT_HEIGHT),
+        )
+
+        // Put on the page with no history behind it. An empty box is not yet something the user has
+        // *done* — they have aimed, and aiming somewhere else instead should not cost them an undo.
+        // The first characters typed into it are what make it real: see [commitTypedText].
+        pendingBox = box.id
+        _state.update {
+            it.copy(
+                note = note.withSheet(sheet.withBlock(box)),
+                documentVersion = it.documentVersion + 1,
+            )
+        }
+        beginTextEditing(box.id)
     }
 
-    // ---- Text ----------------------------------------------------------------------------------
+    /** Puts the caret in [id]'s text, loading it into [textField]. */
+    fun beginTextEditing(id: BlockId) {
+        val current = _state.value
+        if (current.isReadOnly) return
+        if (current.editingTextBlock == id) return
+        val box = current.sheet?.block(id) as? TextBlock ?: return
 
-    fun beginTextEditing() {
-        if (_state.value.isReadOnly) return
-        _state.update { it.copy(editingText = true, selection = null) }
+        // Whatever was in the old field is flushed before it is thrown away: the debounce means the
+        // last few characters typed into the box being left have not been committed yet.
+        commitTypedText()
+        typingJob?.cancel()
+        textField = TextFieldState(box.markdown)
+        _state.update { it.copy(editingTextBlock = id, activeTextBlock = id, selection = null) }
+
+        // `drop(1)` skips the value the flow emits on subscription — the text just loaded out of
+        // the document, which is already what the document says.
+        typingJob = snapshotFlow { textField.text.toString() }
+            .drop(1)
+            .debounce(TYPING_COMMIT_MS)
+            .onEach { commitTypedText() }
+            .launchIn(viewModelScope)
     }
 
-    fun endTextEditing() = _state.update { it.copy(editingText = false) }
+    /**
+     * Takes the caret out of the text, leaving the box selected so it can still be moved.
+     *
+     * A box left with nothing in it goes away again. There is nothing to see in one and nothing to
+     * be done with one, so leaving it behind would mean invisible blocks accumulating wherever the
+     * user had tapped and changed their mind — each of them still able to catch the next tap meant
+     * for the paper underneath.
+     */
+    fun endTextEditing() {
+        commitTypedText()
+        typingJob?.cancel()
+        typingJob = null
 
-    fun updateText(markdown: String) {
+        val leaving = _state.value.editingTextBlock
+        val box = leaving?.let { _state.value.sheet?.block(it) } as? TextBlock
+        if (box != null && box.markdown.isEmpty()) discardTextBlock(box)
+
+        _state.update { it.copy(editingTextBlock = null, activeTextBlock = it.activeTextBlock?.takeIf { id -> id != box?.id }) }
+    }
+
+    /** Drops the handles as well: nothing on the sheet is singled out any more. */
+    fun clearTextSelection() {
+        endTextEditing()
+        _state.update { it.copy(activeTextBlock = null) }
+    }
+
+    /** Singles a box out for its handles without opening the keyboard on it. */
+    fun selectTextBlock(id: BlockId?) {
+        if (_state.value.editingTextBlock != null && _state.value.editingTextBlock != id) endTextEditing()
+        _state.update { it.copy(activeTextBlock = id) }
+    }
+
+    /**
+     * Starts a move or resize, remembering the box as it stood before the finger went down.
+     *
+     * A drag is one thing the user did and has to be one thing to undo, but the text has to reflow
+     * under the handle as it moves or the drag is guesswork. So the frames in between are written
+     * straight onto the document with no history behind them, and [endTextBlockDrag] pushes a
+     * single edit from where the box started to where it ended up.
+     */
+    fun beginTextBlockDrag(id: BlockId) {
+        dragOrigin = _state.value.sheet?.block(id) as? TextBlock
+    }
+
+    /**
+     * Moves the box being dragged to [rect], live and un-undoably.
+     *
+     * Refuses to shrink past a usable minimum. A box dragged to nothing cannot be dragged back —
+     * there would be no handle left to take hold of — and a box one character wide is a column of
+     * single letters, which is never what the drag meant.
+     */
+    fun dragTextBlockTo(id: BlockId, rect: Rect) {
         val note = _state.value.note ?: return
-        if (note.readOnly || note.sheet.markdown == markdown) return
-        commitEdit(Edit.SetText(note.sheet.markdown, markdown))
+        val sheet = note.sheet
+        val block = sheet.block(id) as? TextBlock ?: return
+        if (note.readOnly) return
+
+        val sized = Rect(
+            left = rect.left,
+            top = rect.top,
+            right = maxOf(rect.right, rect.left + MIN_TEXT_WIDTH),
+            bottom = maxOf(rect.bottom, rect.top + MIN_TEXT_HEIGHT),
+        )
+
+        // And kept on the paper. A box dragged off the edge is text that will not print and, once
+        // it is far enough out, handles that cannot be reached to drag it back — the page is the
+        // only thing the view can be scrolled to, so there is nowhere to go and look for it. Slid
+        // back rather than resized: what the drag asked for was a position, not a width.
+        val page = sheet.format
+        val overshootX = (sized.right - page.width).coerceAtLeast(0f) - sized.left.coerceAtMost(0f)
+        val strip = sheet.stripHeight()
+        val overshootY = (sized.top + MIN_TEXT_HEIGHT - strip).coerceAtLeast(0f) -
+            sized.top.coerceAtMost(0f)
+        val clamped = if (sized.width <= page.width) {
+            Rect(
+                sized.left - overshootX, sized.top - overshootY,
+                sized.right - overshootX, sized.bottom - overshootY,
+            )
+        } else {
+            sized
+        }
+        if (clamped == block.rect) return
+        _state.update {
+            it.copy(
+                note = note.withSheet(sheet.withBlock(block.copy(rect = clamped))),
+                documentVersion = it.documentVersion + 1,
+            )
+        }
+    }
+
+    /** Ends a drag, recording the whole of it as one undoable edit. */
+    fun endTextBlockDrag() {
+        val before = dragOrigin ?: return
+        dragOrigin = null
+        val after = _state.value.sheet?.block(before.id) as? TextBlock ?: return
+        if (after.rect == before.rect) return
+        // Put the document back first: `commitEdit` applies the edit itself, and applying it on top
+        // of the dragged state would leave the history's "before" pointing at a box that never was.
+        _state.update { current ->
+            val note = current.note ?: return@update current
+            current.copy(note = note.withSheet(note.sheet.withBlock(before)))
+        }
+        commitEdit(Edit.ReplaceBlock(before, after))
+    }
+
+    /**
+     * Grows or shrinks a box to the height its text actually needed.
+     *
+     * Reported by the renderer, because only the text engine knows how tall a paragraph turned out.
+     * It is not an undoable edit — nobody *did* this, it is the consequence of what they typed, and
+     * an undo stack with a height change between every two keystrokes would be unusable.
+     */
+    fun reportTextHeight(id: BlockId, heightPt: Float) {
+        val note = _state.value.note ?: return
+        val sheet = note.sheet
+        val box = sheet.block(id) as? TextBlock ?: return
+
+        // Never past the foot of its own page. The text beyond that is clipped rather than shown —
+        // it is in the next slice the printer takes — and a rect that reached onto the page below
+        // would say there is something on that page: enough to hold it open against deletion, and
+        // enough to conjure a blank page at the end of the note that nothing is ever drawn on.
+        val pageBottom = (sheet.pageOf(box) + 1) * sheet.format.height
+        val room = (pageBottom - box.rect.top).coerceAtLeast(MIN_TEXT_HEIGHT)
+        val wanted = heightPt.coerceIn(MIN_TEXT_HEIGHT, room)
+        if (kotlin.math.abs(box.rect.height - wanted) < 0.5f) return
+        val grown = box.copy(rect = box.rect.copy(bottom = box.rect.top + wanted))
+        _state.update { it.copy(note = note.withSheet(sheet.withBlock(grown))) }
+    }
+
+    fun deleteTextBlock(id: BlockId) {
+        val current = _state.value
+        val block = current.sheet?.block(id) as? TextBlock ?: return
+        if (current.isReadOnly) return
+        closeTextField()
+        discardTextBlock(block)
+        _state.update { it.copy(editingTextBlock = null, activeTextBlock = null) }
+    }
+
+    /** Flips one task's checkbox in a box nobody is typing in. */
+    fun toggleTask(id: BlockId, sourceMark: Int, checked: Boolean) {
+        val current = _state.value
+        val box = current.sheet?.block(id) as? TextBlock ?: return
+        if (current.isReadOnly) return
+        // The layout the tap was aimed with can be a frame behind the text, so a stale offset has
+        // to miss rather than overwrite whatever moved into its place.
+        if (sourceMark !in box.markdown.indices || box.markdown[sourceMark] !in " xX") return
+        val flipped = box.markdown.replaceRange(sourceMark, sourceMark + 1, if (checked) " " else "x")
+        commitEdit(Edit.ReplaceBlock(box, box.copy(markdown = flipped)))
+    }
+
+    /**
+     * Writes whatever is in [textField] back into its box.
+     *
+     * Runs on a pause in typing, when the caret leaves, and before the field is reused for another
+     * box. Doing nothing when the text has not changed is what keeps an idle field from pushing an
+     * empty edit onto the undo stack every time the user taps in and out of a box.
+     */
+    private fun commitTypedText() {
+        val current = _state.value
+        val id = current.editingTextBlock ?: return
+        val box = current.sheet?.block(id) as? TextBlock ?: return
+        if (current.isReadOnly) return
+        val typed = textField.text.toString()
+        if (typed == box.markdown) return
+
+        val filled = box.copy(markdown = typed)
+        if (id != pendingBox) {
+            commitEdit(Edit.ReplaceBlock(box, filled))
+            return
+        }
+
+        // The first thing typed into a brand-new box is what puts the box in the history, so that
+        // one undo takes the whole thing away rather than emptying it and leaving the frame behind.
+        // The document is put back first because `commitEdit` applies the edit itself.
+        pendingBox = null
+        _state.update { state ->
+            val note = state.note ?: return@update state
+            state.copy(note = note.withSheet(note.sheet.withoutBlock(id)))
+        }
+        commitEdit(Edit.AddBlock(filled))
+    }
+
+    /** Takes a box off the page without troubling the history — see [createTextBlock]. */
+    private fun discardTextBlock(box: TextBlock) {
+        if (box.id != pendingBox) {
+            commitEdit(Edit.RemoveBlock(box))
+            return
+        }
+        pendingBox = null
+        _state.update { state ->
+            val note = state.note ?: return@update state
+            state.copy(
+                note = note.withSheet(note.sheet.withoutBlock(box.id)),
+                documentVersion = state.documentVersion + 1,
+            )
+        }
+    }
+
+    private fun closeTextField() {
+        typingJob?.cancel()
+        typingJob = null
+        pendingBox = null
+        textField = TextFieldState()
     }
 
     fun setTitle(title: String) {
@@ -619,6 +920,14 @@ class NoteViewModel(
 
     companion object {
         private const val DUPLICATE_OFFSET = 16f
+
+        /** How long a pause in typing ends one undo step and starts the next. */
+        private const val TYPING_COMMIT_MS = 400L
+
+        /** A new box is a line tall and as wide as the column; both are only a starting point. */
+        private const val NEW_TEXT_HEIGHT = 28f
+        private const val MIN_TEXT_WIDTH = 48f
+        private const val MIN_TEXT_HEIGHT = 16f
 
         fun factory(repository: NoteRepository, settings: SettingsRepository) =
             object : ViewModelProvider.Factory {

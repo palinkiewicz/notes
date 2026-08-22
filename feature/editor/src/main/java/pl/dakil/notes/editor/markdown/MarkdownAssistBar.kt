@@ -544,6 +544,198 @@ object MarkdownActions {
         return active
     }
 
+    // ---- Font size ------------------------------------------------------------------------
+
+    /**
+     * Sets, replaces or clears the size of `[start, end)`, as `[text]{size=N}`.
+     *
+     * The one styling control a sheet has and a `.md` note does not — see [MdStyle.SIZE].
+     *
+     * Line by line, through [proseSpans], for the reason every other block-aware action is: the
+     * span is an *inline* construct and the renderer scans inline syntax one line at a time, so a
+     * tag opened on one line and closed on the next is not a tag at all — it is four characters of
+     * punctuation the reader can see. A selection across three paragraphs comes out as three spans,
+     * each clear of its own bullet or heading marker.
+     */
+    fun setSize(text: String, start: Int, end: Int, sp: Int?): Result {
+        val spans = proseSpans(text, start, end)
+        if (spans.size == 1) return sizeSpan(text, spans.single().from, spans.single().to, sp)
+
+        var out = text
+        for (span in spans.reversed()) out = sizeSpan(out, span.from, span.to, sp).text
+        // Reselected over the whole prose of every line covered, the same way [toggleWrap] does it:
+        // an end left inside one of the tags would be read as a different span next time round.
+        val lines = proseSpans(out, spans.first().from, spans.last().to + (out.length - text.length))
+        return Result(
+            text = out,
+            selectionStart = lines.first().from.coerceIn(0, out.length),
+            selectionEnd = lines.last().to.coerceIn(0, out.length),
+        )
+    }
+
+    /**
+     * One line's worth of [setSize].
+     *
+     * Three cases. A tag the selection is *inside of* is rewritten whole, rather than nested in a
+     * second one: two sizes on one run of characters is a document with no answer, and the answer
+     * people expect from pressing a size button twice is the second size. A selection that instead
+     * *contains* tags — which is what selecting everything gives you — has them taken out of the
+     * text before the new one goes round it, for the same reason. And a bare caret gets the empty
+     * pair, so that what is typed next is the size asked for: the bargain [toggleWrap] makes for
+     * bold.
+     *
+     * [sp] of null is the same three cases with nothing put back, so "Body" leaves no tag behind to
+     * be puzzled over in source mode.
+     */
+    private fun sizeSpan(text: String, start: Int, end: Int, sp: Int?): Result {
+        val from = minOf(start, end).coerceIn(0, text.length)
+        val to = maxOf(start, end).coerceIn(0, text.length)
+
+        val existing = sizeSpanAt(text, from, to)
+        if (existing != null) {
+            val body = text.substring(existing.open, existing.close)
+            val replacement = if (sp == null) body else "[$body]{size=$sp}"
+            val out = text.substring(0, existing.start) + replacement + text.substring(existing.end)
+            val shift = existing.start + (if (sp == null) 0 else 1)
+            return Result(out, shift, shift + body.length)
+        }
+
+        val body = stripSizes(text.substring(from, to))
+        val replacement = if (sp == null) body else "[$body]{size=$sp}"
+        val out = text.substring(0, from) + replacement + text.substring(to)
+        val shift = from + (if (sp == null) 0 else 1)
+        return Result(out, shift, shift + body.length)
+    }
+
+    /** The size in force at [offset], or null where the text is at the document's own size. */
+    fun sizeAt(text: String, offset: Int): Int? = sizeSpanAt(text, offset, offset)?.size
+
+    /**
+     * The size the *selection* is at, or null if it is at the document's own size or at several.
+     *
+     * What the button has to label itself with, and not the same question as [sizeAt]: selecting a
+     * sized run selects its hidden tag along with it, so the caret-in-a-span test alone would report
+     * "body" for the very text it is showing at 32 — and then set a second size around the first.
+     */
+    fun sizeIn(text: String, start: Int, end: Int): Int? {
+        val from = minOf(start, end).coerceIn(0, text.length)
+        val to = maxOf(start, end).coerceIn(0, text.length)
+        sizeSpanAt(text, from, to)?.let { return it.size }
+        if (from == to) return null
+
+        // Whole tags swallowed by the selection: one size, if they agree and there is nothing but
+        // blank space between them. A selection half in and half out of a span has no one answer.
+        val spans = sizeSpansIn(text, from, to)
+        val size = spans.firstOrNull()?.size ?: return null
+        if (spans.any { it.size != size }) return null
+        var cursor = from
+        for (span in spans) {
+            if (text.substring(cursor, span.start).isNotBlank()) return null
+            cursor = span.end
+        }
+        return if (text.substring(cursor, to).isBlank()) size else null
+    }
+
+    /**
+     * The innermost `[…]{size=N}` that `[from, to)` sits inside.
+     *
+     * Searched from the start of the text rather than by scanning outwards from the caret, because
+     * only a parse can tell a real span from a bracket somebody typed: `[a](b)` and `[a]` and an
+     * unclosed `[` all begin identically, and the caret has no idea which of them it is sitting in.
+     *
+     * "Inside" is generous at the edges on purpose. The tag is hidden, so a user who drags across
+     * the words they can see hands back a selection that reaches over the `[` and stops before the
+     * `]{size=N}` — and selecting all of a box gives one that covers both. Every one of those means
+     * the same span, so anything that stays within the tag and touches the text inside it counts.
+     */
+    private fun sizeSpanAt(text: String, from: Int, to: Int): SizeSpan? {
+        var best: SizeSpan? = null
+        forEachSizeSpan(text, 0, text.length) { span ->
+            val within = from >= span.start && to <= span.end
+            val touches = from <= span.close && to >= span.open
+            // Innermost wins: a span inside another covers a shorter run, and it is the one whose
+            // size the reader actually sees at that offset.
+            if (within && touches && (best == null || span.close - span.open < best!!.close - best!!.open)) {
+                best = span
+            }
+        }
+        return best
+    }
+
+    /** The outermost tags lying wholly inside `[from, to)`, in the order they appear. */
+    private fun sizeSpansIn(text: String, from: Int, to: Int): List<SizeSpan> {
+        val found = ArrayList<SizeSpan>()
+        var i = from
+        while (i < to) {
+            val span = if (text[i] == '[') sizeSpanStartingAt(text, i) else null
+            if (span != null && span.end <= to) {
+                found += span
+                i = span.end
+            } else {
+                i++
+            }
+        }
+        return found
+    }
+
+    /** [text] with every size tag in it removed and the words they wrapped kept. */
+    private fun stripSizes(text: String): String {
+        val out = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val span = if (text[i] == '[') sizeSpanStartingAt(text, i) else null
+            if (span != null) {
+                // Recursive, so a nested size goes too: having selected the lot and asked for one
+                // size, being given two is not an answer to that.
+                out.append(stripSizes(text.substring(span.open, span.close)))
+                i = span.end
+            } else {
+                out.append(text[i])
+                i++
+            }
+        }
+        return out.toString()
+    }
+
+    /** Every size tag in `[from, to)`, nested ones included. */
+    private inline fun forEachSizeSpan(text: String, from: Int, to: Int, action: (SizeSpan) -> Unit) {
+        var i = from
+        while (i < to) {
+            if (text[i] == '[') sizeSpanStartingAt(text, i)?.let(action)
+            i++
+        }
+    }
+
+    /** `[body]{size=N}` beginning at [at], with brackets counted so nesting closes correctly. */
+    private fun sizeSpanStartingAt(text: String, at: Int): SizeSpan? {
+        var depth = 0
+        var k = at
+        while (k < text.length) {
+            when (text[k]) {
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) {
+                        val (size, end) = MarkdownRenderer.sizeSuffixAt(text, k + 1, text.length)
+                            ?: return null
+                        return SizeSpan(start = at, open = at + 1, close = k, end = end, size = size)
+                    }
+                }
+            }
+            k++
+        }
+        return null
+    }
+
+    /** `start` and `end` bracket the whole tag; `open` and `close` bracket the text inside it. */
+    private data class SizeSpan(
+        val start: Int,
+        val open: Int,
+        val close: Int,
+        val end: Int,
+        val size: Int,
+    )
+
     private fun countOccurrences(text: String, from: Int, to: Int, marker: String): Int {
         var count = 0
         var i = from
