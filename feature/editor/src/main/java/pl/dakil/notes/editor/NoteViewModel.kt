@@ -112,6 +112,13 @@ data class EditorUiState(
     val activeLayerId: BlockId? = null,
     val selection: Selection? = null,
     val inputConfig: InputConfig = InputConfig(),
+    /**
+     * Whether the toolbar offers the finger-drawing button — the app setting of the same name.
+     *
+     * With it off there is no button and a finger never draws; with it on the button appears and
+     * [inputConfig] carries what the button currently says.
+     */
+    val fingerDrawingAvailable: Boolean = false,
     val recentColors: List<Int> = emptyList(),
     /** Zoom levels the user pinned, as whole percentages, ascending. */
     val zoomPresets: List<Int> = emptyList(),
@@ -188,7 +195,15 @@ class NoteViewModel(
             .onEach { app ->
                 _state.update {
                     it.copy(
-                        inputConfig = app.input,
+                        inputConfig = app.input.copy(
+                            // The setting says the finger *may* draw; the button says whether it is
+                            // doing so now. Turning the setting on starts it drawing, because that
+                            // is what the person who turned it on asked for; turning it off stops
+                            // it, because the button that would turn it back on is gone.
+                            fingerDrawingEnabled = app.fingerDrawingAvailable &&
+                                (!it.fingerDrawingAvailable || it.inputConfig.fingerDrawingEnabled),
+                        ),
+                        fingerDrawingAvailable = app.fingerDrawingAvailable,
                         recentColors = app.recentColors,
                         zoomPresets = app.zoomPresets,
                         measurementUnit = app.measurementUnit,
@@ -344,7 +359,16 @@ class NoteViewModel(
         }
     }
 
-    fun setFingerDrawing(enabled: Boolean) = settings.setFingerDrawing(enabled)
+    /**
+     * Flips the finger between drawing and panning.
+     *
+     * Editor state rather than a setting, like [setRuler]: it is the answer to "what is this hand
+     * doing right now", which changes several times in a sitting. What persists is whether the
+     * button is on the bar at all, which is `AppSettings.fingerDrawingAvailable`.
+     */
+    fun setFingerDrawing(enabled: Boolean) = _state.update {
+        it.copy(inputConfig = it.inputConfig.copy(fingerDrawingEnabled = enabled))
+    }
 
     /**
      * Puts the straightedge on the page, or takes it away.

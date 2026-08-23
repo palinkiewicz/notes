@@ -150,13 +150,6 @@ fun AppearanceSettingsScreen(
                 options = MeasurementUnit.entries.map { it to it.label() },
                 onSelect = settings::setMeasurementUnit,
             )
-
-            SwitchRow(
-                title = stringResource(R.string.settings_pattern_in_document),
-                summary = stringResource(R.string.settings_pattern_in_document_description),
-                checked = current.patternInDocumentMode,
-                onCheckedChange = settings::setPatternInDocumentMode,
-            )
         }
     }
 }

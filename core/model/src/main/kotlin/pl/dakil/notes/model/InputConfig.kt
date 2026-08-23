@@ -42,6 +42,9 @@ data class InputConfig(
     /**
      * Lets touch draw on devices with no stylus. Off by default: on a stylus tablet, a finger
      * should pan, and turning this on there would make the palm problem much worse.
+     *
+     * This is the live state of the editor's finger button, not the setting behind it — see
+     * `AppSettings.fingerDrawingAvailable`, which decides whether that button is there at all.
      */
     val fingerDrawingEnabled: Boolean = false,
     /**
@@ -54,8 +57,6 @@ data class InputConfig(
      * activity. In pixels, because that is the unit `MotionEvent.getTouchMajor` reports.
      */
     val palmTouchMajorThreshold: Float = 90f,
-    /** Two or more pointers always mean pan/zoom, so navigation survives finger-drawing mode. */
-    val multiTouchNavigates: Boolean = true,
     /** Global multiplier on every tool's smoothing, for people who want rawer or glassier ink. */
     val smoothingScale: Float = 1f,
     /** Control points of the pressure response curve; see `PressureCurve`. */

@@ -43,6 +43,14 @@ enum class LibraryLayout(val key: String) {
 /** Everything the user can configure. Defaults are what a casual note-taker should never touch. */
 data class AppSettings(
     val input: InputConfig = InputConfig(),
+    /**
+     * Whether the editor offers the finger-drawing button at all.
+     *
+     * The setting is about the device, not the moment: someone with a stylus never wants the
+     * button, and someone without one wants it on the bar. Whether the finger is drawing *now* is
+     * the button's own state, held in the editor — see [InputConfig.fingerDrawingEnabled].
+     */
+    val fingerDrawingAvailable: Boolean = false,
     /** The colour scheme the app paints itself in. */
     val colorTheme: AppColorTheme = AppColorTheme.DAKILS_NOTES,
     /** Whether the app follows the system dark setting or overrides it. */
@@ -52,8 +60,6 @@ data class AppSettings(
     val toolbarPosition: ToolbarPosition = ToolbarPosition.BOTTOM,
     val defaultPageSize: PageSize = PageSize.A4,
     val defaultBackground: PageBackground = PageBackground.DEFAULT,
-    /** Show the page grid/rule pattern behind text in Document mode too. */
-    val patternInDocumentMode: Boolean = false,
     val libraryRoot: String? = null,
     /** Which view new notes open in. */
     val defaultView: ViewMode = ViewMode.PAGED,
@@ -90,10 +96,8 @@ class SettingsRepository(context: Context) {
 
     fun read(): AppSettings = AppSettings(
         input = InputConfig(
-            fingerDrawingEnabled = prefs.getBoolean(KEY_FINGER_DRAWING, false),
             palmRejectionWindowMs = prefs.getLong(KEY_PALM_WINDOW, 120L),
             palmTouchMajorThreshold = prefs.getFloat(KEY_PALM_SIZE, 90f),
-            multiTouchNavigates = prefs.getBoolean(KEY_MULTITOUCH_NAV, true),
             smoothingScale = prefs.getFloat(KEY_SMOOTHING_SCALE, 1f),
             pressureCurve = PressureCurve(
                 x1 = prefs.getFloat(KEY_CURVE_X1, PressureCurve.LINEAR.x1),
@@ -105,6 +109,7 @@ class SettingsRepository(context: Context) {
             autoShapeEnabled = prefs.getBoolean(KEY_AUTO_SHAPE, true),
             autoShapeHoldMs = prefs.getLong(KEY_AUTO_SHAPE_HOLD, 500L),
         ),
+        fingerDrawingAvailable = prefs.getBoolean(KEY_FINGER_DRAWING, false),
         colorTheme = prefs.getString(KEY_COLOR_THEME, null)
             ?.let(AppColorTheme::fromKey) ?: AppColorTheme.DAKILS_NOTES,
         darkTheme = prefs.getString(KEY_DARK_THEME, null)
@@ -114,7 +119,6 @@ class SettingsRepository(context: Context) {
             .getOrElse(prefs.getInt(KEY_TOOLBAR_POSITION, 0)) { ToolbarPosition.BOTTOM },
         defaultPageSize = readPageSize(),
         defaultBackground = readBackground(),
-        patternInDocumentMode = prefs.getBoolean(KEY_PATTERN_IN_DOC, false),
         libraryRoot = prefs.getString(KEY_LIBRARY_ROOT, null),
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
@@ -133,9 +137,6 @@ class SettingsRepository(context: Context) {
     fun setPalmRejectionWindowMs(value: Long) = prefs.edit().putLong(KEY_PALM_WINDOW, value).apply()
 
     fun setPalmTouchMajorThreshold(value: Float) = prefs.edit().putFloat(KEY_PALM_SIZE, value).apply()
-
-    fun setMultiTouchNavigates(enabled: Boolean) =
-        prefs.edit().putBoolean(KEY_MULTITOUCH_NAV, enabled).apply()
 
     fun setSmoothingScale(value: Float) = prefs.edit().putFloat(KEY_SMOOTHING_SCALE, value).apply()
 
@@ -162,9 +163,6 @@ class SettingsRepository(context: Context) {
 
     fun setToolbarPosition(position: ToolbarPosition) =
         prefs.edit().putInt(KEY_TOOLBAR_POSITION, position.ordinal).apply()
-
-    fun setPatternInDocumentMode(enabled: Boolean) =
-        prefs.edit().putBoolean(KEY_PATTERN_IN_DOC, enabled).apply()
 
     fun setLibraryRoot(ref: String?) = prefs.edit().putString(KEY_LIBRARY_ROOT, ref).apply()
 
@@ -272,7 +270,6 @@ class SettingsRepository(context: Context) {
         const val KEY_FINGER_DRAWING = "input.fingerDrawing"
         const val KEY_PALM_WINDOW = "input.palmWindowMs"
         const val KEY_PALM_SIZE = "input.palmTouchMajor"
-        const val KEY_MULTITOUCH_NAV = "input.multiTouchNavigates"
         const val KEY_SMOOTHING_SCALE = "input.smoothingScale"
         const val KEY_MIN_PRESSURE = "input.minPressure"
         const val KEY_CURVE_X1 = "input.curveX1"
@@ -286,7 +283,6 @@ class SettingsRepository(context: Context) {
         const val KEY_DARK_THEME = "ui.darkTheme"
         const val KEY_PURE_BLACK = "ui.pureBlack"
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"
-        const val KEY_PATTERN_IN_DOC = "ui.patternInDocumentMode"
         const val KEY_LIBRARY_ROOT = "library.root"
         const val KEY_LIBRARY_LAYOUT = "ui.libraryLayout"
         const val KEY_RECENT_COLORS = "ui.recentColors"

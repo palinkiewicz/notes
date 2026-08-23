@@ -29,8 +29,6 @@
     <string name="settings_paper">Papier</string>
     <string name="settings_measurements">Jednostki miary</string>
     <string name="settings_measurements_description">Jednostka, w której pokazywane są marginesy, odstępy linii i rozmiary papieru.</string>
-    <string name="settings_pattern_in_document">Pokazuj wzór papieru w trybie tekstowym</string>
-    <string name="settings_pattern_in_document_description">Zachowuje kratkę lub linie za przepływającym tekstem.</string>
 
     <!--  THEME NAMES  -->
     <string name="theme_dakils_notes">Notatki Dakila</string>
@@ -54,9 +52,7 @@
 
     <!--  INPUT SETTINGS  -->
     <string name="settings_finger_drawing">Rysowanie palcem</string>
-    <string name="settings_finger_drawing_description">Włącz, jeśli Twoje urządzenie nie ma rysika. Dwa palce nadal przesuwają i powiększają.</string>
-    <string name="settings_multitouch_nav">Dwa palce nawigują</string>
-    <string name="settings_multitouch_nav_description">Pozostawia przesuwanie i powiększanie dostępne podczas rysowania palcem.</string>
+    <string name="settings_finger_drawing_description">Włącz, jeśli Twoje urządzenie nie ma rysika: w edytorze pojawi się przycisk pozwalający rysować palcem. Dwa palce zawsze przesuwają i powiększają.</string>
     <string name="settings_palm_window">Okno odrzucania dłoni</string>
     <string name="settings_palm_window_description">Dotknięcia w tym czasie od próbki rysika są ignorowane. Zwiększ, jeśli dłoń nadal rysuje; zmniejsz, jeśli dotyk reaguje zbyt wolno.</string>
     <string name="settings_palm_size">Próg rozmiaru dłoni</string>
@@ -64,7 +60,7 @@
     <string name="settings_smoothing">Wygładzanie pociągnięć</string>
     <string name="settings_smoothing_description">Globalny mnożnik wygładzania każdego narzędzia.</string>
     <string name="settings_min_pressure">Minimalny nacisk</string>
-    <string name="settings_min_pressure_description">Ignoruje słaby ślad unoszonego pióra.</string>
+    <string name="settings_min_pressure_description">Ignoruje przypadkowe lekkie dotknięcia piórem.</string>
     <string name="settings_pressure_curve">Reakcja na nacisk</string>
     <string name="settings_pressure_curve_description">Miękka osiąga pełną szerokość przy lżejszym dotyku; twarda wymaga większej siły.</string>
     <string name="settings_auto_shape">Automatyczne kształty</string>
@@ -80,11 +76,11 @@
     <string name="settings_off">Wył.</string>
 
     <!--  ABOUT DIALOG  -->
-    <string name="about_title">O aplikacji DakNote</string>
+    <string name="about_title">O aplikacji Notatki</string>
     <string name="about_version_x">Wersja %1$s</string>
     <string name="about_description">Jedna kartka papieru z tekstem Markdown i wektorowym atramentem, w otwartym formacie, który da się po prostu rozpakować.</string>
     <string name="about_repository">Repozytorium</string>
     <string name="about_author">Autor</string>
-    <string name="about_credit">Pomysł i kochana dziewczyna</string>
+    <string name="about_credit">Pomysł i kochająca dziewczyna</string>
 
 </resources>

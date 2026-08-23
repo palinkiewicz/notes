@@ -31,8 +31,6 @@
     <string name="settings_paper">Paper</string>
     <string name="settings_measurements">Measurements</string>
     <string name="settings_measurements_description">The unit page margins, rule spacing and paper sizes are shown in.</string>
-    <string name="settings_pattern_in_document">Show paper pattern in text mode</string>
-    <string name="settings_pattern_in_document_description">Keeps grid or rule lines behind reflowing text.</string>
 
     <!--  THEME NAMES  -->
     <string name="theme_dakils_notes">Dakil\'s Notes</string>
@@ -56,9 +54,7 @@
 
     <!--  INPUT SETTINGS  -->
     <string name="settings_finger_drawing">Draw with finger</string>
-    <string name="settings_finger_drawing_description">Turn on if your device has no stylus. Two fingers still pan and zoom.</string>
-    <string name="settings_multitouch_nav">Two fingers navigate</string>
-    <string name="settings_multitouch_nav_description">Keeps pan and zoom available while drawing with a finger.</string>
+    <string name="settings_finger_drawing_description">Turn on if your device has no stylus: the editor gets a button that lets a finger draw. Two fingers always pan and zoom.</string>
     <string name="settings_palm_window">Palm rejection window</string>
     <string name="settings_palm_window_description">Touches within this time of a stylus sample are ignored. Raise it if your hand still draws; lower it if touch feels unresponsive.</string>
     <string name="settings_palm_size">Palm size threshold</string>
@@ -85,7 +81,7 @@
     <string name="settings_off">Off</string>
 
     <!--  ABOUT DIALOG  -->
-    <string name="about_title">About DakNote</string>
+    <string name="about_title">About Notes</string>
     <string name="about_version_x">Version %1$s</string>
     <string name="about_description">One sheet of paper carrying Markdown text and vector ink, in an open, unzippable file format.</string>
     <string name="about_repository">Repository</string>

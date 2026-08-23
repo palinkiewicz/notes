@@ -101,7 +101,7 @@ class InputRouter(config: InputConfig = InputConfig()) {
 
         // A second finger always means pan/zoom, even in finger-drawing mode — otherwise a
         // stylus-less phone would have no way left to navigate the page.
-        if (config.multiTouchNavigates && active.any { it.value.toolType.isTouch() }) {
+        if (active.any { it.value.toolType.isTouch() }) {
             val revoked = revokeWhere { it.intent is InputIntent.Draw && it.toolType.isTouch() }
             active[sample.pointerId] = Live(InputIntent.Navigate, sample.toolType)
             return InputDecision(InputIntent.Navigate, revoked)

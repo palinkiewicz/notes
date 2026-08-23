@@ -59,15 +59,8 @@ fun InputSettingsScreen(
             SwitchRow(
                 title = stringResource(R.string.settings_finger_drawing),
                 summary = stringResource(R.string.settings_finger_drawing_description),
-                checked = input.fingerDrawingEnabled,
+                checked = current.fingerDrawingAvailable,
                 onCheckedChange = settings::setFingerDrawing,
-            )
-
-            SwitchRow(
-                title = stringResource(R.string.settings_multitouch_nav),
-                summary = stringResource(R.string.settings_multitouch_nav_description),
-                checked = input.multiTouchNavigates,
-                onCheckedChange = settings::setMultiTouchNavigates,
             )
 
             SliderRow(

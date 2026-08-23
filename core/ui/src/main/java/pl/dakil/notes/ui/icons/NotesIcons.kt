@@ -134,12 +134,19 @@ object NotesIcons {
         )
     }
 
-    /** Finger-drawing toggle: a touch point with contact ripples. */
-    val FingerDraw: ImageVector by lazy {
+    /**
+     * Finger-drawing toggle: Material's touch_app — a hand with one finger raised to the glass.
+     *
+     * Three parts: the arc over the fingertip, the finger itself, and the fist folded beneath it.
+     */
+    val TouchApp: ImageVector by lazy {
         strokedIcon(
-            "FingerDraw",
-            "M12 12 m-2.2 0 a2.2 2.2 0 1 0 4.4 0 a2.2 2.2 0 1 0 -4.4 0 " +
-                "M7.4 7.4 a6.5 6.5 0 0 0 0 9.2 M16.6 16.6 a6.5 6.5 0 0 0 0 -9.2",
+            "TouchApp",
+            "M7.6 10.9 A5 5 0 1 1 14.4 10.9 " +
+                "M9.8 12.2 V7.6 a1.2 1.2 0 0 1 2.4 0 V13.4 h4.1 l3.3 1.65 " +
+                "a1.5 1.5 0 0 1 0.7 1.6 l-0.75 4.3 a1.5 1.5 0 0 1 -1.5 1.25 h-6.3 " +
+                "a1.5 1.5 0 0 1 -1.05 -0.44 L6.2 17.9 l0.8 -0.8 a1.3 1.3 0 0 1 1.2 -0.35 " +
+                "L9.8 17 Z",
         )
     }
 

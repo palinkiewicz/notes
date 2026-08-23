@@ -116,21 +116,13 @@ fun EditorToolbar(
             )
         }
         Box(Modifier.width(8.dp))
-        // The two switches, held out of the scrolling row because neither is a tool: they change
-        // what the surface does, not what the pen is, and both have to stay reachable. Without the
-        // first, a stylus-less phone cannot draw at all.
-        FilledIconToggleButton(
-            checked = state.inputConfig.fingerDrawingEnabled,
-            onCheckedChange = {
-                onPopupChange(null)
-                onToggleFingerDrawing(it)
-            },
-        ) {
-            Icon(
-                imageVector = NotesIcons.FingerDraw,
-                contentDescription = stringResource(R.string.editor_finger_drawing),
-            )
-        }
+        // The switches, held out of the scrolling row because neither is a tool: they change what
+        // the surface does, not what the pen is, and both have to stay reachable.
+        FingerDrawingToggle(
+            state = state,
+            onPopupChange = onPopupChange,
+            onToggle = onToggleFingerDrawing,
+        )
         RulerToggle(checked = state.rulerEnabled, onCheckedChange = {
             onPopupChange(null)
             onToggleRuler(it)
@@ -178,18 +170,11 @@ fun EditorToolRail(
             onOpenColorPicker = onOpenColorPicker,
             onOpenOptions = { optionsFor = it },
         )
-        FilledIconToggleButton(
-            checked = state.inputConfig.fingerDrawingEnabled,
-            onCheckedChange = {
-                onPopupChange(null)
-                onToggleFingerDrawing(it)
-            },
-        ) {
-            Icon(
-                imageVector = NotesIcons.FingerDraw,
-                contentDescription = stringResource(R.string.editor_finger_drawing),
-            )
-        }
+        FingerDrawingToggle(
+            state = state,
+            onPopupChange = onPopupChange,
+            onToggle = onToggleFingerDrawing,
+        )
         RulerToggle(checked = state.rulerEnabled, onCheckedChange = {
             onPopupChange(null)
             onToggleRuler(it)
@@ -295,6 +280,34 @@ private fun ToolControls(
             onOpenChange = { onPopupChange(if (it) ToolPopup.SIZE else null) },
             onUpdateTool = onUpdateTool,
             onOpenOptions = { onOpenOptions(state.tool.tool) },
+        )
+    }
+}
+
+/**
+ * The finger switch: whether a fingertip draws or pans.
+ *
+ * Present only when the app setting says this device wants it. On a stylus tablet a finger is how
+ * you move the page and the button would be a permanent invitation to a mistake; on a phone with no
+ * stylus it is the only way to draw at all, so nothing else on the bar earns its place more.
+ */
+@Composable
+private fun FingerDrawingToggle(
+    state: EditorUiState,
+    onPopupChange: (ToolPopup?) -> Unit,
+    onToggle: (Boolean) -> Unit,
+) {
+    if (!state.fingerDrawingAvailable) return
+    FilledIconToggleButton(
+        checked = state.inputConfig.fingerDrawingEnabled,
+        onCheckedChange = {
+            onPopupChange(null)
+            onToggle(it)
+        },
+    ) {
+        Icon(
+            imageVector = NotesIcons.TouchApp,
+            contentDescription = stringResource(R.string.editor_finger_drawing),
         )
     }
 }
