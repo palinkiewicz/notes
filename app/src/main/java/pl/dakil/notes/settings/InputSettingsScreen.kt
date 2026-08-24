@@ -76,7 +76,7 @@ fun InputSettingsScreen(
                 title = stringResource(R.string.settings_palm_size),
                 summary = stringResource(R.string.settings_palm_size_description),
                 value = input.palmTouchMajorThreshold,
-                range = 0f..250f,
+                range = 0f..300f,
                 format = {
                     // Zero is not "a zero-pixel palm", it is the feature switched off, and the
                     // readout should say which.

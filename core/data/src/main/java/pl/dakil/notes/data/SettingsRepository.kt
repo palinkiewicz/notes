@@ -96,8 +96,8 @@ class SettingsRepository(context: Context) {
 
     fun read(): AppSettings = AppSettings(
         input = InputConfig(
-            palmRejectionWindowMs = prefs.getLong(KEY_PALM_WINDOW, 120L),
-            palmTouchMajorThreshold = prefs.getFloat(KEY_PALM_SIZE, 90f),
+            palmRejectionWindowMs = prefs.getLong(KEY_PALM_WINDOW, 100L),
+            palmTouchMajorThreshold = prefs.getFloat(KEY_PALM_SIZE, 160f),
             smoothingScale = prefs.getFloat(KEY_SMOOTHING_SCALE, 1f),
             pressureCurve = PressureCurve(
                 x1 = prefs.getFloat(KEY_CURVE_X1, PressureCurve.LINEAR.x1),

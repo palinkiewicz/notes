@@ -51,12 +51,12 @@ data class InputConfig(
      * After a stylus sample, touches are ignored for this long. This is the single most effective
      * palm-rejection rule: a hand resting on the glass reports as touch while the pen is working.
      */
-    val palmRejectionWindowMs: Long = 120L,
+    val palmRejectionWindowMs: Long = 100L,
     /**
      * Contact-ellipse major axis above which a touch is treated as a palm even with no stylus
      * activity. In pixels, because that is the unit `MotionEvent.getTouchMajor` reports.
      */
-    val palmTouchMajorThreshold: Float = 90f,
+    val palmTouchMajorThreshold: Float = 160f,
     /** Global multiplier on every tool's smoothing, for people who want rawer or glassier ink. */
     val smoothingScale: Float = 1f,
     /** Control points of the pressure response curve; see `PressureCurve`. */
