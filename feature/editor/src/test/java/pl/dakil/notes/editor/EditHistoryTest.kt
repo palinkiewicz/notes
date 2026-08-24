@@ -116,6 +116,31 @@ class EditHistoryTest {
     }
 
     @Test
+    fun `strokes drawn in quick succession each undo on their own`() {
+        // Writing "i's" is four strokes made in well under the merge window, and taking them back
+        // has to take back one mark at a time — a timer is not what separates one pen mark from
+        // the next the way a pause separates one typed word from the next.
+        val history = EditHistory()
+        var current = note()
+
+        repeat(4) { i ->
+            val edit = Edit.ReplaceBlock(
+                current.ink(),
+                current.ink().copy(strokes = current.ink().strokes + stroke(i * 10f)),
+                mergeable = false,
+            )
+            current = edit.apply(current)
+            history.push(edit, nowMs = i * 50L)
+        }
+
+        assertEquals(4, history.depth)
+        for (remaining in 3 downTo 0) {
+            current = history.undo(current)!!
+            assertEquals(remaining, current.ink().strokes.size)
+        }
+    }
+
+    @Test
     fun `text edits separated by a pause stay distinct`() {
         val history = EditHistory()
         var current = noteWithBox()

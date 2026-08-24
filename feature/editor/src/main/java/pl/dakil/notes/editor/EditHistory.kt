@@ -19,12 +19,24 @@ sealed interface Edit {
     /** Edits touching the same target within a short window merge, so typing undoes in words. */
     fun mergeWith(next: Edit): Edit? = null
 
-    data class ReplaceBlock(val before: Block, val after: Block) : Edit {
+    /**
+     * [mergeable] is false for an edit that has to stand on its own in the history.
+     *
+     * A run of typing is one thought and undoes as one; a run of strokes is not. Writing "i's" in
+     * one quick movement is four strokes, and undoing it has to take back the dot, the apostrophe
+     * and the stem separately — merging them on a timer would make fast handwriting undo in
+     * arbitrary chunks. An erase drag, which fires one edit per input segment, still merges.
+     */
+    data class ReplaceBlock(
+        val before: Block,
+        val after: Block,
+        val mergeable: Boolean = true,
+    ) : Edit {
         override fun apply(note: Note): Note = note.withSheet(note.sheet.withBlock(after))
-        override fun invert(): Edit = ReplaceBlock(after, before)
+        override fun invert(): Edit = ReplaceBlock(after, before, mergeable)
 
         override fun mergeWith(next: Edit): Edit? =
-            if (next is ReplaceBlock && next.before.id == after.id) {
+            if (mergeable && next is ReplaceBlock && next.mergeable && next.before.id == after.id) {
                 // Keep this edit's `before` so undoing rewinds to the start of the run.
                 ReplaceBlock(before, next.after)
             } else {

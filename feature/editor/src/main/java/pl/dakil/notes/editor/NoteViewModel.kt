@@ -766,7 +766,14 @@ class NoteViewModel(
             val layer = current.activeLayer(sheet) ?: return
             if (layer.locked) return
 
-            commitEdit(Edit.ReplaceBlock(layer, layer.copy(strokes = layer.strokes + stroke)))
+            // Each stroke is its own undo step: fast handwriting is many strokes, not one edit.
+            commitEdit(
+                Edit.ReplaceBlock(
+                    layer,
+                    layer.copy(strokes = layer.strokes + stroke),
+                    mergeable = false,
+                )
+            )
         }
 
         override fun onEraseAlong(
