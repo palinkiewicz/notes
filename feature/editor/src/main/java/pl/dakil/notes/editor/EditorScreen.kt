@@ -158,7 +158,10 @@ fun EditorScreen(
                 )
             },
             onCommit = viewModel::rememberColor,
-            onDismiss = { editingPageColor = null },
+            onDismiss = {
+                editingPageColor = null
+                pageSetupOpen = true
+            },
         )
     }
 
