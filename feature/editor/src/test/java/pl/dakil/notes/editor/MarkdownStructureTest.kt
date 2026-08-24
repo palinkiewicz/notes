@@ -10,6 +10,7 @@ import pl.dakil.notes.editor.markdown.MarkdownStructure
 import pl.dakil.notes.editor.markdown.MdBackspace
 import pl.dakil.notes.editor.markdown.MdBlockKind
 import pl.dakil.notes.editor.markdown.MdEditAt
+import pl.dakil.notes.editor.markdown.MdPending
 
 /**
  * What a keystroke at the edge of a block means.
@@ -529,6 +530,89 @@ class MarkdownStructureTest {
         val source = "Some **bold** here"
         assertNull(MarkdownRenderer.visibleCaret(source, 5))
         assertNull(MarkdownRenderer.visibleCaret(source, 11))
+    }
+
+    // ---- A line break through the middle of formatting --------------------------------------
+
+    @Test
+    fun `a break inside a bold run ends it and starts it again`() {
+        // `**bo` and `ld**` on two lines is not bold text broken in half — it is two plain lines
+        // wearing four asterisks that were invisible until the moment Enter was pressed.
+        val fix = MarkdownStructure.lineBreak("**bold**", 4, "\n")!!
+        assertEquals("**bo**\n**ld**", apply("**bold**", fix.edit))
+        // Inside the reopened markers, where what is typed next is still bold.
+        assertEquals(9, fix.edit.caret)
+        assertTrue(fix.carry.isEmpty())
+    }
+
+    @Test
+    fun `a break at the end of a run leaves no empty pair behind`() {
+        // `**bold**\n****` would be the naive answer, and `****` is not markup at all: it styles
+        // nothing, so nothing hides it and four asterisks appear on the new line.
+        val fix = MarkdownStructure.lineBreak("**bold**", 6, "\n")!!
+        assertEquals("**bold**\n", apply("**bold**", fix.edit))
+        // Nothing was written down, so the boldness rides on the caret instead.
+        assertEquals(listOf(MdPending.Wrap("**")), fix.carry)
+    }
+
+    @Test
+    fun `a break at the start of a run moves the whole run down`() {
+        val fix = MarkdownStructure.lineBreak("**bold**", 2, "\n")!!
+        assertEquals("\n**bold**", apply("**bold**", fix.edit))
+        assertTrue(fix.carry.isEmpty())
+    }
+
+    @Test
+    fun `every run open at the break is closed and reopened, innermost first`() {
+        // Closing them in the order they were opened would cross the markers over —
+        // `**bo*ld**` closes the italic with the bold's asterisks and neither survives.
+        val source = "**bold *and italic* text**"
+        val fix = MarkdownStructure.lineBreak(source, 12, "\n")!!
+        assertEquals("**bold *and ***\n***italic* text**", apply(source, fix.edit))
+    }
+
+    @Test
+    fun `a break inside a code span reopens the backticks`() {
+        val fix = MarkdownStructure.lineBreak("`co de`", 3, "\n")!!
+        assertEquals("`co`\n` de`", apply("`co de`", fix.edit))
+    }
+
+    @Test
+    fun `a break inside a sized run tags both halves`() {
+        // Not a marker that can be doubled up: the closing half carries the size, so both halves
+        // have to be written out in full or the second one is at the document's own size.
+        val source = "[big text]{size=24}"
+        val fix = MarkdownStructure.lineBreak(source, 5, "\n")!!
+        assertEquals("[big ]{size=24}\n[text]{size=24}", apply(source, fix.edit))
+    }
+
+    @Test
+    fun `the new line's list marker comes before the reopened styling`() {
+        // A bullet has to start its line to be a bullet at all, so whatever `ContinueList` wrote
+        // goes down first and the markers follow it.
+        val source = "- **bold**"
+        val fix = MarkdownStructure.lineBreak(source, 6, "\n- ")!!
+        assertEquals("- **bo**\n- **ld**", apply(source, fix.edit))
+    }
+
+    @Test
+    fun `a break in plain text is the field's own business`() {
+        assertNull(MarkdownStructure.lineBreak("plain text", 5, "\n"))
+        // Beside a run rather than inside it: the whole run goes down to the next line intact.
+        assertNull(MarkdownStructure.lineBreak("**bold** here", 8, "\n"))
+    }
+
+    @Test
+    fun `a break inside nested runs keeps every one of them`() {
+        // The reported case, built with the formatting bar one style at a time.
+        val source = "test**1*2~3`4`~***"
+        val fix = MarkdownStructure.lineBreak(source, 9, "\n")!!
+        assertEquals("test**1*2***\n***~3`4`~***", apply(source, fix.edit))
+        // And every marker is still doing a job, so every one of them is still off screen. That is
+        // the whole complaint: a keystroke that added a line put ten asterisks on the page.
+        val shown = MarkdownRenderer.render(apply(source, fix.edit))
+        assertFalse('*' in shown)
+        assertFalse('`' in shown)
     }
 
     private fun apply(source: String, edit: MdEditAt): String =

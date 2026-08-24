@@ -263,6 +263,8 @@ private fun EditableTextBox(
                 MarkdownEditor(
                     state = viewModel.textField,
                     sourceMode = false,
+                    // The same one the formatting bar arms. See [PendingStyles].
+                    pending = viewModel.pendingStyles,
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = stringResource(R.string.editor_type_here),
                     sizes = true,

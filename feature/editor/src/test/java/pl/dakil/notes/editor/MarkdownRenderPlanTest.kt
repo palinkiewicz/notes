@@ -64,6 +64,34 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `italics started inside bold text take the front of the closing run`() {
+        // What the formatting bar writes when somebody bolds a word and then asks for italics
+        // partway through it. The three asterisks at the end are one run carrying two closes, and
+        // reading the first two of them as the bold close left an asterisk on screen in the middle
+        // of the text and no italics at all.
+        val source = "**test*2***"
+        assertEquals("test2", render(source))
+        assertEquals(listOf("test2"), styled(source, MdStyle.BOLD))
+        assertEquals(listOf("2"), styled(source, MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `an asterisk inside a word is emphasis, the way every other renderer reads it`() {
+        // Not `snake_case`'s problem: `*` is not a word character anywhere, and GitHub, CommonMark
+        // and Obsidian all italicise this. Hiding the difference here would mean a `.md` file that
+        // renders one way in this app and another way everywhere it is opened.
+        assertEquals("test2", render("test*2*"))
+        assertEquals(listOf("2"), styled("test*2*", MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `a lone asterisk with space around it is arithmetic, not emphasis`() {
+        // A marker only opens emphasis where it is up against the text it styles.
+        assertEquals("2 * 3 * 4", render("2 * 3 * 4"))
+        assertEquals(emptyList<String>(), styled("2 * 3 * 4", MdStyle.ITALIC))
+    }
+
+    @Test
     fun `underscores are emphasis too`() {
         assertEquals("strong", render("__strong__"))
         assertEquals(listOf("strong"), styled("__strong__", MdStyle.BOLD))

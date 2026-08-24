@@ -52,6 +52,16 @@ sealed interface MdBackspace {
 data class MdEditAt(val start: Int, val end: Int, val text: String, val caret: Int)
 
 /**
+ * A line break taken through the middle of inline markup.
+ *
+ * [edit] rewrites the run so both halves stand on their own, and [carry] is what could not be
+ * written down: the styles of a half with no text in it yet. Those are armed at the new caret
+ * instead — the same bargain the formatting bar makes when it is pressed with nothing selected.
+ * See [PendingStyles].
+ */
+data class MdLineBreak(val edit: MdEditAt, val carry: List<MdPending>)
+
+/**
  * Where a caret is in a table: which table, which visible row, which column.
  *
  * Rows count only the ones on screen, so row 0 is the header and the hidden delimiter is not a row
@@ -214,6 +224,105 @@ object MarkdownStructure {
      * `***` would take two of the three and leave the last one standing on its own.
      */
     private val MARKERS = listOf("***", "___", "**", "__", "~~", "*", "_", "`", "$")
+
+    /**
+     * How to break the line at [at] without taking the formatting apart, or null when there is no
+     * formatting there to take apart.
+     *
+     * Inline markup cannot cross a line break — `**bold` on one line and `text**` on the next is
+     * not bold, it is four asterisks and two plain lines — so Enter pressed in the middle of a run
+     * used to undo styling the user had no way to see was at stake. A word processor answers this
+     * by ending the run at the break and starting an identical one after it, and so does this: the
+     * markers open at [at] are closed before the newline, in the order that closes the innermost
+     * first, and opened again after it.
+     *
+     * A half with nothing in it gets no markers at all rather than an empty pair — `****` styles
+     * nothing and hides nothing — so pressing Enter at the end of a bold word leaves the word bold
+     * and the new line bare, with the boldness [carried][MdLineBreak.carry] on the caret instead.
+     *
+     * [separator] is the break as the field would have written it, list marker and all, so that
+     * this and [ContinueList] can both have their way: the marker starts the new line and the
+     * reopened styling follows it.
+     */
+    fun lineBreak(source: String, at: Int, separator: String): MdLineBreak? {
+        if (at !in 0..source.length) return null
+        val open = MarkdownRenderer.openInlineAt(source, at)
+        if (open.isEmpty()) return null
+
+        // A span with nothing but other spans' markers on one side of the break has no text there
+        // to style, so its markers do not belong on that side.
+        val before = open.map { onlyMarkers(source, it.openEnd, at, open) }
+        val after = open.map { onlyMarkers(source, at, it.closeStart, open) }
+        if (before.all { it } && after.all { it }) return null
+
+        val outer = open.first()
+        val out = StringBuilder()
+        appendKeeping(out, source, outer.openStart, at, open, before) { it.openStart to it.openEnd }
+        for (i in open.indices.reversed()) {
+            if (!before[i]) out.append(source, open[i].closeStart, open[i].closeEnd)
+        }
+        out.append(separator)
+        for (i in open.indices) {
+            if (!after[i]) out.append(source, open[i].openStart, open[i].openEnd)
+        }
+        val caret = outer.openStart + out.length
+        appendKeeping(out, source, at, outer.closeEnd, open, after) { it.closeStart to it.closeEnd }
+
+        return MdLineBreak(
+            edit = MdEditAt(outer.openStart, outer.closeEnd, out.toString(), caret),
+            carry = open.filterIndexed { i, _ -> after[i] }.mapNotNull { carried(source, it) },
+        )
+    }
+
+    /**
+     * Copies `[from, to)` into [out], leaving behind the markers [drop] says have nothing to style.
+     *
+     * [markerOf] picks which end of a span is at stake — its opener when this is the text before
+     * the break, its closer when it is the text after.
+     */
+    private inline fun appendKeeping(
+        out: StringBuilder,
+        source: String,
+        from: Int,
+        to: Int,
+        open: List<MdInline>,
+        drop: List<Boolean>,
+        markerOf: (MdInline) -> Pair<Int, Int>,
+    ) {
+        var i = from
+        while (i < to) {
+            val marker = open.indices
+                .firstOrNull { drop[it] && markerOf(open[it]).first == i }
+                ?.let { markerOf(open[it]) }
+            if (marker == null) {
+                out.append(source[i])
+                i++
+            } else {
+                i = marker.second
+            }
+        }
+    }
+
+    /** Whether `[from, to)` holds nothing but the markers of the spans in [open]. */
+    private fun onlyMarkers(source: String, from: Int, to: Int, open: List<MdInline>): Boolean {
+        var i = from
+        while (i < to) {
+            val span = open.firstOrNull {
+                i >= it.openStart && i < it.openEnd || i >= it.closeStart && i < it.closeEnd
+            } ?: return false
+            i = if (i < span.openEnd) span.openEnd else span.closeEnd
+        }
+        return true
+    }
+
+    /** The style [span] stands for, for a caret to carry onto a line that has no markers yet. */
+    private fun carried(source: String, span: MdInline): MdPending? {
+        val opener = source.substring(span.openStart, span.openEnd)
+        if (opener != "[") return MdPending.Wrap(opener)
+        // A size is not a marker that can be doubled up, so it is carried as the size it is.
+        val size = MarkdownRenderer.sizeSuffixAt(source, span.closeStart + 1, span.closeEnd)
+        return size?.let { MdPending.Size(it.first) }
+    }
 
     /**
      * The row Enter should open when the caret is in a table, or null when it is not in one.

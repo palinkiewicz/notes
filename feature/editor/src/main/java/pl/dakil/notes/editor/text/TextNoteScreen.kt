@@ -36,6 +36,7 @@ import pl.dakil.notes.editor.markdown.FormatPopup
 import pl.dakil.notes.editor.markdown.MarkdownEditor
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
 import pl.dakil.notes.editor.markdown.MarkdownFormatRail
+import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
@@ -66,6 +67,10 @@ fun TextNoteScreen(
     val undo = text.undoState
 
     var popup by remember { mutableStateOf<FormatPopup?>(null) }
+    // Screen state, not document state: it holds what the bar has been asked for at a bare caret
+    // until there is text to put it round, and the field is the other half of that. See
+    // [PendingStyles].
+    val pending = remember { PendingStyles() }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
     var renaming by remember { mutableStateOf(false) }
     var tagging by remember { mutableStateOf(false) }
@@ -177,6 +182,7 @@ fun TextNoteScreen(
             if (!expanded && !state.isLoading) {
                 MarkdownFormatBar(
                     state = text,
+                    pending = pending,
                     openPopup = popup,
                     onPopupChange = { popup = it },
                     onInsertLink = { reference = ReferenceKind.LINK },
@@ -203,6 +209,7 @@ fun TextNoteScreen(
                     if (expanded) {
                         MarkdownFormatRail(
                             state = text,
+                            pending = pending,
                             openPopup = popup,
                             onPopupChange = { popup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
@@ -212,6 +219,7 @@ fun TextNoteScreen(
                     MarkdownEditor(
                         state = text,
                         sourceMode = state.sourceMode,
+                        pending = pending,
                         modifier = Modifier.fillMaxSize(),
                         // Only a note with nothing in it opens ready to type.
                         autoFocus = text.text.isEmpty(),

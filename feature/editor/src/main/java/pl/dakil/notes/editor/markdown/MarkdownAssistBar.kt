@@ -544,6 +544,30 @@ object MarkdownActions {
         return active
     }
 
+    /**
+     * Puts the styles armed at a bare caret round `[start, end)` — the text just typed there.
+     *
+     * The same calls the bar would have made had the user typed the words first and then selected
+     * them, run one after another over the range the last one handed back, so that arming bold and
+     * italic and then typing gives the run both. Nothing here is a special case for empty markup:
+     * there is text between the markers by the time this runs, which is the whole point of waiting.
+     */
+    fun applyPending(text: String, start: Int, end: Int, styles: List<MdPending>): Result {
+        var out = text
+        var from = start
+        var to = end
+        for (style in styles) {
+            val step = when (style) {
+                is MdPending.Wrap -> toggleWrap(out, from, to, style.marker)
+                is MdPending.Size -> setSize(out, from, to, style.sp)
+            }
+            out = step.text
+            from = step.selectionStart
+            to = step.selectionEnd
+        }
+        return Result(out, from, to)
+    }
+
     // ---- Font size ------------------------------------------------------------------------
 
     /**

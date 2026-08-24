@@ -64,6 +64,7 @@ enum class FormatPopup { BLOCK, SIZE }
 @Composable
 fun MarkdownFormatBar(
     state: TextFieldState,
+    pending: PendingStyles,
     openPopup: FormatPopup?,
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
@@ -96,6 +97,7 @@ fun MarkdownFormatBar(
         ) {
             FormatControls(
                 state = state,
+                pending = pending,
                 placement = PopupPlacement.ABOVE,
                 openPopup = openPopup,
                 onPopupChange = onPopupChange,
@@ -111,6 +113,7 @@ fun MarkdownFormatBar(
 @Composable
 fun MarkdownFormatRail(
     state: TextFieldState,
+    pending: PendingStyles,
     openPopup: FormatPopup?,
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
@@ -129,6 +132,7 @@ fun MarkdownFormatRail(
         ) {
             FormatControls(
                 state = state,
+                pending = pending,
                 placement = PopupPlacement.END,
                 openPopup = openPopup,
                 onPopupChange = onPopupChange,
@@ -149,6 +153,7 @@ fun MarkdownFormatRail(
 @Composable
 private fun FormatControls(
     state: TextFieldState,
+    pending: PendingStyles,
     placement: PopupPlacement,
     openPopup: FormatPopup?,
     onPopupChange: (FormatPopup?) -> Unit,
@@ -158,9 +163,17 @@ private fun FormatControls(
 ) {
     val source = state.text.toString()
     val selection = state.selection
-    val active = remember(source, selection) {
+    // What a button reports is the style the *next* thing typed will carry, which is not always what
+    // the text around the caret says: a style armed at a bare caret is real to the user — they
+    // pressed it and it lit up — while the document still knows nothing about it. See [PendingStyles].
+    val armed = if (selection.collapsed) pending.stylesAt(selection.start) else emptyList()
+    val marked = remember(source, selection) {
         MarkdownActions.activeInlineMarkers(source, selection.start, selection.end)
     }
+    val armedWraps = armed.filterIsInstance<MdPending.Wrap>().mapTo(HashSet()) { it.marker }
+    // The difference between them, either way round: arming a marker that is already in force is a
+    // press to turn it *off* for what comes next, and the button has to go dark to say so.
+    val active = (marked - armedWraps) + (armedWraps - marked)
     val block = remember(source, selection) { MarkdownActions.blockStyleAt(source, selection.start) }
     // The two menus are read separately, because a line can be in both at once: `- # Alpha` lights
     // H1 in the popup *and* the bullet button beside it.
@@ -190,7 +203,7 @@ private fun FormatControls(
                         selected = style == paragraph,
                         onClick = {
                             onPopupChange(null)
-                            state.applyBlockToggle(style)
+                            state.applyBlockToggle(pending, style)
                         },
                     )
                 }
@@ -199,9 +212,11 @@ private fun FormatControls(
     }
 
     if (sizes) {
-        val size = remember(source, selection) {
+        val inText = remember(source, selection) {
             MarkdownActions.sizeIn(source, selection.start, selection.end)
         }
+        val armedSize = armed.lastOrNull { it is MdPending.Size } as MdPending.Size?
+        val size = if (armedSize != null) armedSize.sp else inText
         FormatButton(
             // The number rather than a glyph: the whole point of the control is which size is in
             // force, and a letter A with arrows beside it can only say "some size, possibly".
@@ -215,12 +230,12 @@ private fun FormatControls(
                 InlineSelector(placement = placement, onDismiss = { onPopupChange(null) }) {
                     SizeChoice(label = stringResource(R.string.markdown_block_body), selected = size == null) {
                         onPopupChange(null)
-                        state.applySize(null)
+                        state.applySize(pending, null)
                     }
                     for (choice in SIZE_CHOICES) {
                         SizeChoice(label = choice.toString(), selected = size == choice) {
                             onPopupChange(null)
-                            state.applySize(choice)
+                            state.applySize(pending, choice)
                         }
                     }
                 }
@@ -234,28 +249,28 @@ private fun FormatControls(
         label = stringResource(R.string.markdown_bold),
         description = stringResource(R.string.markdown_bold),
         selected = "**" in active,
-        onClick = { state.applyWrap("**") },
+        onClick = { state.applyWrap(pending, "**") },
         content = { Text("B", fontWeight = FontWeight.Bold) },
     )
     FormatButton(
         label = stringResource(R.string.markdown_italic),
         description = stringResource(R.string.markdown_italic),
         selected = "*" in active,
-        onClick = { state.applyWrap("*") },
+        onClick = { state.applyWrap(pending, "*") },
         content = { Text("I", fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium) },
     )
     FormatButton(
         label = stringResource(R.string.markdown_strikethrough),
         description = stringResource(R.string.markdown_strikethrough),
         selected = "~~" in active,
-        onClick = { state.applyWrap("~~") },
+        onClick = { state.applyWrap(pending, "~~") },
         content = { Text("S", textDecoration = TextDecoration.LineThrough) },
     )
     IconFormatButton(
         icon = NotesIcons.InlineCode,
         description = stringResource(R.string.markdown_code),
         selected = "`" in active,
-        onClick = { state.applyWrap("`") },
+        onClick = { state.applyWrap(pending, "`") },
     )
 
     Separator(placement)
@@ -264,19 +279,19 @@ private fun FormatControls(
         icon = NotesIcons.BulletList,
         description = stringResource(R.string.markdown_bulleted_list),
         selected = list == BlockStyle.BULLET,
-        onClick = { state.applyBlockToggle(BlockStyle.BULLET) },
+        onClick = { state.applyBlockToggle(pending, BlockStyle.BULLET) },
     )
     IconFormatButton(
         icon = NotesIcons.NumberedList,
         description = stringResource(R.string.markdown_numbered_list),
         selected = list == BlockStyle.ORDERED,
-        onClick = { state.applyBlockToggle(BlockStyle.ORDERED) },
+        onClick = { state.applyBlockToggle(pending, BlockStyle.ORDERED) },
     )
     IconFormatButton(
         icon = NotesIcons.TaskList,
         description = stringResource(R.string.markdown_task_list),
         selected = list == BlockStyle.TASK,
-        onClick = { state.applyBlockToggle(BlockStyle.TASK) },
+        onClick = { state.applyBlockToggle(pending, BlockStyle.TASK) },
     )
     // Greyed rather than hidden: a control that comes and goes as the caret moves is one the user
     // has to hunt for, and "you cannot nest this line" is worth saying.
@@ -285,7 +300,7 @@ private fun FormatControls(
         description = stringResource(R.string.markdown_indent_decrease),
         enabled = nested,
         onClick = {
-            state.applyAction { text, start, end -> MarkdownActions.outdentList(text, start, end) }
+            state.applyAction(pending) { text, start, end -> MarkdownActions.outdentList(text, start, end) }
         },
     )
     IconFormatButton(
@@ -293,30 +308,42 @@ private fun FormatControls(
         description = stringResource(R.string.markdown_indent_increase),
         enabled = nestable,
         onClick = {
-            state.applyAction { text, start, end -> MarkdownActions.indentList(text, start, end) }
+            state.applyAction(pending) { text, start, end -> MarkdownActions.indentList(text, start, end) }
         },
     )
 
     Separator(placement)
 
-    IconFormatButton(icon = NotesIcons.Link, description = stringResource(R.string.markdown_link), onClick = onInsertLink)
-    IconFormatButton(icon = NotesIcons.Image, description = stringResource(R.string.markdown_image), onClick = onInsertImage)
+    IconFormatButton(
+        icon = NotesIcons.Link,
+        description = stringResource(R.string.markdown_link),
+        onClick = { pending.clear(); onInsertLink() },
+    )
+    IconFormatButton(
+        icon = NotesIcons.Image,
+        description = stringResource(R.string.markdown_image),
+        onClick = { pending.clear(); onInsertImage() },
+    )
     IconFormatButton(
         icon = NotesIcons.CodeBlock,
         description = stringResource(R.string.markdown_code_block),
         onClick = {
-            state.applyAction { text, start, _ -> MarkdownActions.insertCodeFence(text, start) }
+            state.applyAction(pending) { text, start, _ -> MarkdownActions.insertCodeFence(text, start) }
         },
     )
     IconFormatButton(
         icon = NotesIcons.Table,
         description = stringResource(R.string.markdown_table),
-        onClick = { state.applyAction { text, start, _ -> MarkdownActions.insertTable(text, start) } },
+        onClick = {
+            state.applyAction(pending) { text, start, _ -> MarkdownActions.insertTable(text, start) }
+        },
     )
     IconFormatButton(
         icon = NotesIcons.HorizontalRule,
         description = stringResource(R.string.markdown_divider),
-        onClick = { state.applyAction { text, start, _ -> MarkdownActions.insertRule(text, start) } },
+        onClick = {
+            state.applyAction(pending) { text, start, _ -> MarkdownActions.insertRule(text, start) }
+        },
     )
 }
 
@@ -488,16 +515,32 @@ private fun Separator(placement: PopupPlacement) {
 
 // ---- Applying an action to the field ---------------------------------------------------------
 
-private fun TextFieldState.applyWrap(marker: String) = applyAction { text, start, end ->
-    MarkdownActions.toggleWrap(text, start, end, marker)
+/**
+ * Bold, italic, strikethrough or code.
+ *
+ * With something selected this is an edit like any other. With nothing selected there is nothing to
+ * put markers round yet, and putting them in anyway is what used to leave `****` on screen — four
+ * asterisks that style nothing, so nothing hides them. The request is armed instead, and becomes
+ * markers the moment there is a word between them. See [PendingStyles].
+ */
+private fun TextFieldState.applyWrap(pending: PendingStyles, marker: String) {
+    if (selection.collapsed) {
+        pending.toggleWrap(selection.start, marker)
+        return
+    }
+    applyAction(pending) { text, start, end -> MarkdownActions.toggleWrap(text, start, end, marker) }
 }
 
-private fun TextFieldState.applyBlockToggle(style: BlockStyle) = applyAction { text, start, end ->
-    MarkdownActions.toggleBlockStyle(text, start, end, style)
-}
+private fun TextFieldState.applyBlockToggle(pending: PendingStyles, style: BlockStyle) =
+    applyAction(pending) { text, start, end -> MarkdownActions.toggleBlockStyle(text, start, end, style) }
 
-private fun TextFieldState.applySize(sp: Int?) = applyAction { text, start, end ->
-    MarkdownActions.setSize(text, start, end, sp)
+/** A size, armed at a bare caret for the same reason [applyWrap] arms a marker. */
+private fun TextFieldState.applySize(pending: PendingStyles, sp: Int?) {
+    if (selection.collapsed) {
+        pending.setSize(selection.start, sp)
+        return
+    }
+    applyAction(pending) { text, start, end -> MarkdownActions.setSize(text, start, end, sp) }
 }
 
 /**
@@ -526,8 +569,12 @@ private val CompactBarHeight = 48.dp
  * step rather than a dozen.
  */
 private fun TextFieldState.applyAction(
+    pending: PendingStyles,
     action: (text: String, start: Int, end: Int) -> MarkdownActions.Result,
 ) {
+    // Anything that edits the text moves the caret off where a style was armed, and a style armed
+    // for a caret the user has left is one they have moved on from.
+    pending.clear()
     val before = text.toString()
     val result = action(before, selection.start, selection.end)
     if (result.text == before && result.selectionStart == selection.start) return

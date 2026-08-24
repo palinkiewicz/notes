@@ -268,6 +268,7 @@ fun EditorScreen(
                     if (state.editingTextBlock != null) {
                         MarkdownFormatBar(
                             state = viewModel.textField,
+                            pending = viewModel.pendingStyles,
                             openPopup = formatPopup,
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
@@ -318,6 +319,7 @@ fun EditorScreen(
                     if (expanded && state.editingTextBlock != null) {
                         MarkdownFormatRail(
                             state = viewModel.textField,
+                            pending = viewModel.pendingStyles,
                             openPopup = formatPopup,
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },

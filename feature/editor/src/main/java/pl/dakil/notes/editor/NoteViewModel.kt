@@ -27,6 +27,7 @@ import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.InkCallbacks
+import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
 import pl.dakil.notes.ink.PathSplitter
@@ -180,6 +181,14 @@ class NoteViewModel(
      */
     var textField by mutableStateOf(TextFieldState())
         private set
+
+    /**
+     * What the formatting bar has been asked for at a bare caret in [textField].
+     *
+     * Held here for the same reason the field is: the bar that arms a style and the box that spends
+     * it are in two different parts of the screen, and this is the one thing both of them can see.
+     */
+    val pendingStyles = PendingStyles()
 
     /** Watches [textField] and turns pauses in typing into document edits. */
     private var typingJob: Job? = null

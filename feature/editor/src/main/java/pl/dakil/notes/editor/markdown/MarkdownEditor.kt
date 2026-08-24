@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -130,6 +131,14 @@ fun MarkdownEditor(
     /** Whether `[text]{size=18}` sets a size here, or is merely hidden. See [MarkdownStyles]. */
     sizes: Boolean = false,
     /**
+     * What the formatting bar has been asked for but not yet typed into. See [PendingStyles].
+     *
+     * A caller that shows a formatting bar beside this field has to hand both of them the *same*
+     * one — arming and spending are the two halves of one gesture. The default is a private one so
+     * that a field with no bar still behaves, rather than silently holding a style forever.
+     */
+    pending: PendingStyles = remember { PendingStyles() },
+    /**
      * Where the caret is, in this field's own pixels, whenever it moves.
      *
      * For the caller that cannot scroll to it by itself. A `.md` note has [scroll] and the field
@@ -143,6 +152,8 @@ fun MarkdownEditor(
     val styles = rememberMarkdownStyles(sizes)
     val palette = rememberMarkdownDecorationPalette()
     val transformation = remember(styles, sourceMode) { MarkdownOutputTransformation(styles, !sourceMode) }
+    val applyPending = remember(pending) { ApplyPendingStyles(pending) }
+    val keepInline = remember(pending) { KeepInlineIntact(pending) }
     val focusRequester = remember { FocusRequester() }
 
     var measured by remember { mutableStateOf<MeasuredMarkdown?>(null) }
@@ -231,11 +242,13 @@ fun MarkdownEditor(
         // pipes are on screen, and editing them is something a person can mean. They run *before*
         // `ContinueList`, so each one judges the user's own keystroke rather than another
         // transformation's rewrite of it.
+        // [ApplyPendingStyles] runs last in both chains: what it wraps has to be the keystroke as
+        // the rest of them left it, not as the keyboard sent it.
         inputTransformation = if (sourceMode) {
-            ListIndent.then(ContinueList)
+            ListIndent.then(ContinueList).then(applyPending)
         } else {
             KeepBlocksIntact.then(ListIndent).then(InsertTableRow).then(ContinueList)
-                .then(KeepFenceIntact).then(DropStrandedMarkers)
+                .then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers).then(applyPending)
         },
         // Present in source mode too, though it renders nothing there: it is also what keeps the
         // blank line at the foot of the document, and the page has the same bottom in both views.
@@ -331,6 +344,20 @@ fun MarkdownEditor(
 
     LaunchedEffect(Unit) {
         if (autoFocus) focusRequester.requestFocus()
+    }
+
+    // A style armed for the next thing typed lasts exactly as long as the caret it was armed at.
+    // Tapping somewhere else is how a user says they have changed their mind, and there is nothing
+    // on screen for them to press a second time to take it back — nothing was inserted.
+    LaunchedEffect(state, pending) {
+        // A different document in the same field is a different caret, whatever its offset.
+        pending.clear()
+        snapshotFlow { state.selection }.collect { pending.keepAt(it) }
+    }
+    // Leaving the field is a caret move that produces no selection change of its own: a text box on
+    // a sheet takes the whole editor away with it.
+    DisposableEffect(pending) {
+        onDispose { pending.clear() }
     }
 
     // The caret's own position, for a caller that has to scroll something else to reveal it. The
