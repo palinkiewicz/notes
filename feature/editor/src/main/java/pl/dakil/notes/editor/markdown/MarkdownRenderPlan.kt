@@ -599,17 +599,73 @@ object MarkdownRenderer {
         gaps: MutableList<MdStyleRange>,
     ) {
         if (k == 0) return
-        val above = units[k - 1]
-        val here = units[k]
-        val style = when {
-            above == BLOCK_UNIT || here == BLOCK_UNIT -> MdStyle.BLOCK_GAP
-            above != here -> MdStyle.PARAGRAPH_GAP
-            // The same unit twice over: two items of one list, or two lines of one quotation. A
-            // quotation is prose and is set solid; a list is a column of separate things.
-            here.startsWith(LIST_UNIT) -> MdStyle.LIST_GAP
-            else -> return
+        // A blank line the author left is already the space between the two things it stands
+        // between. Opening another one above it and a third below it — which is what this used to
+        // do, the author's own line being just another unit — put the best part of three empty
+        // lines between two tables, and the same between two paragraphs.
+        if (lines.text(k).isBlank()) {
+            if (separates(lines, k)) spaceBlank(lines, units, k, edits, gaps)
+            return
         }
+        if (lines.text(k - 1).isBlank()) return
+
+        val style = gapStyle(units[k - 1], units[k]) ?: return
         gap(lines, k, style, edits, gaps)
+    }
+
+    /**
+     * How much space belongs between a [above] and a [here], or null where they want none.
+     *
+     * The same answer whether the space has to be made or was typed by the author, so that moving
+     * a blank line in or out of a document does not change how far apart things are set.
+     */
+    private fun gapStyle(above: String, here: String): MdStyle? = when {
+        above == BLOCK_UNIT || here == BLOCK_UNIT -> MdStyle.BLOCK_GAP
+        above != here -> MdStyle.PARAGRAPH_GAP
+        // The same unit twice over: two items of one list, or two lines of one quotation. A
+        // quotation is prose and is set solid; a list is a column of separate things.
+        here.startsWith(LIST_UNIT) -> MdStyle.LIST_GAP
+        else -> null
+    }
+
+    /**
+     * Whether line [k] is one blank line with something on either side of it — a line that is there
+     * to *separate* rather than to be blank, which is the one Markdown asks an author for.
+     *
+     * A run of several is somebody holding text down the page on purpose, and a blank line at
+     * either end of the document separates nothing. Both are left at their full height: they are
+     * the author's own spacing, and nothing here has any business tightening them.
+     */
+    private fun separates(lines: Lines, k: Int): Boolean =
+        k in 1 until lines.count - 1 &&
+            lines.text(k).isBlank() &&
+            !lines.text(k - 1).isBlank() &&
+            !lines.text(k + 1).isBlank()
+
+    /**
+     * Sets the blank line [k] to the height of the space it stands for.
+     *
+     * Only between two drawn blocks, where the blank line is not spacing at all but syntax: a table
+     * runs on until a line that is not one of its rows, so an author who wants two of them has no
+     * choice about the line between — and no reason to be given a line of text's worth of air for
+     * it. Everywhere else a blank line is a decision, and two paragraphs written a line apart go on
+     * looking further apart than two written without one. Pressing Enter twice has to do something.
+     *
+     * The newline that *ends* the line is what its height hangs on, the same rule [gap] works by —
+     * but this one is a character of the source rather than one the plan made up, so there is a
+     * range to map and no seam to reason about. Recorded with the gaps rather than the styles so
+     * that nothing drawn on the line above can override it.
+     */
+    private fun spaceBlank(
+        lines: Lines,
+        units: Array<String>,
+        k: Int,
+        edits: MutableList<MdEdit>,
+        gaps: MutableList<MdStyleRange>,
+    ) {
+        if (gapStyle(units[k - 1], units[k + 1]) != MdStyle.BLOCK_GAP) return
+        val at = opens(edits, lines.end(k))
+        gaps += MdStyleRange(at, at + 1, MdStyle.BLOCK_GAP)
     }
 
     /** The transformed offset text inserted here should fall *after* — an opening edge. */

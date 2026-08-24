@@ -297,4 +297,39 @@ class MarkdownBlockActionsTest {
         assertEquals(null, ContinueList.continuationOf("just a sentence"))
         assertEquals(null, ContinueList.continuationOf("# a heading"))
     }
+
+    @Test
+    fun `a table written under a table is a second table`() {
+        // Rows run on until a line without a pipe in it, so this used to give one taller table:
+        // the new header became two more rows of the old one and its dashes a row through the
+        // middle. A blank line is the only thing that ends a table.
+        val table = "| a | b |\n| --- | --- |\n| 1 | 2 |\n"
+        val result = MarkdownActions.insertTable(table, table.length)
+        assertEquals(table + "\n| Column | Column |\n| --- | --- |\n|  |  |\n", result.text)
+    }
+
+    @Test
+    fun `a table written anywhere else needs no blank line`() {
+        // Only a table absorbs what is written under it. A paragraph ends at the first line that
+        // is not more of it, which the header row plainly is not.
+        assertEquals(
+            "text\n| Column | Column |\n| --- | --- |\n|  |  |\n",
+            MarkdownActions.insertTable("text\n", 5).text,
+        )
+        // Nor does one written under a table the caret has already been carried clear of.
+        val table = "| a |\n| --- |\n| 1 |\n\n"
+        assertEquals(
+            table + "| Column | Column |\n| --- | --- |\n|  |  |\n",
+            MarkdownActions.insertTable(table, table.length).text,
+        )
+    }
+
+    @Test
+    fun `a table written mid-line breaks the line first and still clears the table`() {
+        // The caret is at the end of the last row rather than past its newline: the line break
+        // puts the table on a line of its own and the blank line keeps it off the one above.
+        val table = "| a |\n| --- |\n| 1 |"
+        val result = MarkdownActions.insertTable(table, table.length)
+        assertEquals("| a |\n| --- |\n| 1 |\n\n| Column | Column |\n| --- | --- |\n|  |  |\n", result.text)
+    }
 }

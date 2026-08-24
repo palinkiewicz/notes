@@ -417,9 +417,12 @@ class MarkdownRenderPlanTest {
 
     @Test
     fun `text with no markup is left exactly as it is`() {
-        // Two blank lines where the author typed one: a blank is a paragraph like any other, so
-        // it gets space above it and gives the paragraph below it space in turn.
-        assertEquals("Just a sentence.\n\n\n\nAnd another one.", render("Just a sentence.\n\nAnd another one."))
+        // One blank line where the author typed one. It used to be three — a blank line was a
+        // paragraph like any other, so it took space above it and gave the paragraph below it space
+        // in turn, and the line the author actually typed was left standing at its full height in
+        // the middle. The space between two things is now the same whether they were written with a
+        // blank line between them or without one; only its size says what they are.
+        assertEquals("Just a sentence.\n\nAnd another one.", render("Just a sentence.\n\nAnd another one."))
     }
 
     // ---- Spacing -------------------------------------------------------------------------------
@@ -445,6 +448,41 @@ class MarkdownRenderPlanTest {
         val rendered = renderRaw("before\n| a |\n| --- |\n| 1 |\nafter").lines()
         assertEquals("", rendered[1])
         assertEquals("", rendered[rendered.lastIndex - 1])
+    }
+
+    @Test
+    fun `two tables stand one line apart, not three`() {
+        // A table has to be closed by a blank line or the next one runs into it, so this is the one
+        // pair of blocks a user cannot help writing with a blank line between them — and it was
+        // where the doubled spacing showed worst: two boxes a finger's width apart.
+        val source = "| a |\n| --- |\n| 1 |\n\n| b |\n| --- |\n| 2 |"
+        val rendered = renderRaw(source).lines()
+        assertEquals(listOf(" a  ", " 1  ", "", " b  ", " 2  "), rendered)
+        // And that one line is a block's margin rather than a line of text.
+        val plan = MarkdownRenderer.plan(source)
+        assertEquals(1, plan.styles.count { it.style == MdStyle.BLOCK_GAP })
+    }
+
+    @Test
+    fun `a blank line the author typed is the space, not another line to space`() {
+        // One line either way — it used to be three when the author had typed one, the blank line
+        // being just another paragraph to hold off its neighbours.
+        assertEquals(listOf("one", "", "two"), renderRaw("one\n\ntwo").lines())
+        assertEquals(listOf("one", "", "two"), renderRaw("one\ntwo").lines())
+        // The two are still not the same, though: a line somebody typed is a line, and a line this
+        // put in to hold two paragraphs apart is a short one. Pressing Enter twice has to do
+        // something visible or it reads as a keystroke that was swallowed.
+        val typed = MarkdownRenderer.plan("one\n\ntwo").styles
+        assertEquals(0, typed.count { it.style == MdStyle.PARAGRAPH_GAP })
+        val made = MarkdownRenderer.plan("one\ntwo").styles
+        assertEquals(1, made.count { it.style == MdStyle.PARAGRAPH_GAP })
+    }
+
+    @Test
+    fun `several blank lines are somebody holding text down the page`() {
+        // A run of them is a decision rather than syntax, so it is left at its full height. Only a
+        // single blank line is the one Markdown requires between two things.
+        assertEquals(listOf("one", "", "", "", "two"), renderRaw("one\n\n\n\ntwo").lines())
     }
 
     @Test

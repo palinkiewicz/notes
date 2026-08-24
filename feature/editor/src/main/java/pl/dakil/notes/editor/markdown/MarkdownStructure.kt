@@ -325,6 +325,25 @@ object MarkdownStructure {
     }
 
     /**
+     * Whether a block written at [at] would be read as more of the table already above it.
+     *
+     * A table ends at the first line that is not one of its rows, and a table row is any line with
+     * a pipe in it — so a second table started straight underneath is not a second table at all.
+     * Its header becomes two more rows of the first and its `| --- |` a row of dashes through the
+     * middle. Only a blank line makes them two, which is why one is written in.
+     */
+    fun underTable(source: String, at: Int): Boolean {
+        val caret = at.coerceIn(0, source.length)
+        val lines = MarkdownRenderer.Lines(source)
+        val k = lines.lineOf(caret)
+        // A block goes on a line of its own: this one when the caret is at the head of it, the next
+        // when there is text in the way. Either way it is the line above that has to be clear.
+        val above = if (caret == lines.start(k)) k - 1 else k
+        if (above < 0) return false
+        return blocks(lines).any { it.kind == MdBlockKind.TABLE && above in it.firstLine..it.lastLine }
+    }
+
+    /**
      * The row Enter should open when the caret is in a table, or null when it is not in one.
      *
      * A blank copy of the row it was pressed on — same pipes in the same places — so the table

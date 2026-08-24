@@ -485,15 +485,34 @@ object MarkdownActions {
 
     fun insertRule(text: String, start: Int): Result = insertBlock(text, start, "---\n")
 
-    fun insertTable(text: String, start: Int): Result =
-        insertBlock(text, start, "| Column | Column |\n| --- | --- |\n|  |  |\n")
+    /**
+     * A table, with a blank line above it where one is needed to keep it a table of its own.
+     *
+     * Pressing the button under a table used to give a taller version of that table: the rows ran
+     * straight on, so the new header became two more rows of the old one — the one place in this
+     * bar where a block cannot simply be written down where the caret is. See
+     * [MarkdownStructure.underTable].
+     */
+    fun insertTable(text: String, start: Int): Result = insertBlock(
+        text = text,
+        start = start,
+        snippet = "| Column | Column |\n| --- | --- |\n|  |  |\n",
+        clear = MarkdownStructure.underTable(text, start),
+    )
 
     /** Puts [snippet] on a line of its own, leaving the caret after it. */
-    private fun insertBlock(text: String, start: Int, snippet: String): Result {
+    private fun insertBlock(
+        text: String,
+        start: Int,
+        snippet: String,
+        /** Whether to leave a blank line between the snippet and whatever is above it. */
+        clear: Boolean = false,
+    ): Result {
         val caret = start.coerceIn(0, text.length)
         val lead = if (caret == 0 || text[caret - 1] == '\n') "" else "\n"
-        val out = text.replaceRange(caret, caret, lead + snippet)
-        val end = caret + lead.length + snippet.length
+        val blank = if (clear) "\n" else ""
+        val out = text.replaceRange(caret, caret, lead + blank + snippet)
+        val end = caret + lead.length + blank.length + snippet.length
         return Result(out, end, end)
     }
 
