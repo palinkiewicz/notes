@@ -313,18 +313,24 @@ private fun ColorScheme.toPureBlack() = copy(
  * colours it previews would be a second source of truth for what a theme looks like.
  */
 @Composable
-fun colorSchemeFor(colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme = when (colorTheme) {
-    AppColorTheme.DYNAMIC ->
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        } else {
-            // minSdk is 29, so this is reachable. Fall back to the app's own palette rather than
-            // hiding the option, because a saved choice should still open something.
-            bundled(AppColorTheme.DAKILS_NOTES, darkTheme)
-        }
+fun colorSchemeFor(colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme {
+    // Read unconditionally: a composable call present in only one branch of this `when` changes the
+    // slot table shape when `colorTheme` toggles into or out of DYNAMIC, which was losing unrelated
+    // `rememberSaveable` state further up the tree (the app shell's current destination) on that
+    // transition. Reading it here every time keeps the call structure identical across all branches.
+    val context = LocalContext.current
+    return when (colorTheme) {
+        AppColorTheme.DYNAMIC ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            } else {
+                // minSdk is 29, so this is reachable. Fall back to the app's own palette rather than
+                // hiding the option, because a saved choice should still open something.
+                bundled(AppColorTheme.DAKILS_NOTES, darkTheme)
+            }
 
-    else -> bundled(colorTheme, darkTheme)
+        else -> bundled(colorTheme, darkTheme)
+    }
 }
 
 private fun bundled(colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme {
