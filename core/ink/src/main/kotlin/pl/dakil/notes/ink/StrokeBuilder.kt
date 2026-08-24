@@ -7,6 +7,7 @@ import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ToolType
+import pl.dakil.notes.model.WidthedPath
 import kotlin.math.hypot
 import kotlin.math.sqrt
 
@@ -20,7 +21,7 @@ import kotlin.math.sqrt
  * width modulation. Everything is applied at capture time and baked into the result, because a
  * stroke is a record of what the user drew, not a recipe to be re-cooked with later settings.
  */
-class StrokeBuilder {
+class StrokeBuilder : WidthedPath {
 
     private var xs = FloatArray(INITIAL_CAPACITY)
     private var ys = FloatArray(INITIAL_CAPACITY)
@@ -32,6 +33,11 @@ class StrokeBuilder {
     private var startTimeMs = 0L
     private var anyPressure = false
     private var anyTilt = false
+
+    // The extremes seen so far, so the renderer can ask whether this stroke needs the tessellated
+    // path without walking every point it has collected on every frame.
+    private var minFactor = 1f
+    private var maxFactor = 1f
 
     private val filterX = OneEuroFilter()
     private val filterY = OneEuroFilter()
@@ -67,7 +73,7 @@ class StrokeBuilder {
     var maxX = 0f; private set
     var maxY = 0f; private set
 
-    val pointCount: Int get() = count
+    override val pointCount: Int get() = count
     val isEmpty: Boolean get() = count == 0
 
     fun x(i: Int): Float = xs[i]
@@ -76,6 +82,19 @@ class StrokeBuilder {
 
     /** Width in points at point [i] — what the renderer needs to size the outline. */
     fun widthAt(i: Int): Float = spec.width * widthFactor(i)
+
+    override fun pointX(i: Int): Float = xs[i]
+    override fun pointY(i: Int): Float = ys[i]
+    override fun pointWidth(i: Int): Float = widthAt(i)
+
+    /**
+     * Whether the width has actually moved, and the wet stroke therefore has to be tessellated.
+     *
+     * A pen held at one pressure, or one the digitiser reports nothing for, still goes down the
+     * platform stroker — which is the fast path, and the whole reason for asking.
+     */
+    val hasWidthVariation: Boolean
+        get() = anyPressure && maxFactor - minFactor > FLAT_TOLERANCE
 
     val nominalWidth: Float get() = spec.width
     val color: Int get() = spec.effectiveColor
@@ -93,6 +112,8 @@ class StrokeBuilder {
         count = 0
         anyPressure = false
         anyTilt = false
+        minFactor = 1f
+        maxFactor = 1f
         startTimeMs = sample.timeMs
         lastTimeMs = sample.timeMs
         smoothedSpeed = 0f
@@ -150,6 +171,8 @@ class StrokeBuilder {
         count = 0
         anyPressure = false
         anyTilt = false
+        minFactor = 1f
+        maxFactor = 1f
         guide = null
     }
 
@@ -181,9 +204,17 @@ class StrokeBuilder {
         smoothedSpeed += (instantSpeed - smoothedSpeed) * SPEED_SMOOTHING
 
         ensureCapacity(count + 1)
+        val factor = computeWidthFactor(sample)
+        if (count == 0) {
+            minFactor = factor
+            maxFactor = factor
+        } else {
+            if (factor < minFactor) minFactor = factor
+            if (factor > maxFactor) maxFactor = factor
+        }
         xs[count] = fx
         ys[count] = fy
-        factors[count] = computeWidthFactor(sample)
+        factors[count] = factor
         tilts[count] = sample.tilt
         times[count] = (sample.timeMs - startTimeMs).toInt()
         count++
@@ -202,6 +233,10 @@ class StrokeBuilder {
 
     /**
      * Combines pressure and speed into a single 0..1 fraction of the tool's nominal width.
+     *
+     * The nominal width is the width at full pressure, so this only ever takes width away. That is
+     * what makes the number on the slider mean something the user can see: press hard and the line
+     * is the width they asked for, ease off and it thins from there.
      *
      * Speed thinning is what makes the fountain pen read as ink rather than as a uniform ribbon:
      * a fast flick starves the nib. It is off by default for the plain pen, where users expect a
@@ -226,10 +261,13 @@ class StrokeBuilder {
 
         if (!anyPressure) return 1f
 
-        // Clamp in factor space, then renormalise against the tool's own maximum so the stored
-        // factor genuinely spans (0, 1] and uses the full byte range on disk.
-        val clamped = factor.coerceIn(spec.minWidthFactor, spec.maxWidthFactor)
-        return (clamped / spec.maxWidthFactor).coerceIn(MIN_FACTOR, 1f)
+        // The bounds are already fractions of the nominal width, so clamping is all that is left.
+        // Rescaling them to fill the byte would be the obvious-looking next step and is exactly
+        // wrong: the factor is stored against the stroke's own width, so dividing it by the tool's
+        // ceiling would shrink every stroke the tool ever drew by that ceiling.
+        val floor = spec.minWidthFactor.coerceIn(MIN_FACTOR, 1f)
+        val ceiling = spec.maxWidthFactor.coerceIn(floor, 1f)
+        return factor.coerceIn(floor, ceiling)
     }
 
     private fun ensureCapacity(needed: Int) {
@@ -254,6 +292,9 @@ class StrokeBuilder {
         private const val SPEED_SMOOTHING = 0.2f
 
         private const val MIN_FACTOR = 0.02f
+
+        /** Below this the width is flat enough that tessellating it would buy nothing. */
+        private const val FLAT_TOLERANCE = 1e-3f
     }
 }
 

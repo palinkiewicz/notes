@@ -91,6 +91,49 @@ class InputRouterTest {
     }
 
     @Test
+    fun `a stylus arriving after a palm has taken the page revokes that too`() {
+        // The same palm, with finger drawing off: it is given the page to pan rather than the ink,
+        // and left alone it goes on panning under the stroke that is now being drawn — which is
+        // exactly the "the pen just scrolls the page" complaint. The pen outranks it either way.
+        val router = InputRouter(InputConfig(fingerDrawingEnabled = false))
+        val palm = router.begin(sample(ToolType.FINGER, id = 7, t = 1000))
+        assertEquals(InputIntent.Navigate, palm.intent)
+
+        val pen = router.begin(sample(ToolType.STYLUS, id = 8, t = 1030))
+        assertEquals(listOf(7), pen.revoked)
+        assertEquals(InputIntent.Ignore, router.update(sample(ToolType.FINGER, id = 7, t = 1040)))
+    }
+
+    @Test
+    fun `a pen still in the air makes the hand that lands under it a palm`() {
+        // Hover is what catches the heel of the hand, which otherwise arrives before the nib does
+        // and is indistinguishable from a finger asking to scroll. Every pen this is written for
+        // reports itself from a centimetre or so out, and gets there first.
+        val router = InputRouter(InputConfig(palmRejectionWindowMs = 120))
+        router.observeStylusProximity(1000L)
+        assertEquals(InputIntent.Ignore, router.begin(sample(ToolType.FINGER, id = 3, t = 1040)).intent)
+    }
+
+    @Test
+    fun `a pen lifted clear of the screen gives the fingers back`() {
+        // Proximity has to expire like contact does, or resting the pen in your hand near the
+        // tablet would leave the page unpannable.
+        val router = InputRouter(InputConfig(palmRejectionWindowMs = 120))
+        router.observeStylusProximity(1000L)
+        assertEquals(InputIntent.Navigate, router.begin(sample(ToolType.FINGER, id = 3, t = 1500)).intent)
+    }
+
+    @Test
+    fun `hover never winds the stylus clock backwards`() {
+        // Hover samples and contact samples come from different dispatch paths and can be
+        // delivered out of order. An older one must not shorten the window a newer one opened.
+        val router = InputRouter(InputConfig(palmRejectionWindowMs = 120))
+        router.begin(sample(ToolType.STYLUS, id = 0, t = 1000))
+        router.observeStylusProximity(900L)
+        assertEquals(InputIntent.Ignore, router.begin(sample(ToolType.FINGER, id = 1, t = 1050)).intent)
+    }
+
+    @Test
     fun `a stylus does not revoke another stylus`() {
         val router = InputRouter()
         router.begin(sample(ToolType.STYLUS, id = 1, t = 1000))

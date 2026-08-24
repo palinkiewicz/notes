@@ -76,12 +76,18 @@ class Stroke(
      * moment it is committed.
      */
     val shape: ShapeSpec? = null,
-) {
+) : WidthedPath {
     init {
         require(xs.size == ys.size) { "Stroke coordinate arrays must be the same length" }
     }
 
-    val pointCount: Int get() = xs.size
+    override val pointCount: Int get() = xs.size
+
+    override fun pointX(i: Int): Float = xs[i]
+
+    override fun pointY(i: Int): Float = ys[i]
+
+    override fun pointWidth(i: Int): Float = widthAt(i)
 
     /**
      * Bounding box inflated by half the maximum drawn width, cached because both hit-testing and

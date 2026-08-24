@@ -71,9 +71,14 @@ class InputRouter(config: InputConfig = InputConfig()) {
         if (stylus) lastStylusTimeMs = sample.timeMs
 
         if (stylus) {
-            // A stylus outranks everything. Any finger already drawing was a palm the time-window
-            // rule could not catch, because it touched down before the pen did.
-            val revoked = revokeWhere { it.intent is InputIntent.Draw && it.toolType.isTouch() }
+            // A stylus outranks everything. Any touch already down was the hand the pen is being
+            // held in — the time-window rule could not catch it, because it landed before the pen
+            // did — whether it had been given the ink or the page to move. Leaving a navigating
+            // palm alone is what let a stroke turn into a pan under the heel of the hand.
+            val revoked = revokeWhere {
+                it.toolType.isTouch() &&
+                    (it.intent is InputIntent.Draw || it.intent is InputIntent.Navigate)
+            }
             active[sample.pointerId] = Live(InputIntent.Draw, sample.toolType)
             return InputDecision(InputIntent.Draw, revoked)
         }
@@ -133,6 +138,22 @@ class InputRouter(config: InputConfig = InputConfig()) {
     }
 
     fun end(pointerId: Int): InputIntent = active.remove(pointerId)?.intent ?: InputIntent.Ignore
+
+    /**
+     * Records that the stylus is hovering over the glass at [timeMs], without it being a pointer.
+     *
+     * This is the rule that catches the hand *before* it lands. Every pen this app is for — S-Pen,
+     * M-Pencil, and any EMR digitiser — reports its position from a centimetre or so away, and it
+     * gets there first: the hand and the pen come down together, but the pen is ahead of the heel
+     * of the hand on the way in. Without this the palm arrives with no stylus yet on record, is
+     * read as an ordinary finger, and takes the page away with it.
+     *
+     * It feeds the same window as contact does, so the same setting governs both and a pen lifted
+     * clear of the screen gives the fingers back after it.
+     */
+    fun observeStylusProximity(timeMs: Long) {
+        if (timeMs > lastStylusTimeMs || lastStylusTimeMs == NEVER) lastStylusTimeMs = timeMs
+    }
 
     fun cancel() = active.clear()
 

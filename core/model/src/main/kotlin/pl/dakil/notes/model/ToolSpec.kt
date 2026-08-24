@@ -19,13 +19,27 @@ data class ToolSpec(
     val blend: BlendId = BlendId.NORMAL,
     /** 0 = raw input, 1 = maximum smoothing. Feeds the One Euro filter's cutoff. */
     val smoothing: Float = 0.5f,
-    /** How strongly pressure modulates width. 0 = constant width. */
-    val pressureInfluence: Float = 0.6f,
+    /**
+     * How strongly pressure modulates width, as the share of the width it is allowed to take away.
+     *
+     * 0 = constant width; 1 = a feather-light touch draws [minWidthFactor] of [width] and a firm
+     * one draws all of it. It is expressed that way round because [width] is what the user set on
+     * the slider, and the width they set is the width they should get when they press.
+     */
+    val pressureInfluence: Float = 0.9f,
     /** How strongly speed thins the stroke, emulating ink starvation on a fast flick. */
     val speedInfluence: Float = 0.0f,
-    /** Width multiplier bounds after all modulation, so a stroke never vanishes or blows up. */
-    val minWidthFactor: Float = 0.25f,
-    val maxWidthFactor: Float = 1.6f,
+    /**
+     * Width multiplier bounds after all modulation, in (0, 1].
+     *
+     * The floor stops a stroke vanishing under a light hand; the ceiling is what [width] means, so
+     * it is 1 for every tool that wants "the slider is the width at full pressure". Values above 1
+     * are not expressible: the format stores the per-point factor as a byte fraction of the
+     * stroke's own [Stroke.width], and a stroke that drew wider than its nominal width could not
+     * be written back.
+     */
+    val minWidthFactor: Float = 0.1f,
+    val maxWidthFactor: Float = 1f,
     /** Radius in points for the eraser tools. */
     val eraserRadius: Float = 8f,
 ) {
@@ -37,21 +51,26 @@ data class ToolSpec(
         }
 
     companion object {
+        /**
+         * A tenth of the set width at a feather touch, all of it when pressed.
+         *
+         * That is a much wider range than a ballpoint really has, and it is the right default
+         * anyway: a digitiser's usable pressure band is narrow and its top end is easy to miss, so
+         * a modest range on paper turns into almost no visible variation in the hand.
+         */
         val PEN = ToolSpec(
             tool = ToolId.PEN,
             width = 2f,
-            pressureInfluence = 0.5f,
         )
 
-        /** Wide dynamic range and speed thinning give the calligraphic look. */
+        /** The widest range of the lot, plus speed thinning, for the calligraphic look. */
         val FOUNTAIN_PEN = ToolSpec(
             tool = ToolId.FOUNTAIN_PEN,
             width = 3.2f,
             smoothing = 0.65f,
-            pressureInfluence = 0.9f,
+            pressureInfluence = 0.94f,
             speedInfluence = 0.45f,
-            minWidthFactor = 0.15f,
-            maxWidthFactor = 2.0f,
+            minWidthFactor = 0.06f,
         )
 
         /** Low smoothing keeps the grain of the hand; slight translucency reads as graphite. */
@@ -60,8 +79,8 @@ data class ToolSpec(
             width = 1.8f,
             opacity = 0.85f,
             smoothing = 0.25f,
-            pressureInfluence = 0.75f,
-            maxWidthFactor = 1.25f,
+            pressureInfluence = 0.8f,
+            minWidthFactor = 0.2f,
         )
 
         /**

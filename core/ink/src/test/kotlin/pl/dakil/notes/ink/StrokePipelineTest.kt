@@ -188,6 +188,37 @@ class StrokePipelineTest {
     }
 
     @Test
+    fun `a firm hand draws the width the user asked for`() {
+        // The number on the width slider is the width at full pressure. It used to be renormalised
+        // against the tool's own ceiling on the way to storage, which quietly capped the pen at
+        // five eighths of its setting however hard anyone pressed — and made the whole pressure
+        // range read as a narrow band somewhere in the middle.
+        val stroke = drawLine(ToolSpec.PEN.copy(width = 4f)) { 1f }
+        assertEquals(4f, stroke.width, 1e-4f)
+        assertEquals(4f, stroke.widthAt(stroke.pointCount - 1), 1e-3f)
+    }
+
+    @Test
+    fun `a light hand draws a small fraction of it`() {
+        // A range anyone can see. A digitiser's usable pressure band is narrow, so a tool whose
+        // extremes are 30% and 60% of the width feels like it has no pressure response at all.
+        val stroke = drawLine(ToolSpec.PEN.copy(width = 4f)) { 0f }
+        assertTrue(
+            "a feather touch drew ${stroke.widthAt(0)} of 4",
+            stroke.widthAt(0) <= 4f * 0.15f,
+        )
+    }
+
+    @Test
+    fun `the pressure range spans the tool's own bounds end to end`() {
+        val spec = ToolSpec.PEN.copy(width = 10f)
+        val light = drawLine(spec) { 0f }.widthAt(5) / 10f
+        val firm = drawLine(spec) { 1f }.widthAt(5) / 10f
+        assertEquals(spec.minWidthFactor, light, 1e-2f)
+        assertEquals(spec.maxWidthFactor, firm, 1e-2f)
+    }
+
+    @Test
     fun `width factors stay inside the storable range`() {
         val stroke = drawLine(ToolSpec.FOUNTAIN_PEN) { i -> if (i % 2 == 0) 0f else 1f }
         for (f in stroke.widthFactors!!) {

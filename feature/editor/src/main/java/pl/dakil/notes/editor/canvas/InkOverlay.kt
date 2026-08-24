@@ -15,7 +15,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.RequestDisallowInterceptTouchEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalHapticFeedback
 import pl.dakil.notes.ink.InputIntent
@@ -87,6 +89,27 @@ interface InkCallbacks {
  * the `ViewGroup` call of the same name: once the router says this pointer is drawing, moves are
  * dispatched *and consumed* in the tunnelling pass, so no ancestor can take the stroke away. The
  * claim is dropped the moment the gesture ends or is handed over, so panning is never starved.
+ *
+ * ### Why it never declines the first pointer down
+ *
+ * `pointerInteropFilter` reads the return value of exactly one event — `ACTION_DOWN` — and a
+ * `false` there latches the whole stream off: no `ACTION_POINTER_DOWN`, no moves, no up, until
+ * every finger has left the glass. That is the mechanism behind "resting my hand makes the pen
+ * useless". The heel of the hand lands a moment before the nib, is read as an ordinary finger
+ * because no stylus is on record yet, and is declined so the page can be panned with it — and the
+ * pen's own pointer-down, arriving a few milliseconds later, is then delivered to nobody. The pen
+ * moves and the page scrolls under it, because panning is the only claimant left.
+ *
+ * So the first down is always consumed, whoever it belongs to, and the decision about what it *is*
+ * stays with the router. Consuming it costs nothing that was being used: pan and zoom re-seed
+ * themselves from the fingers' real positions rather than from the down (`awaitFirstDown` there
+ * does not require an unconsumed one), and the taps that have to reach the text underneath only
+ * happen while the text tool is out, which this handler has already stepped aside for.
+ *
+ * That keeps the stream alive long enough for the pen to arrive.
+ * [InputRouter.observeStylusProximity] is what usually makes it moot: a pen reports itself while it
+ * is still in the air, so by the time the hand lands the palm window is already open and the hand
+ * is ignored outright.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -157,47 +180,50 @@ fun InkOverlay(
     val paintOrder = remember(sheet, documentVersion) { sheet.blocksInPaintOrder() }
 
     Canvas(
-        modifier = modifier.pointerInteropFilter(
-            requestDisallowInterceptTouchEvent = disallowIntercept,
-        ) { event ->
-            // Declining outright while the text tool is out. The router is still cleared on the way
-            // past: a pointer it has already accepted — the tool can be switched mid-stroke — would
-            // otherwise stay live for ever, because a declined gesture never delivers its UP.
-            if (textToolActive) {
-                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                    router.cancel()
-                    shape.reset()
-                    guide.release()
-                    builder.reset()
-                    disallowIntercept(false)
+        modifier = modifier
+            .stylusProximity(router)
+            .pointerInteropFilter(
+                requestDisallowInterceptTouchEvent = disallowIntercept,
+            ) { event ->
+                // Declining outright while the text tool is out. The router is still cleared on
+                // the way past: a pointer it has already accepted — the tool can be switched
+                // mid-stroke — would otherwise stay live for ever, because a declined gesture
+                // never delivers its UP.
+                if (textToolActive) {
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                        router.cancel()
+                        shape.reset()
+                        guide.release()
+                        builder.reset()
+                        disallowIntercept(false)
+                    }
+                    return@pointerInteropFilter false
                 }
-                return@pointerInteropFilter false
-            }
 
-            val toDoc = { x: Float, y: Float ->
-                documentPointAt(x, y, ptToPx, zoom(), format, paged)
+                val toDoc = { x: Float, y: Float ->
+                    documentPointAt(x, y, ptToPx, zoom(), format, paged)
+                }
+                handleEvent(
+                    event = event,
+                    router = router,
+                    builder = builder,
+                    lasso = lasso,
+                    shape = shape,
+                    guide = guide,
+                    rulerEdgeFor = currentRulerEdgeFor,
+                    tool = currentTool,
+                    config = inputConfig,
+                    callbacks = currentCallbacks,
+                    toDocument = toDoc,
+                    // A resting pen wanders by a roughly fixed distance on the glass whatever
+                    // the page is magnified to, so the tolerance is a screen distance divided
+                    // back out of the zoom — the same reasoning as the marquee's width below.
+                    dwellTolerance = { DWELL_TOLERANCE_PT / zoom().coerceAtLeast(MIN_ZOOM) },
+                    startTicking = { shape.startTicking(scope) { onTick() } },
+                    invalidate = { inkVersion.intValue++ },
+                    claim = disallowIntercept,
+                )
             }
-            handleEvent(
-                event = event,
-                router = router,
-                builder = builder,
-                lasso = lasso,
-                shape = shape,
-                guide = guide,
-                rulerEdgeFor = currentRulerEdgeFor,
-                tool = currentTool,
-                config = inputConfig,
-                callbacks = currentCallbacks,
-                toDocument = toDoc,
-                // A resting pen wanders by a roughly fixed distance on the glass whatever the page
-                // is magnified to, so the tolerance is a screen distance divided back out of the
-                // zoom — the same reasoning as the lasso marquee's line width below.
-                dwellTolerance = { DWELL_TOLERANCE_PT / zoom().coerceAtLeast(MIN_ZOOM) },
-                startTicking = { shape.startTicking(scope) { onTick() } },
-                invalidate = { inkVersion.intValue++ },
-                claim = disallowIntercept,
-            )
-        }
     ) {
         @Suppress("UNUSED_EXPRESSION")
         inkVersion.intValue
@@ -237,7 +263,12 @@ fun InkOverlay(
                             if (block !is InkBlock || !block.visible) continue
                             drawStrokes(block.strokes, ptToPx, toStripPx, 1f, docTop, docBottom)
                         }
-                        if (wet) drawWetStroke(builder, ptToPx, toStripPx)
+                        // Culled by the same band the committed strokes are, and for a sharper
+                        // reason: the wet stroke is tessellated on every frame, so drawing it once
+                        // per page would multiply that by the length of the note.
+                        if (wet && builder.maxY >= docTop && builder.minY < docBottom) {
+                            drawWetStroke(builder, ptToPx, toStripPx)
+                        }
                         if (live != null) drawShapePreview(
                             shape.outline, ptToPx, toStripPx,
                             shape.previewWidth, shape.previewColor, shape.previewBlend,
@@ -266,6 +297,28 @@ fun InkOverlay(
                 end = Offset(lasso.xs[0] * ptToPx, toStripPx(lasso.ys[0])),
                 strokeWidth = outlineWidth,
             )
+        }
+    }
+}
+
+/**
+ * Tells [router] whenever the stylus reports itself without touching the glass.
+ *
+ * Written as a separate pointer-input modifier because `pointerInteropFilter` never sees this:
+ * hovering is not a touch, so it arrives through `onGenericMotionEvent` and reaches Compose as an
+ * ordinary pointer change that simply is not pressed. Nothing is consumed here — the only job is
+ * to put the pen on the record a moment earlier than its nib does, which is what lets the palm
+ * that lands next be recognised as a palm.
+ */
+private fun Modifier.stylusProximity(router: InputRouter): Modifier = pointerInput(router) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            for (change in event.changes) {
+                if (change.pressed) continue
+                if (change.type != PointerType.Stylus && change.type != PointerType.Eraser) continue
+                router.observeStylusProximity(change.uptimeMillis)
+            }
         }
     }
 }
@@ -399,7 +452,9 @@ private fun handleEvent(
                     shape.reset()
                     guide.release()
                     if (decision.revoked.isNotEmpty()) invalidate()
-                    return false
+                    // Consumed all the same when it is the first pointer down — see the class
+                    // comment. Saying no here is what used to hang up on the stylus still to come.
+                    return event.actionMasked == MotionEvent.ACTION_DOWN
                 }
                 // A rejected palm has to be ignored by *everyone*. Claiming it looks odd but is the
                 // only way to swallow it: leaving it unclaimed hands it straight to the gesture

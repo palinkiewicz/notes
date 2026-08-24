@@ -1,8 +1,10 @@
 package pl.dakil.notes.ui.sheet
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -12,6 +14,7 @@ import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.Tessellator
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.WidthedPath
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 
 /**
@@ -22,7 +25,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
  * - **Constant width** strokes go straight to the platform's own path stroker, which is
  *   hardware-accelerated. A plain pen or highlighter never pays for tessellation.
  * - **Variable width** strokes are tessellated into a filled outline, because no platform stroker
- *   can taper.
+ *   can taper. The wet stroke under the pen takes the same route as the ink already committed, so
+ *   the width a pen is pressing out is on the page as it is drawn rather than appearing at pen-up.
  *
  * Every `Path` is reused between calls: rebuilding paths is the dominant allocation in a canvas
  * app, and a page of handwriting redrawn per frame would otherwise churn the heap continuously.
@@ -92,36 +96,54 @@ class StrokeRenderer {
         }
     }
 
-    /** Draws the stroke currently under the pen, straight from the builder's live arrays. */
+    /**
+     * Draws the stroke currently under the pen, straight from the builder's live arrays.
+     *
+     * ### Why this tessellates
+     *
+     * It used to draw the wet stroke at the tool's nominal width and leave the taper to appear when
+     * the stroke was committed, on the reasoning that the difference was imperceptible. It is not:
+     * with pressure spanning a tenth of the width to all of it, a uniform ribbon is the wrong
+     * picture, and the line visibly changes weight under the hand at pen-up. Handwriting is a
+     * closed loop — people press harder because the line looked thin — so the width has to be
+     * honest while the pen is still down or the feedback is a frame too late to act on.
+     *
+     * The cost is one tessellation per *frame*, not per sample: input at 240 Hz coalesces into one
+     * redraw, and it is the same work a committed stroke of the same length already does.
+     */
     fun DrawScope.drawWetStroke(builder: StrokeBuilder, ptToPx: Float, toStripPx: (Float) -> Float) {
         val n = builder.pointCount
         if (n == 0) return
 
-        val spec = builder.toolSpec
         val color = Color(builder.color)
-        val blend = spec.blend.toBlendMode()
+        val blend = builder.blend.toBlendMode()
 
-        path.reset()
-        path.moveTo(builder.x(0) * ptToPx, toStripPx(builder.y(0)))
         if (n == 1) {
             drawCircle(
                 color = color,
                 radius = builder.widthAt(0) * 0.5f * ptToPx,
-                center = androidx.compose.ui.geometry.Offset(builder.x(0) * ptToPx, toStripPx(builder.y(0))),
+                center = Offset(builder.x(0) * ptToPx, toStripPx(builder.y(0))),
                 blendMode = blend,
             )
             return
         }
 
-        // The wet stroke always uses the cheap constant-width path. Tessellating on every input
-        // sample would be wasted work: the stroke is re-rendered properly the moment it is
-        // committed, and at 240 Hz the difference in taper is imperceptible anyway.
+        if (builder.hasWidthVariation) {
+            buildOutlinePath(builder, ptToPx, toStripPx)
+            drawPath(path, color, style = Fill, blendMode = blend)
+            return
+        }
+
+        path.reset()
+        path.moveTo(builder.x(0) * ptToPx, toStripPx(builder.y(0)))
         appendSmoothed(n, { builder.x(it) }, { builder.y(it) }, ptToPx, toStripPx)
         drawPath(
             path = path,
             color = color,
             style = DrawStroke(
-                width = spec.width * ptToPx,
+                // The flat factor, not the nominal width: a tool that thins by speed alone holds
+                // one width for the whole stroke, and it is not necessarily the one on the slider.
+                width = builder.widthAt(0) * ptToPx,
                 cap = StrokeCap.Round,
                 join = StrokeJoin.Round,
             ),
@@ -201,15 +223,28 @@ class StrokeRenderer {
         path.quadraticTo(previousX, previousY, x(n - 1) * ptToPx, toStripPx(y(n - 1)))
     }
 
-    private fun buildOutlinePath(stroke: Stroke, ptToPx: Float, toStripPx: (Float) -> Float) {
-        Tessellator.tessellate(stroke, outline)
+    /**
+     * Tessellates [path] and lays its contours into the reusable `Path`.
+     *
+     * All of them go into **one** `Path`, filled once. That is what makes the tessellator's
+     * overlapping pieces read as a single shape: the non-zero rule resolves them into one coverage
+     * mask before anything is blended, so a translucent pencil or a MULTIPLY highlighter is
+     * composited exactly once and the pieces leave no seams where they meet.
+     */
+    private fun buildOutlinePath(source: WidthedPath, ptToPx: Float, toStripPx: (Float) -> Float) {
+        Tessellator.tessellate(source, outline)
         path.reset()
-        if (outline.count == 0) return
-        path.moveTo(outline.x(0) * ptToPx, toStripPx(outline.y(0)))
-        for (i in 1 until outline.count) {
-            path.lineTo(outline.x(i) * ptToPx, toStripPx(outline.y(i)))
+        path.fillType = PathFillType.NonZero
+        for (contour in 0 until outline.contourCount) {
+            val start = outline.contourStart(contour)
+            val end = outline.contourEnd(contour)
+            if (end - start < 3) continue
+            path.moveTo(outline.x(start) * ptToPx, toStripPx(outline.y(start)))
+            for (i in start + 1 until end) {
+                path.lineTo(outline.x(i) * ptToPx, toStripPx(outline.y(i)))
+            }
+            path.close()
         }
-        path.close()
     }
 
     private fun BlendId.toBlendMode(): BlendMode = when (this) {
