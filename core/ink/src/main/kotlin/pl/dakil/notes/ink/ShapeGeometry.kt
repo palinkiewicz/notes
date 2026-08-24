@@ -26,6 +26,7 @@ import kotlin.math.sin
 /** How many apexes this shape can be dragged by. */
 fun ShapeSpec.handleCount(): Int = when (this) {
     is ShapeSpec.Line -> 2
+    is ShapeSpec.Arc -> 3
     is ShapeSpec.Poly -> vertexCount
     is ShapeSpec.Rect -> 4
     is ShapeSpec.Ngon -> sides
@@ -38,6 +39,14 @@ fun ShapeSpec.handleInto(i: Int, out: FloatArray) {
         is ShapeSpec.Line -> {
             out[0] = if (i == 0) x0 else x1
             out[1] = if (i == 0) y0 else y1
+        }
+        is ShapeSpec.Arc -> {
+            // Ends and the crown of the bow. The crown is the one handle that is not on the drawn
+            // path's ends, and it is what makes the curve adjustable: everything about an arc that
+            // its two endpoints do not already say is how far it bulges away from them.
+            val a = start + sweep * i * 0.5f
+            out[0] = cx + r * cos(a)
+            out[1] = cy + r * sin(a)
         }
         is ShapeSpec.Poly -> {
             out[0] = xs[i]
@@ -99,6 +108,32 @@ fun ShapeSpec.nearestHandle(x: Float, y: Float): Int {
 fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
     is ShapeSpec.Line ->
         if (i == 0) copy(x0 = x, y0 = y) else copy(x1 = x, y1 = y)
+
+    is ShapeSpec.Arc -> {
+        val p = FloatArray(2)
+        handleInto(0, p)
+        val ax = p[0]
+        val ay = p[1]
+        handleInto(2, p)
+        val bx = p[0]
+        val by = p[1]
+        if (i == 1) {
+            // Only the component across the chord counts: the crown of an arc is on the chord's
+            // perpendicular bisector by definition, so sliding the handle along the chord would be
+            // asking the shape to be something it is not, and the arc would jump sideways.
+            arcFromChord(ax, ay, bx, by, sagittaOf(ax, ay, bx, by, x, y))
+        } else {
+            // Dragging an end keeps the *proportion* of the bow rather than its depth, so
+            // stretching an arc scales it instead of gradually flattening it towards a line.
+            handleInto(1, p)
+            val bow = sagittaOf(ax, ay, bx, by, p[0], p[1]) / max(hypot(bx - ax, by - ay), MIN_EXTENT)
+            val x0 = if (i == 0) x else ax
+            val y0 = if (i == 0) y else ay
+            val x1 = if (i == 0) bx else x
+            val y1 = if (i == 0) by else y
+            arcFromChord(x0, y0, x1, y1, bow * hypot(x1 - x0, y1 - y0))
+        }
+    }
 
     is ShapeSpec.Poly -> {
         val nx = xs.copyOf()
@@ -185,7 +220,7 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
 // ---- Outline -----------------------------------------------------------------------------------
 
 /**
- * Fills [into] with the shape's centreline, closed for everything but a line.
+ * Fills [into] with the shape's centreline, closed for everything but a line and an arc.
  *
  * ### Why corners are emitted three times
  *
@@ -210,6 +245,7 @@ fun ShapeSpec.outlineInto(into: StrokeOutline) {
             addEdge(into, x0, y0, x1, y1, spacing)
             into.add(x1, y1)
         }
+        is ShapeSpec.Arc -> addArc(into)
         is ShapeSpec.Ellipse -> addEllipse(into)
         else -> addPolygon(into)
     }
@@ -234,6 +270,76 @@ fun ShapeSpec.toStroke(
     // No width factors: a snapped shape is drawn at one weight, which also means the renderer skips
     // tessellation and hands it straight to the platform stroker.
     return Stroke(tool, color, width, blend, xs, ys, shape = this)
+}
+
+/**
+ * The arc from ([x0], [y0]) to ([x1], [y1]) whose crown stands [sagitta] away from the chord.
+ *
+ * Signed: positive bulges to the left of the chord's direction, which is what carries the sense the
+ * user drew in. Past half the chord length the arc is the major one, running the long way round,
+ * so this covers everything from a shallow bow to very nearly a full circle in one expression.
+ */
+fun arcFromChord(x0: Float, y0: Float, x1: Float, y1: Float, sagitta: Float): ShapeSpec.Arc {
+    val dx = x1 - x0
+    val dy = y1 - y0
+    val chord = hypot(dx, dy)
+    // A collapsed chord has no perpendicular to measure against; keep the shape rather than divide
+    // by zero, by treating the two ends as the extremes of a circle's diameter.
+    if (chord < MIN_EXTENT) {
+        val radius = max(abs(sagitta) * 0.5f, MIN_EXTENT)
+        return ShapeSpec.Arc(x0, y0 - radius, radius, QUARTER_TURN, TWO_PI)
+    }
+    // Never let the bow vanish entirely: an arc with no curvature has no centre, and the user
+    // dragging it flat means "as straight as an arc goes", not "stop being an arc".
+    val s = if (abs(sagitta) < MIN_EXTENT) MIN_EXTENT else sagitta
+    val half = chord * 0.5f
+    val radius = (half * half + s * s) / (2f * abs(s))
+    // Distance from the chord's midpoint to the centre, on the far side of the chord from the
+    // crown while the arc is minor and on the same side once it is major.
+    val offset = -(half * half - s * s) / (2f * s)
+    val ux = -dy / chord
+    val uy = dx / chord
+    val cx = (x0 + x1) * 0.5f + ux * offset
+    val cy = (y0 + y1) * 0.5f + uy * offset
+    val start = atan2(y0 - cy, x0 - cx)
+    var sweep = atan2(y1 - cy, x1 - cx) - start
+    while (sweep > PI) sweep -= TWO_PI
+    while (sweep < -PI) sweep += TWO_PI
+    // The short way round passes through the crown only while the arc is minor; beyond that the
+    // pen went the other way, and taking the short way would mirror the shape.
+    if (abs(s) > half) sweep -= if (sweep < 0f) -TWO_PI else TWO_PI
+    return ShapeSpec.Arc(cx, cy, max(radius, MIN_EXTENT), start, sweep)
+}
+
+/** Signed distance of ([px], [py]) from the chord, positive to the left of its direction. */
+internal fun sagittaOf(x0: Float, y0: Float, x1: Float, y1: Float, px: Float, py: Float): Float {
+    val dx = x1 - x0
+    val dy = y1 - y0
+    val chord = hypot(dx, dy)
+    if (chord < MIN_EXTENT) return py - y0
+    return ((px - x0) * -dy + (py - y0) * dx) / chord
+}
+
+private fun ShapeSpec.Arc.addArc(into: StrokeOutline) {
+    val steps = arcSteps(r, sweep)
+    for (i in 0..steps) {
+        val a = start + sweep * i / steps
+        into.add(cx + r * cos(a), cy + r * sin(a))
+    }
+}
+
+/**
+ * Step count for a circular sweep, on the same sagitta budget the ellipse is sampled to.
+ *
+ * Always even, so that the crown — the handle at half the sweep — lands on a sample rather than
+ * between two. Handles that are not on the outline are the one way the two halves of this file can
+ * disagree, and it shows up as the shape jumping when the user grabs it.
+ */
+private fun arcSteps(radius: Float, sweep: Float): Int {
+    if (radius <= SAGITTA) return MIN_ARC_STEPS
+    val step = 2f * acos(1f - min(SAGITTA / radius, 0.5f))
+    val steps = ceil(abs(sweep) / step).toInt().coerceIn(MIN_ARC_STEPS, MAX_ELLIPSE_STEPS)
+    return steps + (steps and 1)
 }
 
 private fun ShapeSpec.addPolygon(into: StrokeOutline) {
@@ -308,6 +414,7 @@ private fun rotateInto(x: Float, y: Float, rot: Float, cx: Float, cy: Float, out
 
 internal const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
 private const val PI = kotlin.math.PI.toFloat()
+private const val QUARTER_TURN = PI / 2f
 
 /** Nothing smaller than this is a shape; it also keeps a collapsed drag out of the maths. */
 private const val MIN_EXTENT = 0.5f
@@ -316,4 +423,5 @@ private const val MAX_OUTLINE_POINTS = 1024
 private const val CORNER_REPEATS = 3
 private const val SAGITTA = 0.5f / 32f
 private const val MIN_ELLIPSE_STEPS = 24
+private const val MIN_ARC_STEPS = 8
 private const val MAX_ELLIPSE_STEPS = 512

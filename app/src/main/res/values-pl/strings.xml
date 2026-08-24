@@ -64,7 +64,7 @@
     <string name="settings_pressure_curve">Reakcja na nacisk</string>
     <string name="settings_pressure_curve_description">Miękka osiąga pełną szerokość przy lżejszym dotyku; twarda wymaga większej siły.</string>
     <string name="settings_auto_shape">Automatyczne kształty</string>
-    <string name="settings_auto_shape_description">Przytrzymaj pióro nieruchomo na końcu pociągnięcia, aby zamienić je w linię, kwadrat, koło lub wielokąt. Unieś je normalnie, a pociągnięcie zostanie takie, jak narysowane.</string>
+    <string name="settings_auto_shape_description">Przytrzymaj pióro nieruchomo na końcu pociągnięcia, aby zamienić je w linię, łuk, kwadrat, koło lub wielokąt. Unieś je normalnie, a pociągnięcie zostanie takie, jak narysowane.</string>
     <string name="settings_auto_shape_hold">Czas przytrzymania</string>
     <string name="settings_auto_shape_hold_description">Jak długo pióro musi spoczywać, zanim kształt zostanie rozpoznany.</string>
 

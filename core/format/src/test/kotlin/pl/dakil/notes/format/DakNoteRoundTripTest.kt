@@ -469,6 +469,7 @@ class DakNoteRoundTripTest {
     fun `a recognised shape survives a round trip`() {
         for (spec in listOf(
             ShapeSpec.Line(10f, 20f, 300f, 40f),
+            ShapeSpec.Arc(120f, 90f, 64f, 0.3f, -2.75f),
             ShapeSpec.Poly(floatArrayOf(0f, 90f, 40f), floatArrayOf(0f, 10f, 80f)),
             ShapeSpec.Rect(200f, 200f, 50f, 50f, 0.4f, equilateral = true),
             ShapeSpec.Ngon(120f, 300f, 48f, 0.31f, 7),

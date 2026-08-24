@@ -70,6 +70,11 @@ internal object ShapeJson {
             .with("x0", spec.x0).with("y0", spec.y0)
             .with("x1", spec.x1).with("y1", spec.y1)
 
+        is ShapeSpec.Arc -> JsonObject.of(KIND to kind(ARC))
+            .with("cx", spec.cx).with("cy", spec.cy)
+            .with("r", spec.r)
+            .with("a0", spec.start).with("sw", spec.sweep)
+
         is ShapeSpec.Poly -> JsonObject.of(KIND to kind(POLY))
             .with("pts", interleave(spec))
 
@@ -92,6 +97,11 @@ internal object ShapeJson {
     /** Null for anything this build does not recognise, the way an unknown tool ordinal degrades. */
     private fun parse(json: JsonObject): ShapeSpec? = when (json.string(KIND)) {
         LINE -> ShapeSpec.Line(json.float("x0"), json.float("y0"), json.float("x1"), json.float("y1"))
+
+        ARC -> ShapeSpec.Arc(
+            json.float("cx"), json.float("cy"), json.float("r"),
+            json.float("a0"), json.float("sw"),
+        )
 
         POLY -> {
             val pts = json.floatList("pts")
@@ -137,6 +147,7 @@ internal object ShapeJson {
     private const val EQUAL = "eq"
 
     private const val LINE = "line"
+    private const val ARC = "arc"
     private const val POLY = "poly"
     private const val RECT = "rect"
     private const val NGON = "ngon"

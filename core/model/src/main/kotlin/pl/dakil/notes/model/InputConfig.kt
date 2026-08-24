@@ -64,7 +64,7 @@ data class InputConfig(
     /** Ignore stylus samples below this pressure, suppressing the tail of a lifted pen. */
     val minPressure: Float = 0.0f,
     /**
-     * Hold the pen still at the end of a stroke to snap it to a square, circle or polygon.
+     * Hold the pen still at the end of a stroke to snap it to a line, curve, square or polygon.
      *
      * On by default: the trigger is a deliberate dwell, so a stroke that simply ends never snaps,
      * and someone who does not know the feature exists will never meet it by accident.

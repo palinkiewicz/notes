@@ -162,6 +162,106 @@ class ShapeGeometryTest {
         assertEquals(70f, moved.y1, 0f)
     }
 
+    // ---- Arcs ----------------------------------------------------------------------------------
+
+    @Test
+    fun `an arc outline runs from one end to the other through the crown`() {
+        val arc = ShapeSpec.Arc(100f, 100f, 60f, 0f, (PI / 2).toFloat())
+        val outline = StrokeOutline()
+        arc.outlineInto(outline)
+        val p = FloatArray(2)
+        arc.handleInto(0, p)
+        assertEquals(p[0], outline.x(0), 1e-3f)
+        assertEquals(p[1], outline.y(0), 1e-3f)
+        arc.handleInto(2, p)
+        assertEquals(p[0], outline.x(outline.count - 1), 1e-3f)
+        assertEquals(p[1], outline.y(outline.count - 1), 1e-3f)
+        // Open, unlike every other shape: the ends must not be joined up.
+        assertTrue("an arc must not close", hypot(outline.x(0) - p[0], outline.y(0) - p[1]) > 1f)
+    }
+
+    @Test
+    fun `dragging an arc by its crown deepens the bow and leaves the ends alone`() {
+        val arc = ShapeSpec.Arc(100f, 100f, 50f, PI.toFloat(), (PI / 2).toFloat())
+        val ends = endsOf(arc)
+        val deeper = arc.moveHandle(1, arc.handleX(1) + 20f, arc.handleY(1) + 20f) as ShapeSpec.Arc
+        val moved = endsOf(deeper)
+        for (i in 0 until 4) assertEquals("end $i", ends[i], moved[i], 1e-2f)
+        assertTrue("the bow should have changed", abs(deeper.sweep - arc.sweep) > 0.1f)
+    }
+
+    @Test
+    fun `sliding the crown along the chord does nothing, because a bow has only depth`() {
+        val arc = ShapeSpec.Arc(100f, 100f, 50f, 0f, 1.4f)
+        val ends = endsOf(arc)
+        // Straight along the chord from the crown: no component across it, so nothing to change.
+        val along = hypot(ends[2] - ends[0], ends[3] - ends[1])
+        val same = arc.moveHandle(
+            1,
+            arc.handleX(1) + (ends[2] - ends[0]) / along * 15f,
+            arc.handleY(1) + (ends[3] - ends[1]) / along * 15f,
+        ) as ShapeSpec.Arc
+        assertEquals(arc.r, same.r, 1e-2f)
+        assertEquals(arc.sweep, same.sweep, 1e-3f)
+    }
+
+    @Test
+    fun `stretching an arc by an end scales its bow instead of flattening it`() {
+        // The alternative — holding the crown still — turns every resize into a straightening,
+        // and the user has to re-bow the curve after every adjustment.
+        val arc = ShapeSpec.Arc(100f, 100f, 50f, 0f, 1.2f)
+        val ends = endsOf(arc)
+        val stretched = arc.moveHandle(
+            2,
+            ends[0] + (ends[2] - ends[0]) * 2f,
+            ends[1] + (ends[3] - ends[1]) * 2f,
+        ) as ShapeSpec.Arc
+        assertEquals("the same curve, twice the size", arc.sweep, stretched.sweep, 0.02f)
+        assertEquals(arc.r * 2f, stretched.r, 1f)
+    }
+
+    @Test
+    fun `an arc dragged flat stays an arc rather than losing a handle`() {
+        // A shape that changed its handle count mid-drag would leave the controller holding an
+        // index into something else, and the pen would jump to a different part of the shape.
+        val arc = ShapeSpec.Arc(100f, 100f, 50f, 0f, 1.2f)
+        val ends = endsOf(arc)
+        val flat = arc.moveHandle(1, (ends[0] + ends[2]) / 2f, (ends[1] + ends[3]) / 2f)
+        assertTrue("got $flat", flat is ShapeSpec.Arc)
+        assertEquals(3, flat.handleCount())
+    }
+
+    @Test
+    fun `an arc drawn the other way round is the mirror of the first, not the same shape`() {
+        val up = arcFromChord(0f, 0f, 100f, 0f, 30f)
+        val down = arcFromChord(0f, 0f, 100f, 0f, -30f)
+        assertEquals(up.r, down.r, 1e-3f)
+        assertEquals(-up.sweep, down.sweep, 1e-3f)
+        assertEquals(30f, up.handleY(1), 1e-2f)
+        assertEquals(-30f, down.handleY(1), 1e-2f)
+    }
+
+    @Test
+    fun `a bow deeper than half its chord is the major arc, running the long way round`() {
+        // Past a semicircle the crown is on the far side of the centre from the chord, and taking
+        // the short way round would silently mirror the shape the user drew.
+        val major = arcFromChord(0f, 0f, 100f, 0f, 140f)
+        assertTrue("${major.sweep}", abs(major.sweep) > PI.toFloat())
+        assertEquals(140f, major.handleY(1), 1e-2f)
+        assertEquals(0f, major.handleX(0), 1e-2f)
+        assertEquals(100f, major.handleX(2), 1e-2f)
+    }
+
+    private fun endsOf(arc: ShapeSpec.Arc): FloatArray {
+        val p = FloatArray(2)
+        arc.handleInto(0, p)
+        val out = floatArrayOf(p[0], p[1], 0f, 0f)
+        arc.handleInto(2, p)
+        out[2] = p[0]
+        out[3] = p[1]
+        return out
+    }
+
     @Test
     fun `a shape cannot be collapsed to nothing`() {
         // The pen can and will land exactly on the centre; every downstream user of these numbers
@@ -190,6 +290,8 @@ class ShapeGeometryTest {
             ShapeSpec.Rect(100f, 100f, 50f, 30f, 0.4f),
             ShapeSpec.Ngon(100f, 100f, 60f, 0.2f, 8),
             ShapeSpec.Poly(floatArrayOf(0f, 90f, 40f), floatArrayOf(0f, 10f, 80f)),
+            ShapeSpec.Arc(100f, 100f, 60f, 0.3f, 2.2f),
+            ShapeSpec.Arc(100f, 100f, 60f, -1f, -4.4f),
         )) {
             val outline = StrokeOutline()
             spec.outlineInto(outline)

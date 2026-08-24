@@ -21,8 +21,29 @@ import kotlin.math.sqrt
  */
 sealed interface ShapeSpec {
 
-    /** A straight segment. The only open shape; everything else closes. */
+    /** A straight segment. Open, like [Arc]; everything else closes. */
     data class Line(val x0: Float, val y0: Float, val x1: Float, val y1: Float) : ShapeSpec
+
+    /**
+     * A circular arc: the curved counterpart of [Line], and the only other open shape.
+     *
+     * [start] is where the pen began, in radians about ([cx], [cy]); [sweep] is signed, positive
+     * turning the same way as increasing angle does on a y-down page, so it records which way round
+     * the user drew. Its magnitude carries the whole shape — a shallow bow and a three-quarter turn
+     * are the same type — which is what lets a line and an arc be judged against each other rather
+     * than by separate rules.
+     *
+     * Deliberately circular and not elliptical. An arc has no closed figure to take its axes from,
+     * so an elliptical fit to a partial curve is badly conditioned — the axes swing wildly on a
+     * bow of less than a quarter turn — and the extra freedom mostly buys a better match to the
+     * wobble. A curve too lopsided for a circle stays as the ink it was drawn with.
+     */
+    data class Arc(
+        val cx: Float, val cy: Float,
+        val r: Float,
+        val start: Float,
+        val sweep: Float,
+    ) : ShapeSpec
 
     /**
      * A polygon taken from the corners the user actually drew.
@@ -108,6 +129,9 @@ fun ShapeSpec.transformedBy(m: Affine): ShapeSpec? {
         is ShapeSpec.Line -> ShapeSpec.Line(
             m.mapX(x0, y0), m.mapY(x0, y0),
             m.mapX(x1, y1), m.mapY(x1, y1),
+        )
+        is ShapeSpec.Arc -> ShapeSpec.Arc(
+            m.mapX(cx, cy), m.mapY(cx, cy), r * scale, start + turn, sweep,
         )
         is ShapeSpec.Poly -> {
             val n = vertexCount

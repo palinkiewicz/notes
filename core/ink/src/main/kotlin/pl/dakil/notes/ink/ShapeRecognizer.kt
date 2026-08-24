@@ -11,6 +11,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.tan
 
 /**
  * Guesses what shape a stroke was meant to be.
@@ -29,6 +30,14 @@ import kotlin.math.sqrt
  * excellent circle: every point the user drew really is on the circle. The missing quarter is only
  * visible from the other direction, so the ideal is sampled back against the drawing too, and the
  * worse of the two decides. This is what stops a C becoming an O and a spiral becoming anything.
+ *
+ * ### Why an open stroke has two answers and not one
+ *
+ * A line and an arc are the same shape at different curvatures, so they are proposed together and
+ * the arc has to earn its extra freedom. Which one comes back is settled last, on how far the
+ * winner bows away from its own chord, rather than on which fits the wobble by a hair — see
+ * [regularise]. That is what lets a curve be drawn deliberately without a straight line ever
+ * arriving bent.
  *
  * ### Why simpler answers are favoured
  *
@@ -69,13 +78,18 @@ object ShapeRecognizer {
         val closed = gap < CLOSE_FRACTION * pathLength
 
         // Deliberately generous: a candidate that does not belong simply loses.
-        val candidates = ArrayList<ShapeSpec>(MAX_NGON_SIDES + 4)
+        val candidates = ArrayList<ShapeSpec>(MAX_NGON_SIDES + 5)
         candidates += ShapeSpec.Line(rx[0], ry[0], rx[n - 1], ry[n - 1])
         if (closed) {
             candidates += fitRect(rx, ry, n)
             candidates += fitEllipse(rx, ry, n)
             for (sides in 3..MAX_NGON_SIDES) candidates += fitNgon(rx, ry, n, sides)
             fitPoly(rx, ry, n)?.let { candidates += it }
+        } else {
+            // The arc runs only while the ends are apart. A curve that comes back to where it
+            // started is a circle the user did not quite finish, and the ellipse describes that
+            // better than an arc of 350 degrees does.
+            fitArc(rx, ry, n, diagonal)?.let { candidates += it }
         }
 
         val scratch = StrokeOutline(RESAMPLE_COUNT)
@@ -169,6 +183,7 @@ object ShapeRecognizer {
      */
     private fun penaltyOf(spec: ShapeSpec): Float = when (spec) {
         is ShapeSpec.Poly -> FREE_VERTEX_PENALTY * spec.vertexCount
+        is ShapeSpec.Arc -> ARC_PENALTY
         else -> REGULAR_VERTEX_PENALTY * spec.handleCount()
     }
 
@@ -180,6 +195,15 @@ object ShapeRecognizer {
             is ShapeSpec.Line -> {
                 into.add(spec.x0, spec.y0)
                 into.add(spec.x1, spec.y1)
+            }
+            is ShapeSpec.Arc -> {
+                // Sampled at the density the ellipse is, so an arc and a circle are measured on
+                // comparable footings rather than one of them being flattered by coarser chords.
+                val steps = max(2, (SCORE_ELLIPSE_STEPS * abs(spec.sweep) / TWO_PI).roundToInt())
+                for (i in 0..steps) {
+                    val a = spec.start + spec.sweep * i / steps
+                    into.add(spec.cx + spec.r * cos(a), spec.cy + spec.r * sin(a))
+                }
             }
             is ShapeSpec.Ellipse -> {
                 val cosR = cos(spec.rot)
@@ -334,6 +358,65 @@ object ShapeRecognizer {
         out[2] = hw
         out[3] = hh
         return hw * hh
+    }
+
+    /**
+     * The circle the samples lie on, cut to the piece the pen actually walked.
+     *
+     * The centre and radius come from the algebraic fit that minimises the *squared* residual of
+     * `(x−a)² + (y−b)² − r²` rather than the geometric distance. It is one 2x2 solve instead of an
+     * iteration, and its known bias — under-weighting a short arc's curvature, so it reads slightly
+     * flatter than the true circle — is well inside what the scoring tolerates, whereas an
+     * iterative fit on a stroke this noisy is as likely to wander as to converge.
+     *
+     * The sweep is then accumulated step by step rather than taken from the two ends, which is what
+     * lets an arc past a half turn be told from the shallow one drawn the other way round: the ends
+     * alone cannot say which side of the circle the pen went.
+     *
+     * Null when the samples are too straight for a circle to mean anything — the arc through three
+     * nearly-collinear points has a radius limited only by arithmetic — and the line candidate,
+     * which is what such a stroke is, takes it.
+     */
+    private fun fitArc(rx: FloatArray, ry: FloatArray, n: Int, diagonal: Float): ShapeSpec.Arc? {
+        var mx = 0f
+        var my = 0f
+        for (i in 0 until n) { mx += rx[i]; my += ry[i] }
+        mx /= n
+        my /= n
+
+        // Centred first: the normal equations below drop their linear terms once the samples have
+        // zero mean, and a page-coordinate fit would otherwise square four-digit numbers.
+        var suu = 0f; var svv = 0f; var suv = 0f
+        var suuu = 0f; var svvv = 0f; var suvv = 0f; var suuv = 0f
+        for (i in 0 until n) {
+            val u = rx[i] - mx
+            val v = ry[i] - my
+            suu += u * u; svv += v * v; suv += u * v
+            suuu += u * u * u; svvv += v * v * v
+            suvv += u * v * v; suuv += u * u * v
+        }
+        val det = suu * svv - suv * suv
+        if (abs(det) < EPSILON) return null
+        val h0 = 0.5f * (suuu + suvv)
+        val h1 = 0.5f * (svvv + suuv)
+        val a = (h0 * svv - h1 * suv) / det
+        val b = (h1 * suu - h0 * suv) / det
+        val cx = mx + a
+        val cy = my + b
+        val radius = sqrt(a * a + b * b + (suu + svv) / n)
+        // A radius far larger than the drawing is the fit saying "this is straight" in the only
+        // vocabulary it has.
+        if (radius < MIN_RADIUS || radius > MAX_ARC_RADIUS * diagonal) return null
+
+        var sweep = 0f
+        var previous = atan2(ry[0] - cy, rx[0] - cx)
+        for (i in 1 until n) {
+            val angle = atan2(ry[i] - cy, rx[i] - cx)
+            sweep += angleDelta(angle, previous)
+            previous = angle
+        }
+        if (abs(sweep) < MIN_ARC_SWEEP || abs(sweep) > MAX_ARC_SWEEP) return null
+        return ShapeSpec.Arc(cx, cy, radius, atan2(ry[0] - cy, rx[0] - cx), sweep)
     }
 
     /** Principal axes from the sample covariance, then the extents along them. */
@@ -600,6 +683,8 @@ object ShapeRecognizer {
             }
         }
 
+        is ShapeSpec.Arc -> arc(spec)
+
         is ShapeSpec.Rect -> rectangle(spec.cx, spec.cy, spec.hw, spec.hh, spec.rot)
 
         // A regular quadrilateral is a square, and the four-sided regular fit is the better
@@ -617,6 +702,63 @@ object ShapeRecognizer {
         is ShapeSpec.Ellipse -> ellipse(spec.cx, spec.cy, spec.rx, spec.ry, spec.rot)
 
         is ShapeSpec.Poly -> perfect(spec)
+    }
+
+    /**
+     * Straightens an arc that was meant to be a line, and squares up one that was not.
+     *
+     * ### Why straightness is decided here and not by the score
+     *
+     * A line and an arc are not two shapes competing on how well each matches; a line *is* an arc,
+     * of no curvature. Left to the score the two are separated by whichever fits the wobble in the
+     * drawing by a hair, which is a coin toss on a stroke a person meant to be straight. Judging
+     * the winner's bow instead — the crown's distance from the chord, as a fraction of the chord —
+     * makes the rule one a user can feel: draw it near enough straight and it comes out straight,
+     * with the same generous tolerance the angles get, and bow it deliberately and it stays bowed.
+     *
+     * What remains is the arc's own version of levelling. Its sweep is snapped to a quarter turn,
+     * so the quarter circles and half circles people actually draw come out exactly, and its chord
+     * is then snapped to an eighth turn the way a line's direction is, which stands the whole bow
+     * upright without touching how deep it is.
+     */
+    private fun arc(spec: ShapeSpec.Arc): ShapeSpec {
+        val ends = FloatArray(2)
+        spec.handleInto(0, ends)
+        val x0 = ends[0]
+        val y0 = ends[1]
+        spec.handleInto(2, ends)
+        val x1 = ends[0]
+        val y1 = ends[1]
+        val chord = hypot(x1 - x0, y1 - y0)
+        if (chord < EPSILON) return spec
+
+        spec.handleInto(1, ends)
+        val bow = sagittaOf(x0, y0, x1, y1, ends[0], ends[1])
+        if (abs(bow) <= STRAIGHT_BOW * chord) return regularise(ShapeSpec.Line(x0, y0, x1, y1))
+
+        // Sagitta and sweep are interchangeable descriptions of the same bow — s = c·tan(θ/4)/2 —
+        // so the snapped sweep is applied by rewriting the depth, leaving the ends where the pen
+        // put them.
+        val sweep = snapSweep(abs(spec.sweep))
+        val depth = chord * tan(sweep / 4f) * 0.5f * if (bow < 0f) -1f else 1f
+
+        val angle = atan2(y1 - y0, x1 - x0)
+        val correction = snapToEighth(angle) - angle
+        val mx = (x0 + x1) * 0.5f
+        val my = (y0 + y1) * 0.5f
+        val c = cos(correction)
+        val sn = sin(correction)
+        return arcFromChord(
+            mx + (x0 - mx) * c - (y0 - my) * sn, my + (x0 - mx) * sn + (y0 - my) * c,
+            mx + (x1 - mx) * c - (y1 - my) * sn, my + (x1 - mx) * sn + (y1 - my) * c,
+            depth,
+        )
+    }
+
+    /** A sweep set to the nearest quarter turn when it is close enough, in 0..2pi. */
+    private fun snapSweep(sweep: Float): Float {
+        val snapped = (sweep / QUARTER_TURN).roundToInt() * QUARTER_TURN
+        return if (snapped > 0f && abs(sweep - snapped) <= ANGLE_SNAP) snapped else sweep
     }
 
     /** An angle set to the nearest eighth turn when it is close enough, or left exactly as it was. */
@@ -964,6 +1106,24 @@ object ShapeRecognizer {
     private const val MIN_DIAGONAL = 12f
     private const val MIN_RADIUS = 0.5f
 
+    /**
+     * A circle this many times the drawing's own diagonal across is indistinguishable from a line
+     * over the piece of it that was drawn, and fitting one is arithmetic looking for precision the
+     * samples do not carry.
+     */
+    private const val MAX_ARC_RADIUS = 12f
+    private const val MIN_ARC_SWEEP = 8f * PI / 180f
+    /** Nearly the whole way round; past this the stroke is a circle, and is fitted as one. */
+    private const val MAX_ARC_SWEEP = 1.8f * PI
+    /**
+     * How far an arc may bow, relative to its chord, and still be read as a line.
+     *
+     * A twenty-fifth of the chord is a 300 pt stroke wandering 12 pt off true, which is a wobble
+     * rather than a curve. In sweep it is about 18 degrees, so the deliberate curves this leaves
+     * alone start comfortably above what an unsteady hand produces trying to draw straight.
+     */
+    private const val STRAIGHT_BOW = 0.04f
+
     private const val RESAMPLE_COUNT = 64
     private const val BACKWARD_SAMPLES = 48
     private const val SCORE_ELLIPSE_STEPS = 48
@@ -995,6 +1155,13 @@ object ShapeRecognizer {
     private const val EDGE_TRIM = 0.2f
     private const val PARALLEL_EPSILON = 1e-4f
 
+    /**
+     * Priced near the free-form rate rather than the regular one, because an arc is fitted *to* the
+     * drawing the way a free polygon is: it competes only against the line, and its one extra
+     * degree of freedom lets it match a shaky hand's wander slightly better than a line every time.
+     * Charging for that freedom is what keeps a stroke meant to be straight from arriving bent.
+     */
+    private const val ARC_PENALTY = 0.25f
     private const val REGULAR_VERTEX_PENALTY = 0.05f
     private const val FREE_VERTEX_PENALTY = 0.30f
     /**

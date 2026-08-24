@@ -29,6 +29,19 @@ class ShapeSpecTest {
     }
 
     @Test
+    fun `an arc keeps its sweep through a rotation and takes the turn on its start`() {
+        // Sweep is how far round the pen went, which no similarity changes; where it started from
+        // is an angle like any other and turns with the shape.
+        val arc = ShapeSpec.Arc(0f, 0f, 40f, 0f, 1.2f)
+        val turned = arc.transformedBy(
+            Affine.rotate((PI / 2).toFloat()).then(Affine.scale(3f, 3f))
+        ) as ShapeSpec.Arc
+        assertEquals(1.2f, turned.sweep, 1e-4f)
+        assertEquals((PI / 2).toFloat(), turned.start, 1e-4f)
+        assertEquals(120f, turned.r, 1e-3f)
+    }
+
+    @Test
     fun `a shear drops the description rather than recording a lie`() {
         // Every shape here is defined by extents and one angle, so a sheared square is a
         // parallelogram none of them can express. Leaving the stroke's ink alone and forgetting

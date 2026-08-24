@@ -153,6 +153,90 @@ class ShapeRecognizerTest {
         assertEquals(22.9f, angle, 4f)
     }
 
+    // ---- Curves ----------------------------------------------------------------------------
+
+    @Test
+    fun `a bowed stroke becomes an arc rather than a straight line`() {
+        val drawn = handDrawn(arc(130f, 60f), endFraction = 1f, seed = 30)
+        val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+        assertEquals(60f, abs(shape.sweep).toDegrees(), 6f)
+        assertEquals(130f, shape.r, 12f)
+    }
+
+    @Test
+    fun `a stroke bowed only as much as an unsteady hand bows one is still a line`() {
+        // The other half of the contract, and the one that protects the feature people already
+        // use: nobody draws a straight line straight, and a few points of sag must not be read as
+        // a deliberate curve.
+        val drawn = handDrawn(arc(600f, 8f), endFraction = 1f, seed = 31)
+        val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count)
+        assertTrue("got $shape", shape is ShapeSpec.Line)
+    }
+
+    @Test
+    fun `an arc drawn nearly a half turn comes out an exact half turn`() {
+        val drawn = handDrawn(arc(130f, 172f), endFraction = 1f, seed = 32)
+        val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+        assertEquals(180f, abs(shape.sweep).toDegrees(), 0.01f)
+    }
+
+    @Test
+    fun `an arc at no particular sweep keeps the sweep it was drawn at`() {
+        // The snap has to be a rounding of the near misses, not a menu of the only curves on offer.
+        val drawn = handDrawn(arc(130f, 55f), endFraction = 1f, seed = 33)
+        val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+        assertEquals(55f, abs(shape.sweep).toDegrees(), 8f)
+    }
+
+    @Test
+    fun `an arc drawn with its ends nearly level comes out with them exactly level`() {
+        // A bow's chord is the line it would have been, and it gets the same levelling: an arch
+        // whose feet are three degrees apart reads as badly drawn, not as deliberately tilted.
+        val drawn = handDrawn(arc(130f, 120f, start = 26f.toRadians()), endFraction = 1f, seed = 34)
+        val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+        val ends = FloatArray(2)
+        shape.handleInto(0, ends)
+        val x0 = ends[0]
+        val y0 = ends[1]
+        shape.handleInto(2, ends)
+        assertEquals("the chord should be dead level", y0, ends[1], 1e-3f)
+        assertTrue("and should not have collapsed", abs(ends[0] - x0) > 100f)
+    }
+
+    @Test
+    fun `an arc records which way round the pen went`() {
+        // Sweep is signed, and the sign is the difference between a bow that opens upwards and one
+        // that opens down. Reversing the drawing must reverse it rather than produce the same arc.
+        val drawn = handDrawn(arc(130f, 100f), endFraction = 1f, seed = 35)
+        val forward = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+        val n = drawn.count
+        val backward = ShapeRecognizer.recognize(
+            FloatArray(n) { drawn.xs[n - 1 - it] },
+            FloatArray(n) { drawn.ys[n - 1 - it] },
+            n,
+        ) as ShapeSpec.Arc
+        assertTrue("opposite senses", forward.sweep * backward.sweep < 0f)
+        assertEquals(abs(forward.sweep), abs(backward.sweep), 0.05f)
+        assertEquals(forward.cx, backward.cx, 4f)
+        assertEquals(forward.cy, backward.cy, 4f)
+    }
+
+    @Test
+    fun `a curve that bends both ways is left as the ink it was drawn with`() {
+        // An S is smooth and deliberate and is not an arc: no circle bends in two directions. It
+        // has to come back as the drawing rather than as the single bend that averages it out,
+        // which is what a fit judged on distance alone would happily return.
+        val n = 90
+        val xs = FloatArray(n)
+        val ys = FloatArray(n)
+        for (i in 0 until n) {
+            val t = i / (n - 1f)
+            xs[i] = 60f + 260f * t
+            ys[i] = 200f + 70f * sin(2f * PI.toFloat() * t)
+        }
+        assertNull(ShapeRecognizer.recognize(xs, ys, n))
+    }
+
     // ---- Made perfect --------------------------------------------------------------------
 
     @Test
@@ -296,11 +380,14 @@ class ShapeRecognizerTest {
     }
 
     @Test
-    fun `a three-quarter arc is not closed into a circle`() {
-        // Every point of the arc genuinely lies on the circle. Only measuring the ideal back
-        // against the drawing reveals the quarter that was never drawn.
+    fun `a three-quarter arc is an arc and not a closed circle`() {
+        // Every point of the arc genuinely lies on the circle, so only measuring the ideal back
+        // against the drawing reveals the quarter that was never drawn. What is left is an arc:
+        // the same evidence that refuses the circle describes the piece that was drawn exactly.
         val drawn = handDrawn(circle(120f), endFraction = 0.75f, seed = 15)
-        assertNull(ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count))
+        val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+        assertEquals(270f, abs(shape.sweep).toDegrees(), 1f)
+        assertEquals(120f, shape.r, 8f)
     }
 
     @Test
@@ -347,10 +434,23 @@ class ShapeRecognizerTest {
                 val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) ?: continue
                 assertTrue(
                     "$name (seed $seed) degraded to $shape, which is a different shape entirely",
-                    sameFamily(ideal, shape) || shape is ShapeSpec.Ellipse,
+                    sameFamily(ideal, shape) || shape is ShapeSpec.Ellipse || bentLine(ideal, shape),
                 )
             }
         }
+    }
+
+    /**
+     * A line come out as a gentle bow, which is the one direction a line is allowed to miss in.
+     *
+     * A hand this unsteady genuinely does put a curve on the page, and the arc fit reports it
+     * honestly; what must not happen is a line arriving as a pronounced curve, so the bow is
+     * bounded. Below the recogniser's straightening threshold this cannot happen at all — the arc
+     * is turned back into a line — so what is left here is the narrow band above it.
+     */
+    private fun bentLine(ideal: ShapeSpec, got: ShapeSpec): Boolean {
+        if (ideal !is ShapeSpec.Line || got !is ShapeSpec.Arc) return false
+        return abs(got.sweep).toDegrees() < 35f
     }
 
     private fun sameFamily(ideal: ShapeSpec, got: ShapeSpec): Boolean = when (ideal) {
@@ -376,6 +476,8 @@ class ShapeRecognizerTest {
         Triple("heptagon", ngon(7, 130f), 0.015f),
         Triple("octagon", ngon(8, 130f), 0.006f),
         Triple("line", ShapeSpec.Line(40f, 60f, 300f, 210f), 0.030f),
+        Triple("arc", arc(130f, 90f), 0.030f),
+        Triple("half circle", arc(130f, 180f), 0.030f),
     )
 
     private class Drawn(val xs: FloatArray, val ys: FloatArray) {
@@ -389,6 +491,10 @@ class ShapeRecognizerTest {
         ShapeSpec.Rect(200f, 200f, w / 2f, h / 2f, rot, equilateral = false)
 
     private fun circle(r: Float) = ShapeSpec.Ellipse(200f, 200f, r, r, 0f, equilateral = true)
+
+    /** An arc of [sweepDegrees] on a circle of radius [r], starting at three o'clock. */
+    private fun arc(r: Float, sweepDegrees: Float, start: Float = 0f) =
+        ShapeSpec.Arc(200f, 200f, r, start, sweepDegrees.toRadians())
 
     private fun ellipse(rx: Float, ry: Float, rot: Float) =
         ShapeSpec.Ellipse(200f, 200f, rx, ry, rot, equilateral = false)

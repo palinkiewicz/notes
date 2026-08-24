@@ -66,7 +66,7 @@
     <string name="settings_pressure_curve">Pressure response</string>
     <string name="settings_pressure_curve_description">Soft reaches full width with a lighter touch; firm needs more force.</string>
     <string name="settings_auto_shape">Auto-shape</string>
-    <string name="settings_auto_shape_description">Hold the pen still at the end of a stroke to snap it to a line, square, circle or polygon. Lift normally and the stroke is left as drawn.</string>
+    <string name="settings_auto_shape_description">Hold the pen still at the end of a stroke to snap it to a line, curve, square, circle or polygon. Lift normally and the stroke is left as drawn.</string>
     <string name="settings_auto_shape_hold">Hold to snap</string>
     <string name="settings_auto_shape_hold_description">How long the pen must rest before a shape is guessed.</string>
 
