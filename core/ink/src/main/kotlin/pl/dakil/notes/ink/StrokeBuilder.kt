@@ -39,8 +39,7 @@ class StrokeBuilder : WidthedPath {
     private var minFactor = 1f
     private var maxFactor = 1f
 
-    private val filterX = OneEuroFilter()
-    private val filterY = OneEuroFilter()
+    private val filter = OneEuroFilter()
 
     private var spec: ToolSpec = ToolSpec.PEN
     private var config: InputConfig = InputConfig()
@@ -50,11 +49,11 @@ class StrokeBuilder : WidthedPath {
      *
      * ### Why the constraint has to live here, past the filter
      *
-     * Snapping the incoming samples is not enough. The One Euro filter runs **per axis**, and its
-     * cutoff is set from that axis's own speed, so x and y are blended by different amounts on the
-     * same sample. Two points that both lie on a sloped line therefore filter to a point that does
-     * not — the faster the hand and the sharper the change of direction, the further off it lands,
-     * and since the deviation is perpendicular to the line it can put the ink under the ruler.
+     * Snapping the incoming samples is not enough. Smoothing blends each sample towards where the
+     * pen has recently been, and a hand tracking an edge wanders to both sides of it, so the
+     * blended point sits off the line even though every input was on it. The deviation is
+     * perpendicular to the edge, which is precisely the direction that shows: it puts ink under
+     * the ruler.
      *
      * Projecting after filtering makes every stored point exactly collinear by construction, so
      * there is no hand speed at which a ruled line can bend. The smoothing still does its job: it
@@ -119,9 +118,8 @@ class StrokeBuilder : WidthedPath {
         smoothedSpeed = 0f
 
         val effectiveSmoothing = (spec.smoothing * config.smoothingScale).coerceIn(0f, 1f)
-        val tuned = OneEuroFilter.forSmoothing(effectiveSmoothing)
-        filterX.apply { minCutoff = tuned.minCutoff; beta = tuned.beta; reset() }
-        filterY.apply { minCutoff = tuned.minCutoff; beta = tuned.beta; reset() }
+        filter.tune(effectiveSmoothing)
+        filter.reset()
 
         lastRawX = sample.x
         lastRawY = sample.y
@@ -183,8 +181,9 @@ class StrokeBuilder : WidthedPath {
         val dtMs = (sample.timeMs - lastTimeMs).coerceAtLeast(0L)
         val timeS = (sample.timeMs - startTimeMs) / 1000f
 
-        val smoothX = filterX.filter(sample.x, timeS)
-        val smoothY = filterY.filter(sample.y, timeS)
+        filter.filter(sample.x, sample.y, timeS)
+        val smoothX = filter.x
+        val smoothY = filter.y
         val line = guide
         val fx = if (line == null) smoothX else line.projectX(smoothX, smoothY)
         val fy = if (line == null) smoothY else line.projectY(smoothX, smoothY)

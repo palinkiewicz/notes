@@ -9,12 +9,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.withTransform
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.Tessellator
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.Stroke
-import pl.dakil.notes.model.WidthedPath
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 
 /**
@@ -28,13 +28,39 @@ import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
  *   can taper. The wet stroke under the pen takes the same route as the ink already committed, so
  *   the width a pen is pressing out is on the page as it is drawn rather than appearing at pen-up.
  *
- * Every `Path` is reused between calls: rebuilding paths is the dominant allocation in a canvas
- * app, and a page of handwriting redrawn per frame would otherwise churn the heap continuously.
+ * ### Why committed strokes are cached
+ *
+ * A committed [Stroke] is immutable, so its geometry can only change by becoming a different
+ * instance. Its `Path` is therefore built once, in **document points**, and kept — identity is the
+ * cache key, which is exact and needs no versioning. Only the wet stroke and the live shape are
+ * rebuilt per frame, because only they actually change per frame.
+ *
+ * This used to rebuild every path on every draw, and re-run the tessellator for every
+ * pressure-varying stroke with it. A note is redrawn whenever anything on it moves, so that made
+ * the cost of one frame the cost of the whole document — which is what made a long note stutter.
+ *
+ * Caching in document points rather than pixels is what makes the cache survive zooming and page
+ * offsets: both are applied as a transform at draw time, so neither invalidates a single entry.
  */
 class StrokeRenderer {
 
+    /** Scratch geometry for the wet stroke and the live shape, which are rebuilt every frame. */
     private val path = Path()
     private val outline = StrokeOutline()
+
+    /**
+     * Built paths for committed strokes, in document points, keyed by stroke identity.
+     *
+     * Access-ordered and capped, so a note far longer than the screen cannot grow it without
+     * bound: the strokes actually being drawn stay resident and the rest fall out.
+     */
+    private val cache = object : LinkedHashMap<Stroke, Path>(CACHE_INITIAL, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Stroke, Path>): Boolean =
+            size > CACHE_MAX
+    }
+
+    /** Drops every cached path. For switching documents, where none of them can be reused. */
+    fun clearCache() = cache.clear()
 
     /**
      * Draws committed strokes, skipping any that fall outside [visible].
@@ -47,53 +73,86 @@ class StrokeRenderer {
      *   stroke outside it is skipped entirely rather than clipped, which is what keeps a page's
      *   worth of drawing costing one page's worth of path building however long the note is.
      */
+    /**
+     * @param stripOffsetPx the strip y this pass's page starts at, in pixels. Paged view lays each
+     *   page out a gap further down than the document says; because a pass only ever paints one
+     *   page, that is a single translation rather than something to work out per point — which is
+     *   what lets one cached path serve every page, zoom and view mode.
+     */
     fun DrawScope.drawStrokes(
         strokes: List<Stroke>,
         ptToPx: Float,
-        toStripPx: (Float) -> Float,
+        stripOffsetPx: Float = 0f,
         opacity: Float = 1f,
         docTop: Float = -Float.MAX_VALUE,
         docBottom: Float = Float.MAX_VALUE,
     ) {
-        for (stroke in strokes) {
-            // Assigned to pages by the centreline, not the inked extent. A stroke cut at a page
-            // boundary ends exactly on it, and judging by the inked extent would place it on both
-            // pages — painting the lower half of its end cap as a dot at the top of the page below.
-            val core = stroke.coreBounds
-            if (core.bottom <= docTop || core.top >= docBottom) continue
-            drawStroke(stroke, ptToPx, toStripPx, opacity)
+        if (strokes.isEmpty()) return
+        withTransform({
+            translate(0f, stripOffsetPx)
+            scale(ptToPx, ptToPx, Offset.Zero)
+        }) {
+            for (stroke in strokes) {
+                // Assigned to pages by the centreline, not the inked extent. A stroke cut at a page
+                // boundary ends exactly on it, and judging by the inked extent would place it on
+                // both pages — painting the lower half of its end cap as a dot at the top of the
+                // page below.
+                val core = stroke.coreBounds
+                if (core.bottom <= docTop || core.top >= docBottom) continue
+                drawCachedStroke(stroke, opacity)
+            }
         }
     }
 
-    fun DrawScope.drawStroke(
-        stroke: Stroke,
-        ptToPx: Float,
-        toStripPx: (Float) -> Float,
-        opacity: Float = 1f,
-    ) {
+    /**
+     * Draws one committed stroke, in a scope already scaled to document points.
+     *
+     * Widths are in points for the same reason the path is: the scale in force carries them to
+     * pixels, so nothing here has to know what the zoom is.
+     */
+    private fun DrawScope.drawCachedStroke(stroke: Stroke, opacity: Float) {
         if (stroke.pointCount == 0) return
 
         val color = Color(stroke.color).let {
             if (opacity >= 1f) it else it.copy(alpha = it.alpha * opacity)
         }
         val blend = stroke.blend.toBlendMode()
+        val cached = cachedPath(stroke)
 
-        if (Tessellator.needsTessellation(stroke)) {
-            buildOutlinePath(stroke, ptToPx, toStripPx)
-            drawPath(path, color, style = Fill, blendMode = blend)
+        if (stroke.hasWidthVariation) {
+            drawPath(cached, color, style = Fill, blendMode = blend)
         } else {
-            buildCenterlinePath(stroke, ptToPx, toStripPx)
             drawPath(
-                path = path,
+                path = cached,
                 color = color,
                 style = DrawStroke(
-                    width = (stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f)) * ptToPx,
+                    width = stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f),
                     cap = StrokeCap.Round,
                     join = StrokeJoin.Round,
                 ),
                 blendMode = blend,
             )
         }
+    }
+
+    /** The stroke's geometry in document points, built on first sight and kept. */
+    private fun cachedPath(stroke: Stroke): Path {
+        cache[stroke]?.let { return it }
+        val built = Path()
+        if (stroke.hasWidthVariation) {
+            Tessellator.tessellate(stroke, outline)
+            layOutline(built)
+        } else {
+            built.moveTo(stroke.xs[0], stroke.ys[0])
+            if (stroke.pointCount == 1) {
+                // A dot: a zero-length segment with a round cap renders as a circle.
+                built.lineTo(stroke.xs[0], stroke.ys[0])
+            } else {
+                built.appendSmoothed(stroke.pointCount, { stroke.xs[it] }, { stroke.ys[it] })
+            }
+        }
+        cache[stroke] = built
+        return built
     }
 
     /**
@@ -129,14 +188,16 @@ class StrokeRenderer {
         }
 
         if (builder.hasWidthVariation) {
-            buildOutlinePath(builder, ptToPx, toStripPx)
+            Tessellator.tessellate(builder, outline)
+            path.reset()
+            layOutline(path, ptToPx, toStripPx)
             drawPath(path, color, style = Fill, blendMode = blend)
             return
         }
 
         path.reset()
         path.moveTo(builder.x(0) * ptToPx, toStripPx(builder.y(0)))
-        appendSmoothed(n, { builder.x(it) }, { builder.y(it) }, ptToPx, toStripPx)
+        path.appendSmoothed(n, { builder.x(it) * ptToPx }, { toStripPx(builder.y(it)) })
         drawPath(
             path = path,
             color = color,
@@ -171,7 +232,7 @@ class StrokeRenderer {
         if (n < 2) return
         path.reset()
         path.moveTo(outline.x(0) * ptToPx, toStripPx(outline.y(0)))
-        appendSmoothed(n, { outline.x(it) }, { outline.y(it) }, ptToPx, toStripPx)
+        path.appendSmoothed(n, { outline.x(it) * ptToPx }, { toStripPx(outline.y(it)) })
         drawPath(
             path = path,
             color = Color(color),
@@ -184,67 +245,63 @@ class StrokeRenderer {
         )
     }
 
-    private fun buildCenterlinePath(stroke: Stroke, ptToPx: Float, toStripPx: (Float) -> Float) {
-        path.reset()
-        path.moveTo(stroke.xs[0] * ptToPx, toStripPx(stroke.ys[0]))
-        if (stroke.pointCount == 1) {
-            // A dot: a zero-length segment with a round cap renders as a circle.
-            path.lineTo(stroke.xs[0] * ptToPx, toStripPx(stroke.ys[0]))
-            return
-        }
-        appendSmoothed(stroke.pointCount, { stroke.xs[it] }, { stroke.ys[it] }, ptToPx, toStripPx)
-    }
-
     /**
      * Connects samples with quadratic segments through their midpoints.
      *
      * Straight `lineTo` between digitiser samples leaves visible faceting on curves at high zoom.
      * Passing the control point through each sample and anchoring at midpoints gives a C1-continuous
      * curve for one extra float per point and no curve-fitting pass.
+     *
+     * [x] and [y] hand back coordinates already in the destination space, so the same walk serves a
+     * cached path in document points and a wet stroke mapped straight to the glass.
      */
-    private inline fun appendSmoothed(
-        n: Int,
-        x: (Int) -> Float,
-        y: (Int) -> Float,
-        ptToPx: Float,
-        toStripPx: (Float) -> Float,
-    ) {
-        var previousX = x(0) * ptToPx
-        var previousY = toStripPx(y(0))
+    private inline fun Path.appendSmoothed(n: Int, x: (Int) -> Float, y: (Int) -> Float) {
+        var previousX = x(0)
+        var previousY = y(0)
         for (i in 1 until n - 1) {
-            val cx = x(i) * ptToPx
-            val cy = toStripPx(y(i))
-            val midX = (previousX + cx) * 0.5f
-            val midY = (previousY + cy) * 0.5f
-            path.quadraticTo(previousX, previousY, midX, midY)
+            val cx = x(i)
+            val cy = y(i)
+            quadraticTo(previousX, previousY, (previousX + cx) * 0.5f, (previousY + cy) * 0.5f)
             previousX = cx
             previousY = cy
         }
-        path.quadraticTo(previousX, previousY, x(n - 1) * ptToPx, toStripPx(y(n - 1)))
+        quadraticTo(previousX, previousY, x(n - 1), y(n - 1))
     }
 
     /**
-     * Tessellates [path] and lays its contours into the reusable `Path`.
+     * Lays the tessellated contours in [outline] into [into].
      *
      * All of them go into **one** `Path`, filled once. That is what makes the tessellator's
      * overlapping pieces read as a single shape: the non-zero rule resolves them into one coverage
      * mask before anything is blended, so a translucent pencil or a MULTIPLY highlighter is
      * composited exactly once and the pieces leave no seams where they meet.
      */
-    private fun buildOutlinePath(source: WidthedPath, ptToPx: Float, toStripPx: (Float) -> Float) {
-        Tessellator.tessellate(source, outline)
-        path.reset()
-        path.fillType = PathFillType.NonZero
+    private inline fun layOutline(
+        into: Path,
+        ptToPx: Float = 1f,
+        toStripPx: (Float) -> Float = { it },
+    ) {
+        into.fillType = PathFillType.NonZero
         for (contour in 0 until outline.contourCount) {
             val start = outline.contourStart(contour)
             val end = outline.contourEnd(contour)
             if (end - start < 3) continue
-            path.moveTo(outline.x(start) * ptToPx, toStripPx(outline.y(start)))
+            into.moveTo(outline.x(start) * ptToPx, toStripPx(outline.y(start)))
             for (i in start + 1 until end) {
-                path.lineTo(outline.x(i) * ptToPx, toStripPx(outline.y(i)))
+                into.lineTo(outline.x(i) * ptToPx, toStripPx(outline.y(i)))
             }
-            path.close()
+            into.close()
         }
+    }
+
+    private companion object {
+        const val CACHE_INITIAL = 256
+
+        /**
+         * How many built paths to keep. Comfortably more than a screenful of dense handwriting at
+         * any zoom, which is all that has to stay resident for a pan to cost nothing.
+         */
+        const val CACHE_MAX = 2048
     }
 
     private fun BlendId.toBlendMode(): BlendMode = when (this) {

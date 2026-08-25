@@ -82,7 +82,7 @@ fun InkNotePreview(sheet: Sheet, modifier: Modifier = Modifier) {
                                 drawStrokes(
                                     strokes = block.strokes,
                                     ptToPx = ptToPx,
-                                    toStripPx = { it * ptToPx },
+                                    stripOffsetPx = 0f,
                                     docTop = 0f,
                                     docBottom = format.height,
                                 )

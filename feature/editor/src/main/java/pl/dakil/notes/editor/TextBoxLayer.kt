@@ -63,7 +63,12 @@ fun TextBoxLayer(
 ) {
     // The one being edited is left out: it is drawn out in the window with its handles, and a
     // second copy here would show the text as it stood before the last keystroke, underneath.
-    val boxes = sheet.textBlocks().filter { it.id != state.editingTextBlock }
+    // Remembered because `textBlocks()` sorts by position, and comparing two boxes allocates a
+    // mapped Rect for each — so re-deriving it on every recomposition made a note's worth of
+    // garbage every time a stroke was committed.
+    val boxes = remember(sheet, state.editingTextBlock) {
+        sheet.textBlocks().filter { it.id != state.editingTextBlock }
+    }
     val format = sheet.format
 
     Layout(
@@ -82,8 +87,11 @@ fun TextBoxLayer(
             }
         },
     ) { measurables, constraints ->
-        val placed = measurables.map { measurable ->
-            val box = boxes.first { it.id == measurable.layoutId }
+        // By id rather than by scanning `boxes` per child: that scan made measuring the layer
+        // quadratic in the number of boxes, which is paid on every layout pass of a long note.
+        val byId = boxes.associateBy { it.id }
+        val placed = measurables.mapNotNull { measurable ->
+            val box = byId[measurable.layoutId] ?: return@mapNotNull null
             val width = (box.rect.width * ptToPx).roundToInt().coerceAtLeast(1)
             measurable.measure(Constraints(minWidth = width, maxWidth = width)) to box
         }

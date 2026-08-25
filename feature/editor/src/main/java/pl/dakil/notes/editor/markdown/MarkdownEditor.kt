@@ -87,10 +87,19 @@ private class MeasuredMarkdown(
     val source: String,
     sourceMode: Boolean,
 ) {
+    /**
+     * The parse of [source], shared by everything that needs it for this layout.
+     *
+     * Lazy because source mode draws no decorations and would otherwise parse for nothing, and
+     * held because the caret reporter below needs the same plan's edits on every caret move — it
+     * used to re-parse the whole document to map one offset, so walking a long note with the arrow
+     * keys re-parsed it once per keypress.
+     */
+    val plan: MarkdownRenderPlan by lazy(LazyThreadSafetyMode.NONE) { MarkdownRenderer.plan(source) }
+
     // Source mode shows the source, decorations and all left undrawn — a box round the backticks
     // would be claiming they are not there.
-    val decorations: List<MdDecoration> =
-        if (sourceMode) emptyList() else MarkdownRenderer.plan(source).decorations
+    val decorations: List<MdDecoration> = if (sourceMode) emptyList() else plan.decorations
 }
 
 /**
@@ -368,8 +377,7 @@ fun MarkdownEditor(
         val shown = measured
         LaunchedEffect(shown, state.selection) {
             val laid = shown ?: return@LaunchedEffect
-            val edits = MarkdownRenderer.plan(laid.source).edits
-            val at = MarkdownRenderer.transformedOffset(edits, state.selection.start)
+            val at = MarkdownRenderer.transformedOffset(laid.plan.edits, state.selection.start)
                 .coerceIn(0, laid.layout.layoutInput.text.length)
             val cursor = laid.layout.getCursorRect(at)
             onCaretBounds(cursor.top, cursor.bottom)

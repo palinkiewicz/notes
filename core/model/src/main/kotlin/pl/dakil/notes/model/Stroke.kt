@@ -126,6 +126,21 @@ class Stroke(
         bounds.inflate(-pad)
     }
 
+    /**
+     * Whether the width actually varies along this stroke, and it therefore has to be tessellated
+     * into a filled outline rather than handed to the platform's path stroker.
+     *
+     * Cached for the same reason [bounds] is: the renderer asks once per stroke per draw, and
+     * answering it walks every point. A pen held at one pressure, or one the digitiser reports
+     * nothing for, takes the cheap hardware-accelerated route.
+     */
+    val hasWidthVariation: Boolean by lazy(LazyThreadSafetyMode.NONE) {
+        val factors = widthFactors ?: return@lazy false
+        if (factors.isEmpty()) return@lazy false
+        val first = factors[0]
+        factors.any { kotlin.math.abs(it - first) > WIDTH_FLAT_TOLERANCE }
+    }
+
     /** Drawn width at point [i], in points. */
     fun widthAt(i: Int): Float = width * (widthFactors?.get(i) ?: 1f)
 
@@ -281,5 +296,8 @@ class Stroke(
     private companion object {
         /** Below this a cut offcut is not a mark, in points. Coordinates quantise to 1/32 pt. */
         const val MIN_PIECE = 0.05f
+
+        /** Below this the width is flat enough that tessellating it would buy nothing. */
+        const val WIDTH_FLAT_TOLERANCE = 1e-3f
     }
 }

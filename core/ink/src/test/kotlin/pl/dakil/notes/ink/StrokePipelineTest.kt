@@ -80,7 +80,9 @@ class StrokePipelineTest {
     fun `the first sample passes through unchanged`() {
         // A stroke has to start exactly where the pen touched down, or taps land off-target.
         val filter = OneEuroFilter()
-        assertEquals(123.45f, filter.filter(123.45f, 0f), 1e-4f)
+        filter.filter(123.45f, 67.89f, 0f)
+        assertEquals(123.45f, filter.x, 1e-4f)
+        assertEquals(67.89f, filter.y, 1e-4f)
     }
 
     @Test
@@ -91,7 +93,8 @@ class StrokePipelineTest {
         var maxDeviation = 0f
         repeat(80) { i ->
             val noisy = 100f + if (i % 2 == 0) 1.5f else -1.5f
-            output = filter.filter(noisy, t)
+            filter.filter(noisy, 0f, t)
+            output = filter.x
             if (i > 20) maxDeviation = maxOf(maxDeviation, abs(output - 100f))
             t += 1f / 120f
         }
@@ -106,7 +109,8 @@ class StrokePipelineTest {
         var t = 0f
         var output = 0f
         repeat(40) { i ->
-            output = filter.filter(i * 40f, t)
+            filter.filter(i * 40f, 0f, t)
+            output = filter.x
             t += 1f / 120f
         }
         val target = 39 * 40f
@@ -120,12 +124,71 @@ class StrokePipelineTest {
             var t = 0f
             var out = 0f
             repeat(30) { i ->
-                out = filter.filter(i * 10f, t)
+                filter.filter(i * 10f, 0f, t)
+                out = filter.x
                 t += 1f / 120f
             }
             return abs(29 * 10f - out)
         }
         assertTrue(lag(0f) < lag(1f))
+    }
+
+    @Test
+    fun `a circle drawn at a steady pace does not come out as a rounded square`() {
+        // The filter used to run once per axis, each choosing its cutoff from its own speed. At the
+        // top of a circle x is at full speed and y is at a standstill, so y — sitting exactly on
+        // its turning point — got the heaviest smoothing available and the apex was clipped flat.
+        // Four flats and four corners, from an input with no corners in it at all.
+        //
+        // Measured as roundness: every filtered point should stay near the true radius. Lag shrinks
+        // the circle a little, which is fine and even; flattening does not, which is not.
+        val filter = OneEuroFilter.forSmoothing(0.65f)
+        val radius = 200f
+        val samples = 240
+        var minRadius = Float.MAX_VALUE
+        var maxRadius = 0f
+
+        for (i in 0..samples) {
+            val angle = i * 2.0 * Math.PI / samples
+            val t = i / 240f
+            filter.filter(
+                (radius * Math.cos(angle)).toFloat(),
+                (radius * Math.sin(angle)).toFloat(),
+                t,
+            )
+            // The first turn settles the filter; measure once it is tracking.
+            if (i < samples / 4) continue
+            val r = fastDistance(filter.x, filter.y)
+            minRadius = minOf(minRadius, r)
+            maxRadius = maxOf(maxRadius, r)
+        }
+
+        // A rounded square inscribed this way varies by tens of points between flat and corner.
+        val variation = maxRadius - minRadius
+        assertTrue(
+            "radius varied by $variation points, so the circle is being distorted, not just lagged",
+            variation < radius * 0.02f,
+        )
+    }
+
+    @Test
+    fun `smoothing is the same whichever way the pen is travelling`() {
+        // The isotropy that the circle test measures indirectly, stated directly: a stroke drawn
+        // along an axis and the same stroke drawn diagonally must be smoothed by the same amount,
+        // or the filter is imposing a preferred direction on the user's hand.
+        fun lagAlong(dx: Float, dy: Float): Float {
+            val filter = OneEuroFilter.forSmoothing(0.65f)
+            var t = 0f
+            repeat(30) { i ->
+                filter.filter(i * dx, i * dy, t)
+                t += 1f / 240f
+            }
+            return fastDistance(29 * dx - filter.x, 29 * dy - filter.y)
+        }
+
+        val axis = lagAlong(10f, 0f)
+        val diagonal = lagAlong(7.0711f, 7.0711f)
+        assertEquals("the same travel should lag the same amount", axis, diagonal, axis * 0.05f)
     }
 
     // ---- Stroke builder ------------------------------------------------------------------------

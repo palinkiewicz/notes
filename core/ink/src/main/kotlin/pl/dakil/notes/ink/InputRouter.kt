@@ -62,6 +62,12 @@ class InputRouter(config: InputConfig = InputConfig()) {
 
     val activePointerCount: Int get() = active.size
     val isDrawing: Boolean get() = active.values.any { it.intent is InputIntent.Draw }
+
+    /** Whether a pen is in contact with the glass at this instant, whatever it was assigned. */
+    private val stylusDown: Boolean
+        get() = active.values.any {
+            it.toolType == ToolType.STYLUS || it.toolType == ToolType.ERASER
+        }
     val isNavigating: Boolean get() = active.values.any { it.intent is InputIntent.Navigate }
 
     fun intentFor(pointerId: Int): InputIntent? = active[pointerId]?.intent
@@ -91,8 +97,24 @@ class InputRouter(config: InputConfig = InputConfig()) {
 
         // --- Touch -----------------------------------------------------------------------------
 
-        // The single most effective palm rule: while the pen is in use, the hand resting on the
-        // glass reports as an ordinary touch, and always lands near in time to a stylus sample.
+        // The pen is physically on the glass right now, so anything else touching it is the hand
+        // holding the pen. No time window is consulted, and that is the point: the window is
+        // refreshed only by stylus *samples*, and Android sends no ACTION_MOVE while a pointer is
+        // stationary. Holding the pen still is not an edge case — auto-shape asks the user to do it
+        // for `autoShapeHoldMs`, five times longer than `palmRejectionWindowMs` — so a timer alone
+        // re-admits the resting hand mid-stroke. What follows is either a second Draw pointer
+        // stealing the one shared StrokeBuilder, or a Navigate that drops the overlay's claim and
+        // gets the stroke cancelled: both split one line into several.
+        // Gated on the same setting as the window below, because it is the same rule: zero is the
+        // user's way of switching palm rejection off altogether, and a contact test that ignored
+        // it would leave the switch half-connected.
+        if (config.palmRejectionWindowMs > 0 && stylusDown) {
+            active[sample.pointerId] = Live(InputIntent.Ignore, sample.toolType)
+            return InputDecision(InputIntent.Ignore)
+        }
+
+        // The same rule for the moment either side of contact: the hand that lands just before the
+        // nib does, and the one still resting after the pen has lifted.
         if (lastStylusTimeMs != NEVER && sample.timeMs - lastStylusTimeMs < config.palmRejectionWindowMs) {
             active[sample.pointerId] = Live(InputIntent.Ignore, sample.toolType)
             return InputDecision(InputIntent.Ignore)

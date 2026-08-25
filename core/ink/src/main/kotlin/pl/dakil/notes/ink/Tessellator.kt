@@ -115,15 +115,7 @@ object Tessellator {
      * platform stroker. Checking this first is the single biggest rendering win: highlighter and
      * plain-pen strokes skip tessellation entirely.
      */
-    fun needsTessellation(stroke: Stroke): Boolean {
-        val factors = stroke.widthFactors ?: return false
-        if (factors.isEmpty()) return false
-        val first = factors[0]
-        for (f in factors) {
-            if (kotlin.math.abs(f - first) > FLAT_TOLERANCE) return true
-        }
-        return false
-    }
+    fun needsTessellation(stroke: Stroke): Boolean = stroke.hasWidthVariation
 
     /**
      * Builds the outline of [path] into [into], as one closed contour per piece.

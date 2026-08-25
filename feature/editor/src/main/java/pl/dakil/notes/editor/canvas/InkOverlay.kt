@@ -25,6 +25,7 @@ import pl.dakil.notes.ink.InputRouter
 import pl.dakil.notes.ink.RulerEdge
 import pl.dakil.notes.ink.RulerGuide
 import pl.dakil.notes.ink.StrokeBuilder
+import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageFormat
@@ -34,6 +35,7 @@ import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.hypot
 import pl.dakil.notes.ui.sheet.StrokeRenderer
 import pl.dakil.notes.ui.sheet.SheetPainter
@@ -136,6 +138,16 @@ fun InkOverlay(
     /** The scale the sheet is placed at, for anything that must stay a fixed size on screen. */
     zoom: () -> Float = { 1f },
     /**
+     * The band of the strip currently under the window, in unzoomed strip pixels.
+     *
+     * Lambdas, and read *inside* the draw lambda, for the reason the whole file is built around: a
+     * pan then invalidates the draw phase and nothing recomposes. Ink outside the band is not drawn
+     * at all, which is what stops a fifty-page note costing fifty pages of path building on every
+     * frame.
+     */
+    visibleTopPx: () -> Float = { -Float.MAX_VALUE },
+    visibleBottomPx: () -> Float = { Float.MAX_VALUE },
+    /**
      * Given a pen-down in document points, the ruler edge that stroke should be drawn against, or
      * null for free-hand. Null itself whenever the ruler is off.
      */
@@ -178,6 +190,13 @@ fun InkOverlay(
     }
 
     val paintOrder = remember(sheet, documentVersion) { sheet.blocksInPaintOrder() }
+
+    // Paged view draws one clipped pass per page, and used to re-scan every block and every stroke
+    // in the note inside each of them — O(pages x strokes) bound tests before a line was drawn.
+    // Grouping them once per edit makes a page cost what that page holds.
+    val strokesByPage = remember(sheet, documentVersion, paged, pageCount) {
+        if (paged) strokesByPage(paintOrder, pageCount, format.height) else emptyList()
+    }
 
     Canvas(
         modifier = modifier
@@ -234,13 +253,24 @@ fun InkOverlay(
         val live = shape.spec
         val wet = live == null && !builder.isEmpty && currentTool.tool.isDrawing
 
+        // A page of slack either side of the window, so a fling never outruns the ink and shows it
+        // arriving. Generous on purpose: the saving is against the length of the *note*, and a note
+        // is a great deal longer than three screens.
+        val padPx = format.height * ptToPx
+        val bandTopPx = visibleTopPx() - padPx
+        val bandBottomPx = visibleBottomPx() + padPx
+        val bandTop = SheetPainter.stripPxToDocumentY(bandTopPx, format, ptToPx, paged)
+        val bandBottom = SheetPainter.stripPxToDocumentY(bandBottomPx, format, ptToPx, paged)
+
         with(renderer) {
             if (!paged) {
                 // Continuous view has no gaps, so the pages are one uninterrupted surface and a
                 // single pass is both correct and cheapest.
                 for (block in paintOrder) {
                     if (block !is InkBlock || !block.visible) continue
-                    drawStrokes(block.strokes, ptToPx, toStripPx)
+                    // Continuous view lays the pages out with no gaps, so document y and strip y
+                    // are the same measure and the pass needs no offset.
+                    drawStrokes(block.strokes, ptToPx, 0f, 1f, bandTop, bandBottom)
                 }
                 if (wet) drawWetStroke(builder, ptToPx, toStripPx)
                 if (live != null) drawShapePreview(
@@ -256,13 +286,20 @@ fun InkOverlay(
                 val gapPx = SheetPainter.PAGE_GAP_PT * ptToPx
                 for (page in 0 until pageCount) {
                     val top = page * (pageHeightPx + gapPx)
+                    // Whole pages outside the window are skipped before the clip is even set up:
+                    // a clipRect still costs a save and a restore, and there is no point paying it
+                    // pageCount times to draw nothing.
+                    if (top + pageHeightPx < bandTopPx || top > bandBottomPx) continue
                     val docTop = page * format.height
                     val docBottom = docTop + format.height
                     clipRect(top = top, bottom = top + pageHeightPx) {
-                        for (block in paintOrder) {
-                            if (block !is InkBlock || !block.visible) continue
-                            drawStrokes(block.strokes, ptToPx, toStripPx, 1f, docTop, docBottom)
-                        }
+                        // Every page before this one has pushed the paper a gap further down the
+                        // strip. That is the whole difference between document y and strip y here,
+                        // and it is constant across the page — so it is one translation, not a
+                        // per-point mapping.
+                        drawStrokes(
+                            strokesByPage[page], ptToPx, page * gapPx, 1f, docTop, docBottom,
+                        )
                         // Culled by the same band the committed strokes are, and for a sharper
                         // reason: the wet stroke is tessellated on every frame, so drawing it once
                         // per page would multiply that by the length of the note.
@@ -299,6 +336,42 @@ fun InkOverlay(
             )
         }
     }
+}
+
+/**
+ * Groups committed strokes by the page they are painted on, in paint order.
+ *
+ * This is the same question the per-stroke cull in `drawStrokes` answers, asked once per edit
+ * instead of once per page per frame. The predicate is deliberately identical: a stroke is on page
+ * *k* when its **centreline** overlaps that page's band. Judging by the inflated [Stroke.bounds]
+ * would put a stroke that ends exactly on a boundary onto the page below as well, and paint the
+ * lower half of its end cap there as a stray dot.
+ *
+ * A stroke drawn across a page break appears in **both** buckets, which is what lets each clipped
+ * pass paint its own side of the join.
+ */
+internal fun strokesByPage(
+    blocks: List<Block>,
+    pageCount: Int,
+    pageHeight: Float,
+): List<List<Stroke>> {
+    val pages = List(pageCount) { ArrayList<Stroke>() }
+    if (pageCount == 0 || pageHeight <= 0f) return pages
+
+    for (block in blocks) {
+        if (block !is InkBlock || !block.visible) continue
+        for (stroke in block.strokes) {
+            val core = stroke.coreBounds
+            var page = floor(core.top / pageHeight).toInt().coerceAtLeast(0)
+            // `page * pageHeight < core.bottom` is the surviving half of the cull's test; the other
+            // half is what `page` was seeded with.
+            while (page < pageCount && page * pageHeight < core.bottom) {
+                pages[page].add(stroke)
+                page++
+            }
+        }
+    }
+    return pages
 }
 
 /**
@@ -448,7 +521,14 @@ private fun handleEvent(
                 is InputIntent.Navigate -> {
                     // A second finger means pan/zoom. Release the claim so the gesture detector
                     // beneath can pick the pinch up, and report the revoked stroke gone.
-                    claim(false)
+                    //
+                    // Not while another pointer is still drawing, though — the same guard the
+                    // pointer-up branch below applies, and for a sharper reason. Dropping the claim
+                    // lets the transform gestures consume the next move, at which point Compose's
+                    // interop filter delivers ACTION_CANCEL and latches NotDispatching for the rest
+                    // of the stream. Nothing re-asserts the claim on a move, so the pen would be
+                    // dead until every pointer left the glass.
+                    if (!router.isDrawing) claim(false)
                     shape.reset()
                     guide.release()
                     if (decision.revoked.isNotEmpty()) invalidate()
@@ -512,7 +592,9 @@ private fun handleEvent(
                 invalidate()
                 return true
             }
-            shape.stopTicking()
+            // A palm lifting off mid-word is not the end of the pen's stroke, so it must not stop
+            // the dwell ticker the pen is still relying on — see the claim guard above.
+            if (!router.isDrawing) shape.stopTicking()
             return false
         }
 

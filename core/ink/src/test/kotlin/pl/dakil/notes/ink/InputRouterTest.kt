@@ -64,6 +64,65 @@ class InputRouterTest {
     }
 
     @Test
+    fun `a hand landing while the pen is on the glass is a palm however long the pen has been still`() {
+        // The regression test for strokes breaking into pieces mid-line. The palm window is
+        // refreshed only by stylus samples, and Android reports no movement while a pointer is
+        // stationary — so any deliberate pause outlives the window while the nib is still down.
+        // Auto-shape asks for a 500ms hold by default against a 100ms window, so this is the
+        // ordinary case rather than a corner of one.
+        val router = InputRouter(InputConfig(palmRejectionWindowMs = 100))
+        router.begin(sample(ToolType.STYLUS, id = 0, t = 1000))
+        val palm = router.begin(sample(ToolType.FINGER, id = 1, t = 9000))
+        assertEquals(InputIntent.Ignore, palm.intent)
+    }
+
+    @Test
+    fun `a hand landing under a held pen is a palm even at fingertip size`() {
+        // The size rule is the other half of the old defence, and it cannot help here: commit
+        // 8948591 raised the threshold to 160f, so a great many real palm contacts read as
+        // fingertips. Contact by the pen is what settles it.
+        val router = InputRouter(
+            InputConfig(palmRejectionWindowMs = 100, palmTouchMajorThreshold = 160f)
+        )
+        router.begin(sample(ToolType.STYLUS, id = 0, t = 1000))
+        val palm = router.begin(sample(ToolType.FINGER, id = 1, t = 9000, touchMajor = 20f))
+        assertEquals(InputIntent.Ignore, palm.intent)
+    }
+
+    @Test
+    fun `a hand landing under a held pen cannot take the ink even in finger-drawing mode`() {
+        // With finger drawing on, the re-admitted hand used to be given Draw. There is one shared
+        // StrokeBuilder, so its pointer-down wiped the pen's stroke and its pointer-up committed
+        // what was left — one drawn line arriving as several disjoint strokes.
+        val router = InputRouter(
+            InputConfig(fingerDrawingEnabled = true, palmRejectionWindowMs = 100)
+        )
+        router.begin(sample(ToolType.STYLUS, id = 0, t = 1000))
+        val palm = router.begin(sample(ToolType.FINGER, id = 1, t = 9000))
+        assertEquals(InputIntent.Ignore, palm.intent)
+        assertTrue(palm.revoked.isEmpty())
+        assertTrue(router.isDrawing)
+    }
+
+    @Test
+    fun `the pen keeps the glass to itself until it actually lifts`() {
+        // The suppression is contact-based, so it has to end on the pointer-up rather than on a
+        // clock: a hand put down after the pen has gone still pans the page.
+        val router = InputRouter(InputConfig(palmRejectionWindowMs = 100))
+        router.begin(sample(ToolType.STYLUS, id = 0, t = 1000))
+        assertEquals(
+            InputIntent.Ignore,
+            router.begin(sample(ToolType.FINGER, id = 1, t = 5000)).intent,
+        )
+
+        router.end(sample(ToolType.STYLUS, id = 0, t = 5100))
+        assertEquals(
+            InputIntent.Navigate,
+            router.begin(sample(ToolType.FINGER, id = 2, t = 5300)).intent,
+        )
+    }
+
+    @Test
     fun `a large contact patch is rejected even with no stylus activity`() {
         val router = InputRouter(InputConfig(palmTouchMajorThreshold = 90f))
         val palm = router.begin(sample(ToolType.FINGER, touchMajor = 140f))

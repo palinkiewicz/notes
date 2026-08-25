@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
@@ -68,6 +69,12 @@ fun PageChrome(
     onAddPage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Hoisted out of the placement block below, which runs on every pan frame: the tops depend on
+    // the document, not on where the document is being looked at.
+    val tops = remember(format, pageCount, ptToPx, paged) {
+        SheetPainter.pageTops(format, pageCount, ptToPx, paged)
+    }
+
     Layout(
         modifier = modifier,
         content = {
@@ -96,7 +103,6 @@ fun PageChrome(
             val originX = transform.offsetX
             val originY = transform.offsetY
             val pageWidthPx = format.width * ptToPx * zoom
-            val tops = SheetPainter.pageTops(format, pageCount, ptToPx, paged)
             val pageHeightPx = format.height * ptToPx * zoom
 
             for ((id, placeable) in placeables) {

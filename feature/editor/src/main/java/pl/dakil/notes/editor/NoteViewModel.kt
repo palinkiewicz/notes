@@ -784,6 +784,14 @@ class NoteViewModel(
             val sheet = current.sheet ?: return
             if (current.isReadOnly) return
 
+            // What this sample could possibly have touched. Erasing is driven per input sample, so
+            // without a cheap rejection every sample walks every point of every stroke in the note
+            // — the same reason HitTester opens with a bounds test.
+            val sweep = Rect(
+                minOf(x0, x1) - radius, minOf(y0, y1) - radius,
+                maxOf(x0, x1) + radius, maxOf(y0, y1) + radius,
+            )
+
             val edits = ArrayList<Edit>(2)
             for (block in sheet.blocks) {
                 if (block !is InkBlock || block.locked || !block.visible) continue
@@ -797,6 +805,11 @@ class NoteViewModel(
                     var changed = false
                     val out = ArrayList<Stroke>(block.strokes.size)
                     for (stroke in block.strokes) {
+                        // Out of reach: keep it as it stands, without splitting or even allocating.
+                        if (!stroke.bounds.intersects(sweep)) {
+                            out += stroke
+                            continue
+                        }
                         val pieces = PathSplitter.eraseAlongSegment(stroke, x0, y0, x1, y1, radius)
                         // PathSplitter returns the same instance when nothing was hit, so identity
                         // is a reliable and allocation-free "unchanged" test.

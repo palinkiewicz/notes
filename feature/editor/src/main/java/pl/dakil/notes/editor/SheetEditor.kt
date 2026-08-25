@@ -356,6 +356,10 @@ private fun SheetLayers(
             // screen, and reading it here instead of at the call site keeps a pinch off the
             // recomposition path entirely.
             zoom = transform::zoom,
+            // Lambdas for the same reason, and read inside the overlay's draw lambda: ink outside
+            // the window is not drawn, so a long note costs a screenful rather than a document.
+            visibleTopPx = transform::visibleTop,
+            visibleBottomPx = transform::visibleBottom,
             rulerEdgeFor = if (state.rulerEnabled && ruler.isPlaced) rulerEdgeFor else null,
             modifier = Modifier.matchParentSize(),
         )
