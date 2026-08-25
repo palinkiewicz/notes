@@ -13,6 +13,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerType
@@ -161,11 +162,15 @@ fun InkOverlay(
     val guide = remember { RulerGuide() }
     val inkVersion = remember { mutableIntStateOf(0) }
     val disallowIntercept = remember { RequestDisallowInterceptTouchEvent() }
+    val eraserCursor = remember { EraserCursor() }
 
     val currentCallbacks by rememberUpdatedState(callbacks)
     val currentTool by rememberUpdatedState(tool)
     val currentRulerEdgeFor by rememberUpdatedState(rulerEdgeFor)
+    val currentTextToolActive by rememberUpdatedState(textToolActive)
     val format = sheet.format
+    val currentFormat by rememberUpdatedState(format)
+    val currentPaged by rememberUpdatedState(paged)
     val pageCount = sheet.pageCount()
 
     router.config = inputConfig
@@ -200,7 +205,18 @@ fun InkOverlay(
 
     Canvas(
         modifier = modifier
-            .stylusProximity(router)
+            .stylusProximity(
+                router = router,
+                ptToPx = ptToPx,
+                format = { currentFormat },
+                paged = { currentPaged },
+                cursor = eraserCursor,
+                erasing = {
+                    !currentTextToolActive &&
+                        (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
+                },
+                invalidate = { inkVersion.intValue++ },
+            )
             .pointerInteropFilter(
                 requestDisallowInterceptTouchEvent = disallowIntercept,
             ) { event ->
@@ -241,6 +257,7 @@ fun InkOverlay(
                     startTicking = { shape.startTicking(scope) { onTick() } },
                     invalidate = { inkVersion.intValue++ },
                     claim = disallowIntercept,
+                    eraserCursor = eraserCursor,
                 )
             }
     ) {
@@ -315,6 +332,20 @@ fun InkOverlay(
             }
         }
 
+        if (eraserCursor.visible &&
+            (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
+        ) {
+            val center = Offset(eraserCursor.x * ptToPx, toStripPx(eraserCursor.y))
+            val radiusPx = currentTool.eraserRadius * ptToPx
+            drawCircle(color = Color.White, radius = radiusPx, center = center)
+            drawCircle(
+                color = Color.Black,
+                radius = radiusPx,
+                center = center,
+                style = DrawStroke(width = 1.5f / zoom().coerceAtLeast(MIN_ZOOM)),
+            )
+        }
+
         if (lasso.count > 1) {
             val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
             // The marquee is UI, not ink: it should be the same weight however far the page is
@@ -383,7 +414,15 @@ internal fun strokesByPage(
  * to put the pen on the record a moment earlier than its nib does, which is what lets the palm
  * that lands next be recognised as a palm.
  */
-private fun Modifier.stylusProximity(router: InputRouter): Modifier = pointerInput(router) {
+private fun Modifier.stylusProximity(
+    router: InputRouter,
+    ptToPx: Float,
+    format: () -> PageFormat,
+    paged: () -> Boolean,
+    cursor: EraserCursor,
+    erasing: () -> Boolean,
+    invalidate: () -> Unit,
+): Modifier = pointerInput(router) {
     awaitPointerEventScope {
         while (true) {
             val event = awaitPointerEvent()
@@ -391,9 +430,32 @@ private fun Modifier.stylusProximity(router: InputRouter): Modifier = pointerInp
                 if (change.pressed) continue
                 if (change.type != PointerType.Stylus && change.type != PointerType.Eraser) continue
                 router.observeStylusProximity(change.uptimeMillis)
+                // The graphicsLayer scale that carries the zoom sits *outside* this node, so
+                // Compose's own pointer input — unlike pointerInteropFilter's raw MotionEvent —
+                // already reports a position in the sheet's unzoomed local pixels.
+                if (erasing()) {
+                    cursor.x = change.position.x / ptToPx
+                    cursor.y = SheetPainter.stripPxToDocumentY(change.position.y, format(), ptToPx, paged())
+                    cursor.visible = true
+                    invalidate()
+                } else if (cursor.visible) {
+                    cursor.visible = false
+                    invalidate()
+                }
             }
         }
     }
+}
+
+/**
+ * Where the eraser was last seen, in document points, so a hover or an in-progress erase can show
+ * how much of the page the tool will take. Plain fields for the same reason as the rest of the wet
+ * path: this is read inside the [Canvas] draw lambda, never composition.
+ */
+class EraserCursor {
+    var x = 0f
+    var y = 0f
+    var visible = false
 }
 
 /** A point in document coordinates. */
@@ -451,6 +513,7 @@ private fun handleEvent(
     startTicking: () -> Unit,
     invalidate: () -> Unit,
     claim: (Boolean) -> Unit,
+    eraserCursor: EraserCursor,
 ): Boolean {
     fun sampleAt(index: Int): PointerSample {
         val raw = MotionEventBridge.sampleOf(event, index)
@@ -557,8 +620,13 @@ private fun handleEvent(
                     val sample = guide.snap(raw.copy(x = doc.x, y = doc.y))
                     router.update(raw)
                     when (tool.tool) {
-                        ToolId.ERASER_STROKE, ToolId.ERASER_POINT ->
-                            if (eraseStep(builder, sample, tool, callbacks)) redraw = true
+                        ToolId.ERASER_STROKE, ToolId.ERASER_POINT -> {
+                            eraserCursor.x = sample.x
+                            eraserCursor.y = sample.y
+                            eraserCursor.visible = true
+                            redraw = true
+                            eraseStep(builder, sample, tool, callbacks)
+                        }
                         ToolId.LASSO ->
                             if (lasso.add(sample.x, sample.y)) redraw = true
                         // Once a shape has been recognised the pen is no longer drawing: it is
@@ -589,6 +657,9 @@ private fun handleEvent(
             if (intent is InputIntent.Draw) {
                 finishAction(builder, lasso, shape, tool, guide.snap(sampleAt(index)), callbacks)
                 guide.release()
+                // A hovering stylus corrects this right back on its next proximity sample; a
+                // finger has no hover to fall back on, so the ring must not outlive its touch.
+                eraserCursor.visible = false
                 invalidate()
                 return true
             }
@@ -605,6 +676,7 @@ private fun handleEvent(
             shape.reset()
             guide.release()
             claim(false)
+            eraserCursor.visible = false
             invalidate()
             return false
         }
