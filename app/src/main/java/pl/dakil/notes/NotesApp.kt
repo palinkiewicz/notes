@@ -134,6 +134,11 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
         // Opening a note pushes; closing it pops. The direction is the only thing that tells a user
         // which of the two just happened.
         transitionSpec = { pushScreen(forward = targetState != null) },
+        // Only "is a note open" is a navigation step. The ref itself is not: renaming a note hands
+        // back a new one for the same open editor, and keying on the string would push that editor
+        // out and slide an identical one in over it. With the key unchanged the content is simply
+        // recomposed with the new ref, which is all a rename should cost.
+        contentKey = { it != null },
         label = "editor",
     ) { note ->
         Box(Modifier.fillMaxSize().then(blockInputWhileExiting())) {
