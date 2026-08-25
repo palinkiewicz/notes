@@ -8,10 +8,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 import pl.dakil.notes.ui.R
 import pl.dakil.notes.ui.icons.NotesIcons
 
@@ -38,22 +43,35 @@ import pl.dakil.notes.ui.icons.NotesIcons
  * Shared by both editors, because a tag means the same thing on a sheet as in a `.md` file even
  * though the two keep it in completely different places — a manifest and a frontmatter block.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TagEditorDialog(
     initial: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (List<String>) -> Unit,
+    knownTags: List<String> = emptyList(),
 ) {
     val tags = remember { mutableStateListOf<String>().apply { addAll(initial) } }
     var draft by remember { mutableStateOf("") }
+    var suggestionsExpanded by remember { mutableStateOf(false) }
 
-    fun commitDraft() {
-        val tag = draft.trim()
+    fun commit(tag: String) {
+        val trimmed = tag.trim()
         // Silently ignoring a duplicate rather than warning: the user asked for the note to have
         // this tag, and it does.
-        if (tag.isNotEmpty() && tags.none { it.equals(tag, ignoreCase = true) }) tags += tag
+        if (trimmed.isNotEmpty() && tags.none { it.equals(trimmed, ignoreCase = true) }) tags += trimmed
         draft = ""
+        suggestionsExpanded = false
+    }
+
+    fun commitDraft() = commit(draft)
+
+    val suggestions = remember(draft, knownTags, tags.toList()) {
+        if (draft.isBlank()) emptyList()
+        else knownTags.filter { candidate ->
+            candidate.lowercase(Locale.ROOT).startsWith(draft.trim().lowercase(Locale.ROOT)) &&
+                tags.none { it.equals(candidate, ignoreCase = true) }
+        }
     }
 
     AlertDialog(
@@ -88,25 +106,46 @@ fun TagEditorDialog(
                         }
                     }
                 }
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.ui_tags_add_label)) },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { commitDraft() }),
-                    trailingIcon = {
-                        if (draft.isNotBlank()) {
-                            IconButton(onClick = { commitDraft() }) {
-                                Icon(
-                                    imageVector = NotesIcons.Add,
-                                    contentDescription = stringResource(R.string.ui_tags_add),
-                                )
+                ExposedDropdownMenuBox(
+                    expanded = suggestionsExpanded && suggestions.isNotEmpty(),
+                    onExpandedChange = { suggestionsExpanded = it },
+                ) {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = {
+                            draft = it
+                            suggestionsExpanded = true
+                        },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.ui_tags_add_label)) },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { commitDraft() }),
+                        trailingIcon = {
+                            if (draft.isNotBlank()) {
+                                IconButton(onClick = { commitDraft() }) {
+                                    Icon(
+                                        imageVector = NotesIcons.Add,
+                                        contentDescription = stringResource(R.string.ui_tags_add),
+                                    )
+                                }
                             }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable, true),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = suggestionsExpanded && suggestions.isNotEmpty(),
+                        onDismissRequest = { suggestionsExpanded = false },
+                    ) {
+                        for (suggestion in suggestions) {
+                            DropdownMenuItem(
+                                text = { Text(suggestion) },
+                                onClick = { commit(suggestion) },
+                            )
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                    }
+                }
             }
         },
         confirmButton = {

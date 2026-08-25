@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
@@ -21,16 +23,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.editor.export.ExportSheet
+import pl.dakil.notes.editor.export.exportText
+import pl.dakil.notes.editor.export.shareExport
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.FormatPopup
 import pl.dakil.notes.editor.markdown.MarkdownEditor
@@ -74,7 +83,12 @@ fun TextNoteScreen(
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
     var renaming by remember { mutableStateOf(false) }
     var tagging by remember { mutableStateOf(false) }
+    var exportOpen by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var moreMenuOpen by remember { mutableStateOf(false) }
     val title = state.title.ifBlank { stringResource(R.string.editor_untitled) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // A message that came up from the store already has its own words; the fallback arrives as a
     // resource id, because the view model has no `Context` to resolve one with.
@@ -95,10 +109,29 @@ fun TextNoteScreen(
     if (tagging) {
         TagEditorDialog(
             initial = state.tags,
+            knownTags = state.knownTags,
             onDismiss = { tagging = false },
             onConfirm = { tags ->
                 tagging = false
                 viewModel.setTags(tags)
+            },
+        )
+    }
+
+    if (exportOpen) {
+        ExportSheet(
+            isInk = false,
+            exporting = exporting,
+            onDismiss = { if (!exporting) exportOpen = false },
+            onExport = { _, format ->
+                val markdown = text.text.toString()
+                exporting = true
+                coroutineScope.launch(Dispatchers.Default) {
+                    val result = runCatching { exportText(context, markdown, format) }
+                    exporting = false
+                    exportOpen = false
+                    result.getOrNull()?.let { shareExport(context, it) }
+                }
             },
         )
     }
@@ -154,14 +187,34 @@ fun TextNoteScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { tagging = true }) {
-                        Icon(NotesIcons.Tag, contentDescription = stringResource(R.string.editor_tags))
-                    }
                     IconButton(onClick = { undo.undo() }, enabled = undo.canUndo) {
                         Icon(NotesIcons.Undo, contentDescription = stringResource(R.string.editor_undo))
                     }
                     IconButton(onClick = { undo.redo() }, enabled = undo.canRedo) {
                         Icon(NotesIcons.Redo, contentDescription = stringResource(R.string.editor_redo))
+                    }
+                    Box {
+                        IconButton(onClick = { moreMenuOpen = true }) {
+                            Icon(NotesIcons.More, contentDescription = stringResource(R.string.editor_more))
+                        }
+                        DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_tags)) },
+                                leadingIcon = { Icon(NotesIcons.Tag, contentDescription = null) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    tagging = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_export)) },
+                                leadingIcon = { Icon(NotesIcons.Export, contentDescription = null) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    exportOpen = true
+                                },
+                            )
+                        }
                     }
                     FilledIconToggleButton(
                         checked = state.sourceMode,

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -39,6 +40,7 @@ object NotesIcons {
     val Settings get() = Icons.Default.Settings
     val Delete get() = Icons.Default.Delete
     val More get() = Icons.Default.MoreVert
+    val Export get() = Icons.Default.Share
     val Check get() = Icons.Default.Check
     val Close get() = Icons.Default.Close
     val Rename get() = Icons.Default.Edit

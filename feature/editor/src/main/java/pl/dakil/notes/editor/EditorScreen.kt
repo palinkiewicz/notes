@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,16 +25,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.editor.export.ExportSheet
+import pl.dakil.notes.editor.export.exportInk
+import pl.dakil.notes.editor.export.shareExport
 import pl.dakil.notes.editor.markdown.FormatPopup
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
@@ -69,12 +78,17 @@ fun EditorScreen(
     var pageSetupOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var tagging by remember { mutableStateOf(false) }
+    var exportOpen by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var moreMenuOpen by remember { mutableStateOf(false) }
     var editingPen by remember { mutableStateOf<ToolId?>(null) }
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
     // Held here rather than in the toolbar: the sheet and the app bar close it too.
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
     var formatPopup by remember { mutableStateOf<FormatPopup?>(null) }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     val sheet = state.sheet
     val title = state.note?.meta?.title?.takeIf { it.isNotBlank() }
@@ -203,10 +217,29 @@ fun EditorScreen(
     if (tagging) {
         TagEditorDialog(
             initial = state.note?.meta?.tags.orEmpty(),
+            knownTags = state.knownTags,
             onDismiss = { tagging = false },
             onConfirm = { tags ->
                 tagging = false
                 viewModel.setTags(tags)
+            },
+        )
+    }
+
+    if (exportOpen) {
+        ExportSheet(
+            isInk = true,
+            exporting = exporting,
+            onDismiss = { if (!exporting) exportOpen = false },
+            onExport = { preset, format ->
+                val note = state.note ?: return@ExportSheet
+                exporting = true
+                coroutineScope.launch(Dispatchers.Default) {
+                    val result = runCatching { exportInk(context, note.sheet, preset, format) }
+                    exporting = false
+                    exportOpen = false
+                    result.getOrNull()?.let { shareExport(context, it) }
+                }
             },
         )
     }
@@ -243,20 +276,42 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { tagging = true }) {
-                        Icon(NotesIcons.Tag, contentDescription = stringResource(R.string.editor_tags))
-                    }
                     IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
                         Icon(NotesIcons.Undo, contentDescription = stringResource(R.string.editor_undo))
                     }
                     IconButton(onClick = viewModel::redo, enabled = state.canRedo) {
                         Icon(NotesIcons.Redo, contentDescription = stringResource(R.string.editor_redo))
                     }
-                    IconButton(onClick = { pageSetupOpen = true }) {
-                        Icon(
-                            imageVector = NotesIcons.PageSetup,
-                            contentDescription = stringResource(R.string.editor_page_setup),
-                        )
+                    Box {
+                        IconButton(onClick = { moreMenuOpen = true }) {
+                            Icon(NotesIcons.More, contentDescription = stringResource(R.string.editor_more))
+                        }
+                        DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_page_setup)) },
+                                leadingIcon = { Icon(NotesIcons.PageSetup, contentDescription = null) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    pageSetupOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_tags)) },
+                                leadingIcon = { Icon(NotesIcons.Tag, contentDescription = null) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    tagging = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_export)) },
+                                leadingIcon = { Icon(NotesIcons.Export, contentDescription = null) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    exportOpen = true
+                                },
+                            )
+                        }
                     }
                 },
             )

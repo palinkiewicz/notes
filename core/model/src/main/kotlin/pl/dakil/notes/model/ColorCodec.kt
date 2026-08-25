@@ -149,6 +149,65 @@ object ColorCodec {
         0xFF000000.toInt(),
     )
 
+    /** Converts to hue (0..360), saturation (0..1) and lightness (0..1), written into [out]. */
+    fun toHsl(argb: Int, out: FloatArray = FloatArray(3)): FloatArray {
+        val r = red(argb) / 255f
+        val g = green(argb) / 255f
+        val b = blue(argb) / 255f
+
+        val max = maxOf(r, g, b)
+        val min = minOf(r, g, b)
+        val delta = max - min
+        val lightness = (max + min) / 2f
+
+        out[0] = when {
+            delta < 1e-6f -> 0f
+            max == r -> 60f * (((g - b) / delta) % 6f)
+            max == g -> 60f * (((b - r) / delta) + 2f)
+            else -> 60f * (((r - g) / delta) + 4f)
+        }
+        if (out[0] < 0f) out[0] += 360f
+        out[1] = if (delta < 1e-6f) 0f else delta / (1f - abs(2f * lightness - 1f))
+        out[2] = lightness
+        return out
+    }
+
+    fun fromHsl(hue: Float, saturation: Float, lightness: Float, alpha: Int = 255): Int {
+        val h = ((hue % 360f) + 360f) % 360f
+        val s = saturation.coerceIn(0f, 1f)
+        val l = lightness.coerceIn(0f, 1f)
+
+        val c = (1f - abs(2f * l - 1f)) * s
+        val x = c * (1f - abs((h / 60f) % 2f - 1f))
+        val m = l - c / 2f
+
+        val (r, g, b) = when {
+            h < 60f -> Triple(c, x, 0f)
+            h < 120f -> Triple(x, c, 0f)
+            h < 180f -> Triple(0f, c, x)
+            h < 240f -> Triple(0f, x, c)
+            h < 300f -> Triple(x, 0f, c)
+            else -> Triple(c, 0f, x)
+        }
+
+        return pack(
+            alpha.coerceIn(0, 255),
+            ((r + m) * 255f).roundToInt(),
+            ((g + m) * 255f).roundToInt(),
+            ((b + m) * 255f).roundToInt(),
+        )
+    }
+
+    /** Full RGB inversion — `(r,g,b) -> (255-r,255-g,255-b)` — leaving alpha untouched. */
+    fun invertRgb(argb: Int): Int =
+        pack(alpha(argb), 255 - red(argb), 255 - green(argb), 255 - blue(argb))
+
+    /** HSL lightness inversion — `L' = 1 - L` — preserving hue, saturation and alpha. */
+    fun invertLightness(argb: Int): Int {
+        val hsl = toHsl(argb)
+        return fromHsl(hsl[0], hsl[1], 1f - hsl[2], alpha(argb))
+    }
+
     /** Rule colours, from barely-there to strong. */
     val LINE_PRESETS = intArrayOf(
         0xFF5B7FD4.toInt(), // classic blue rule

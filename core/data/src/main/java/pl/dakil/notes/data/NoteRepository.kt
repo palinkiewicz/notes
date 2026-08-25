@@ -431,6 +431,9 @@ class NoteRepository(
 
     fun meta(note: Note): NoteMeta = note.meta
 
+    /** Every tag in use across the library, most-used first — backs the tag editor's autocomplete. */
+    suspend fun allTags(): List<String> = index.allTags()
+
     companion object {
         /** Appends one folder name to a logical path. The root is `""`, so it grows no leading slash. */
         fun childPath(parent: String, name: String): String =

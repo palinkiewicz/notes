@@ -14,6 +14,16 @@
     <string name="editor_show_formatted">Pokaż sformatowany tekst</string>
     <string name="editor_edit_source">Edytuj źródło Markdown</string>
     <string name="editor_error_open">Nie udało się otworzyć notatki</string>
+    <string name="editor_more">Więcej</string>
+    <string name="editor_export">Eksportuj</string>
+    <string name="editor_export_colors">Kolory</string>
+    <string name="editor_export_as_is">Bez zmian</string>
+    <string name="editor_export_inversion">Odwrócenie</string>
+    <string name="editor_export_intelligent">Inteligentne</string>
+    <string name="editor_export_format">Format</string>
+    <string name="editor_export_pdf">PDF</string>
+    <string name="editor_export_png">PNG</string>
+    <string name="editor_export_action">Eksportuj i udostępnij</string>
 
     <!--  COLOUR PICKERS  -->
     <string name="editor_pen_colour">Kolor pióra</string>

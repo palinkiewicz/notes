@@ -15,6 +15,16 @@
     <string name="editor_show_formatted">Show formatted text</string>
     <string name="editor_edit_source">Edit Markdown source</string>
     <string name="editor_error_open">Could not open the note</string>
+    <string name="editor_more">More</string>
+    <string name="editor_export">Export</string>
+    <string name="editor_export_colors">Colours</string>
+    <string name="editor_export_as_is">As it is</string>
+    <string name="editor_export_inversion">Inversion</string>
+    <string name="editor_export_intelligent">Intelligent</string>
+    <string name="editor_export_format">Format</string>
+    <string name="editor_export_pdf">PDF</string>
+    <string name="editor_export_png">PNG</string>
+    <string name="editor_export_action">Export &amp; share</string>
 
     <!--  COLOUR PICKERS  -->
     <string name="editor_pen_colour">Pen colour</string>

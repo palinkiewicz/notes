@@ -43,6 +43,8 @@ data class TextNoteUiState(
      */
     val error: String? = null,
     @StringRes val errorRes: Int? = null,
+    /** Every tag in use across the library, for the tag editor's autocomplete. */
+    val knownTags: List<String> = emptyList(),
 )
 
 /**
@@ -106,6 +108,7 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
                         )
                     }
                     startAutosave()
+                    refreshKnownTags()
                 },
                 onFailure = { cause ->
                     _state.update {
@@ -168,6 +171,14 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         _state.update { it.copy(tags = tags) }
         val ref = _state.value.ref ?: return
         repository.requestSaveMarkdown(ref, composed())
+        refreshKnownTags()
+    }
+
+    private fun refreshKnownTags() {
+        viewModelScope.launch {
+            val tags = repository.allTags()
+            _state.update { it.copy(knownTags = tags) }
+        }
     }
 
     fun setSourceMode(source: Boolean) = _state.update { it.copy(sourceMode = source) }

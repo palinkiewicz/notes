@@ -140,6 +140,8 @@ data class EditorUiState(
      */
     val error: String? = null,
     @StringRes val errorRes: Int? = null,
+    /** Every tag in use across the library, for the tag editor's autocomplete. */
+    val knownTags: List<String> = emptyList(),
 ) {
     val sheet: Sheet? get() = note?.sheet
     val isReadOnly: Boolean get() = note?.readOnly == true
@@ -270,9 +272,17 @@ class NoteViewModel(
                 documentVersion = current.documentVersion + 1,
             )
         }
+        refreshKnownTags()
     }
 
     fun openInMemory(note: Note, ref: StoreRef?) = adopt(note, ref)
+
+    private fun refreshKnownTags() {
+        viewModelScope.launch {
+            val tags = repository.allTags()
+            _state.update { it.copy(knownTags = tags) }
+        }
+    }
 
     /**
      * Renames the note, on disk and in the document.
@@ -753,6 +763,7 @@ class NoteViewModel(
     fun setTags(tags: List<String>) {
         val note = _state.value.note ?: return
         commitEdit(Edit.SetMeta(note.meta, note.meta.copy(tags = tags)))
+        refreshKnownTags()
     }
 
     // ---- Ink callbacks ---------------------------------------------------------------------------
