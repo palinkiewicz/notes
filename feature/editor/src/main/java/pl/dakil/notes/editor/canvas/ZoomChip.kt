@@ -3,20 +3,29 @@ package pl.dakil.notes.editor.canvas
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +36,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -66,6 +76,7 @@ fun ZoomChip(
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var customDialogOpen by remember { mutableStateOf(false) }
     var lingering by remember { mutableStateOf(false) }
     val locked = transform.zoomLocked
 
@@ -115,7 +126,10 @@ fun ZoomChip(
                     )
                 }
 
-                ZoomPercentLabel(percent = { transform.percent() })
+                ZoomPercentLabel(
+                    percent = { transform.percent() },
+                    onClick = { customDialogOpen = true },
+                )
 
                 Box {
                     IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
@@ -139,25 +153,101 @@ fun ZoomChip(
             }
         }
     }
+
+    if (customDialogOpen) {
+        ZoomCustomDialog(
+            initialPercent = transform.percent(),
+            onDismiss = { customDialogOpen = false },
+            onConfirm = { percent, saveAsPreset ->
+                customDialogOpen = false
+                transform.zoomTo(percent / 100f)
+                if (saveAsPreset) onAddPreset(percent)
+            },
+        )
+    }
 }
 
 /**
- * The scale, as a whole percentage.
+ * The scale, as a whole percentage, and a tap target for typing an exact one.
  *
  * Its own composable purely so that the zoom is read here and not in [ZoomChip]: this is then the
  * only node that recomposes while the fingers move. The width is fixed, so the two buttons either
- * side do not shuffle as the number gains and loses a digit.
+ * side do not shuffle as the number gains and loses a digit. `indication = null` because a chip this
+ * small showing a ripple reads as a button being pressed, not a label being tapped.
  */
 @Composable
-private fun ZoomPercentLabel(percent: () -> Int) {
+private fun ZoomPercentLabel(percent: () -> Int, onClick: () -> Unit) {
     Text(
         text = stringResource(R.string.editor_zoom_percent_x, percent()),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.Center,
-        modifier = Modifier.widthIn(min = 40.dp),
+        modifier = Modifier
+            .widthIn(min = 40.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
     )
 }
+
+/**
+ * Typing an exact zoom, with the option to keep it as a preset in the same step.
+ *
+ * The checkbox does what [ZoomMenu]'s "make preset" entry does, folded into confirmation instead of
+ * a second trip through the menu — offering it unconditionally, since a value typed by hand is by
+ * definition not yet on the list.
+ */
+@Composable
+private fun ZoomCustomDialog(
+    initialPercent: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (percent: Int, saveAsPreset: Boolean) -> Unit,
+) {
+    var text by remember { mutableStateOf(initialPercent.toString()) }
+    var saveAsPreset by remember { mutableStateOf(false) }
+    val parsed = text.toIntOrNull()?.takeIf { it in MIN_ZOOM_PERCENT..MAX_ZOOM_PERCENT }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.editor_zoom_set_custom)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    suffix = { Text("%") },
+                    singleLine = true,
+                    isError = parsed == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { saveAsPreset = !saveAsPreset },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = saveAsPreset, onCheckedChange = { saveAsPreset = it })
+                    Text(stringResource(R.string.editor_zoom_make_preset))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = parsed != null,
+                onClick = { parsed?.let { onConfirm(it, saveAsPreset) } },
+            ) { Text(stringResource(R.string.editor_ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+        },
+    )
+}
+
+private val MIN_ZOOM_PERCENT = (SheetTransform.MIN_ZOOM * 100f).roundToInt()
+private val MAX_ZOOM_PERCENT = (SheetTransform.MAX_ZOOM * 100f).roundToInt()
 
 /**
  * The scales that can be jumped to.

@@ -48,6 +48,7 @@
     <string name="editor_zoom_lock">Lock zoom</string>
     <string name="editor_zoom_unlock">Unlock zoom</string>
     <string name="editor_zoom_set">Set zoom</string>
+    <string name="editor_zoom_set_custom">Custom zoom</string>
     <string name="editor_zoom_fill_width">Fill width</string>
     <string name="editor_zoom_fill_height">Fill height</string>
     <string name="editor_zoom_current">Current zoom</string>

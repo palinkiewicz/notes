@@ -47,6 +47,7 @@
     <string name="editor_zoom_lock">Zablokuj powiększenie</string>
     <string name="editor_zoom_unlock">Odblokuj powiększenie</string>
     <string name="editor_zoom_set">Ustaw powiększenie</string>
+    <string name="editor_zoom_set_custom">Własne powiększenie</string>
     <string name="editor_zoom_fill_width">Dopasuj do szerokości</string>
     <string name="editor_zoom_fill_height">Dopasuj do wysokości</string>
     <string name="editor_zoom_current">Bieżące powiększenie</string>
