@@ -15,8 +15,6 @@ import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
-import pl.dakil.notes.editor.markdown.MarkdownRenderer
-import pl.dakil.notes.editor.markdown.toAnnotatedString
 import pl.dakil.notes.ui.export.drawIntoCanvas
 import java.io.File
 import java.io.FileOutputStream
@@ -97,8 +95,7 @@ object TextPageExporter {
     private fun contentHeightPx(ptToPx: Float): Float = (PAGE_HEIGHT_PT - 2 * MARGIN_PT) * ptToPx
 
     private fun buildParagraph(markdown: String, fontResolver: FontFamily.Resolver, ptToPx: Float): Paragraph {
-        val plan = MarkdownRenderer.plan(markdown)
-        val annotated = plan.toAnnotatedString(markdown, exportMarkdownStyles())
+        val annotated = exportAnnotatedMarkdown(markdown)
         val widthPx = ((PAGE_WIDTH_PT - 2 * MARGIN_PT) * ptToPx).toInt().coerceAtLeast(1)
         return Paragraph(
             text = annotated.text,

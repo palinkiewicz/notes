@@ -101,10 +101,10 @@ fun InkNotePreview(sheet: Sheet, modifier: Modifier = Modifier) {
 /**
  * Paints one text box as the words it holds, with the Markdown left in.
  *
- * Not a second Markdown renderer, and not the beginning of one: `MarkdownRenderer.plan()` stays the
- * only thing in the app that decides what Markdown *means*. Running it here would mean laying out
- * decorations and hidden-character edits for text a few pixels tall, to produce a picture nobody
- * reads word by word.
+ * Not a second Markdown renderer, and not the beginning of one: the editor's `RichTextState` stays
+ * the only thing in the app that decides what Markdown *means*. Parsing a document here would mean
+ * building one per box for text a few pixels tall, to produce a picture nobody reads word by word —
+ * and this module cannot reach the editor's engine anyway.
  */
 private fun DrawScope.drawTextBlock(
     block: TextBlock,

@@ -43,7 +43,6 @@ import pl.dakil.notes.editor.export.ExportSheet
 import pl.dakil.notes.editor.export.exportInk
 import pl.dakil.notes.editor.export.shareExport
 import pl.dakil.notes.editor.markdown.FormatPopup
-import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
 import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.ReferenceDialog
@@ -180,24 +179,17 @@ fun EditorScreen(
     }
 
     reference?.let { kind ->
-        val field = viewModel.textField
+        val field = viewModel.richText
         ReferenceDialog(
             kind = kind,
-            initialLabel = field.text.toString().substring(field.selection.min, field.selection.max),
+            initialLabel = field.annotatedString.text
+                .substring(field.selection.min, field.selection.max),
             onDismiss = { reference = null },
             onConfirm = { label, url ->
                 reference = null
-                val before = field.text.toString()
-                val result = when (kind) {
-                    ReferenceKind.LINK ->
-                        MarkdownActions.insertLink(before, field.selection.start, field.selection.end, label, url)
-
-                    ReferenceKind.IMAGE ->
-                        MarkdownActions.insertImage(before, field.selection.start, field.selection.end, label, url)
-                }
-                field.edit {
-                    replace(0, length, result.text)
-                    selection = TextRange(result.selectionStart, result.selectionEnd)
+                when (kind) {
+                    ReferenceKind.LINK -> field.addLink(label.ifBlank { url }, url)
+                    ReferenceKind.IMAGE -> field.insertMarkdownAfterSelection("![" + label + "](" + url + ")")
                 }
             },
         )
@@ -325,14 +317,11 @@ fun EditorScreen(
                 Column {
                     if (state.editingTextBlock != null) {
                         MarkdownFormatBar(
-                            state = viewModel.textField,
-                            pending = viewModel.pendingStyles,
+                            state = viewModel.richText,
                             openPopup = formatPopup,
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
-                            // A sheet is paper, not a Markdown file: it can set its own sizes.
-                            sizes = true,
                             compact = true,
                         )
                     }
@@ -376,13 +365,11 @@ fun EditorScreen(
                     // keeping the page area as tall as possible.
                     if (expanded && state.editingTextBlock != null) {
                         MarkdownFormatRail(
-                            state = viewModel.textField,
-                            pending = viewModel.pendingStyles,
+                            state = viewModel.richText,
                             openPopup = formatPopup,
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
-                            sizes = true,
                         )
                     }
                     if (expanded) {

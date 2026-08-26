@@ -5,7 +5,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.BlockId
@@ -254,69 +253,5 @@ class EditHistoryTest {
         val added = edit.apply(current)
         assertEquals(2, added.sheet.inkLayers().size)
         assertEquals(1, edit.invert().apply(added).sheet.inkLayers().size)
-    }
-}
-
-class MarkdownActionsTest {
-
-    @Test
-    fun `wrapping a selection adds markers around it`() {
-        val result = MarkdownActions.toggleWrap("hello world", 6, 11, "**")
-        assertEquals("hello **world**", result.text)
-        assertEquals("world", result.text.substring(result.selectionStart, result.selectionEnd))
-    }
-
-    @Test
-    fun `wrapping twice unwraps`() {
-        // A formatting button that only ever adds markers becomes a trap on the second press.
-        val once = MarkdownActions.toggleWrap("hello world", 6, 11, "**")
-        val twice = MarkdownActions.toggleWrap(once.text, once.selectionStart, once.selectionEnd, "**")
-        assertEquals("hello world", twice.text)
-    }
-
-    @Test
-    fun `wrapping an empty selection leaves the caret between the markers`() {
-        val result = MarkdownActions.toggleWrap("ab", 1, 1, "**")
-        assertEquals("a****b", result.text)
-        assertEquals(3, result.selectionStart)
-        assertEquals(3, result.selectionEnd)
-    }
-
-    @Test
-    fun `a prefix applies across every line the selection spans`() {
-        val result = MarkdownActions.togglePrefix("one\ntwo\nthree", 0, 9, "> ")
-        assertEquals("> one\n> two\n> three", result.text)
-    }
-
-    @Test
-    fun `an already-prefixed block has its prefix removed`() {
-        val result = MarkdownActions.togglePrefix("> one\n> two", 0, 8, "> ")
-        assertEquals("one\ntwo", result.text)
-    }
-
-    @Test
-    fun `a code fence leaves the caret on the empty line inside`() {
-        val result = MarkdownActions.insertCodeFence("text\n", 5)
-        assertTrue(result.text.contains("```\n\n```"))
-        assertEquals('\n', result.text[result.selectionStart - 1])
-    }
-
-    @Test
-    fun `a link puts the caret inside the parentheses`() {
-        val result = MarkdownActions.insertLink("see docs", 4, 8)
-        assertEquals("see [docs]()", result.text)
-        assertEquals("see [docs](".length, result.selectionStart)
-    }
-
-    @Test
-    fun `list markers are inserted at the start of the line`() {
-        val result = MarkdownActions.insertTaskItem("first\nsecond", 8)
-        assertEquals("first\n- [ ] second", result.text)
-    }
-
-    @Test
-    fun `out of range offsets are clamped rather than crashing`() {
-        val result = MarkdownActions.toggleWrap("abc", -5, 99, "*")
-        assertEquals("*abc*", result.text)
     }
 }

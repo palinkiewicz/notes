@@ -2,7 +2,6 @@ package pl.dakil.notes.editor.text
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,13 +11,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
@@ -40,29 +38,31 @@ import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.export.ExportSheet
 import pl.dakil.notes.editor.export.exportText
 import pl.dakil.notes.editor.export.shareExport
-import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.FormatPopup
-import pl.dakil.notes.editor.markdown.MarkdownEditor
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
 import pl.dakil.notes.editor.markdown.MarkdownFormatRail
-import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
+import pl.dakil.notes.editor.markdown.RichMarkdownEditor
+import pl.dakil.notes.editor.markdown.rememberRichMarkdown
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
- * The plain-Markdown note editor: a page, a formatting bar, and one [MarkdownEditor] filling it.
+ * The plain-Markdown note editor: a page, a formatting bar, and one [RichMarkdownEditor] filling it.
  *
  * Everything about how Markdown reads and edits lives in that component, which the sheet's text
  * boxes mount too. What is left here is what a `.md` *file* needs and a box does not: a title that
- * is the file's own name, a source-mode toggle, and undo that belongs to the field because the
- * field is the whole document.
+ * is the file's own name, and undo that belongs to the editor because the editor is the whole
+ * document.
+ *
+ * The document itself is the editor's `RichTextState`, created here because that is Compose state.
+ * The view model holds only the body it loaded and the Markdown this screen hands back, which is
+ * why the serialise-and-report effect below is the one thing standing between a keystroke and the
+ * file on disk.
  */
-// `undoState` is still an experimental foundation API; the alternative is a hand-rolled undo stack
-// for a plain string, which is strictly worse code for the same behaviour.
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextNoteScreen(
     viewModel: TextNoteViewModel,
@@ -72,14 +72,15 @@ fun TextNoteScreen(
     onRenamed: (StoreRef) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val text = viewModel.text
-    val undo = text.undoState
+    val rich = rememberRichMarkdown(viewModel.loaded, viewModel.documentKey)
+    val undo = rich.history
+
+    // Every edit, serialised back to Markdown for the view model to autosave. Keyed on the
+    // annotated string rather than on a change callback because the library has no edit hook: this
+    // is the one place that turns "the document changed" into "these are the bytes".
+    LaunchedEffect(rich.annotatedString) { viewModel.onEdited(rich.toMarkdown()) }
 
     var popup by remember { mutableStateOf<FormatPopup?>(null) }
-    // Screen state, not document state: it holds what the bar has been asked for at a bare caret
-    // until there is text to put it round, and the field is the other half of that. See
-    // [PendingStyles].
-    val pending = remember { PendingStyles() }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
     var renaming by remember { mutableStateOf(false) }
     var tagging by remember { mutableStateOf(false) }
@@ -124,7 +125,7 @@ fun TextNoteScreen(
             exporting = exporting,
             onDismiss = { if (!exporting) exportOpen = false },
             onExport = { _, format ->
-                val markdown = text.text.toString()
+                val markdown = rich.toMarkdown()
                 exporting = true
                 coroutineScope.launch(Dispatchers.Default) {
                     val result = runCatching { exportText(context, markdown, format) }
@@ -142,22 +143,12 @@ fun TextNoteScreen(
     reference?.let { kind ->
         ReferenceDialog(
             kind = kind,
-            initialLabel = text.text.substring(text.selection.min, text.selection.max),
+            initialLabel = rich.annotatedString.text
+                .substring(rich.selection.min, rich.selection.max),
             onDismiss = { reference = null },
             onConfirm = { label, url ->
                 reference = null
-                val before = text.text.toString()
-                val result = when (kind) {
-                    ReferenceKind.LINK ->
-                        MarkdownActions.insertLink(before, text.selection.start, text.selection.end, label, url)
-
-                    ReferenceKind.IMAGE ->
-                        MarkdownActions.insertImage(before, text.selection.start, text.selection.end, label, url)
-                }
-                text.edit {
-                    replace(0, length, result.text)
-                    selection = TextRange(result.selectionStart, result.selectionEnd)
-                }
+                insertReference(rich, kind, label, url)
             },
         )
     }
@@ -216,26 +207,13 @@ fun TextNoteScreen(
                             )
                         }
                     }
-                    FilledIconToggleButton(
-                        checked = state.sourceMode,
-                        onCheckedChange = viewModel::setSourceMode,
-                    ) {
-                        Icon(
-                            imageVector = if (state.sourceMode) NotesIcons.Preview else NotesIcons.Source,
-                            contentDescription = stringResource(
-                                if (state.sourceMode) R.string.editor_show_formatted
-                                else R.string.editor_edit_source,
-                            ),
-                        )
-                    }
                 },
             )
         },
         bottomBar = {
             if (!expanded && !state.isLoading) {
                 MarkdownFormatBar(
-                    state = text,
-                    pending = pending,
+                    state = rich,
                     openPopup = popup,
                     onPopupChange = { popup = it },
                     onInsertLink = { reference = ReferenceKind.LINK },
@@ -261,24 +239,39 @@ fun TextNoteScreen(
                 else -> Row(Modifier.fillMaxSize()) {
                     if (expanded) {
                         MarkdownFormatRail(
-                            state = text,
-                            pending = pending,
+                            state = rich,
                             openPopup = popup,
                             onPopupChange = { popup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
                         )
                     }
-                    MarkdownEditor(
-                        state = text,
-                        sourceMode = state.sourceMode,
-                        pending = pending,
+                    RichMarkdownEditor(
+                        state = rich,
                         modifier = Modifier.fillMaxSize(),
                         // Only a note with nothing in it opens ready to type.
-                        autoFocus = text.text.isEmpty(),
+                        autoFocus = viewModel.loaded.isEmpty(),
                     )
                 }
             }
         }
     }
+}
+
+
+/**
+ * Puts a link or an image into the document.
+ *
+ * A link is the library's own span — it stays a link when the note is reopened, and the bar can
+ * light up on it. An image has no such call, so it goes in as the Markdown for one; the parser
+ * reads `![alt](src)` back as an image span, which is what makes that round-trip.
+ */
+private fun insertReference(
+    state: com.mohamedrejeb.richeditor.model.RichTextState,
+    kind: ReferenceKind,
+    label: String,
+    url: String,
+) = when (kind) {
+    ReferenceKind.LINK -> state.addLink(label.ifBlank { url }, url)
+    ReferenceKind.IMAGE -> state.insertMarkdownAfterSelection("![" + label + "](" + url + ")")
 }

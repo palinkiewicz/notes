@@ -336,15 +336,6 @@ object NotesIcons {
         )
     }
 
-    /** A ticked box beside a rule: the task-list item. */
-    val TaskList: ImageVector by lazy {
-        strokedIcon(
-            "TaskList",
-            "M3.5 4.5 h6 v6 h-6 Z M4.8 7.6 L6.3 9.1 L8.6 5.6 " +
-                "M12.5 7.5 h8 M3.5 13.5 h6 v6 h-6 Z M12.5 16.5 h8",
-        )
-    }
-
     /** Rules pushed right, with an arrow pointing the way they went: nest this item. */
     val IndentIncrease: ImageVector by lazy {
         strokedIcon(
@@ -361,30 +352,9 @@ object NotesIcons {
         )
     }
 
-    /** A curly opening quote over a rule. */
-    val Quote: ImageVector by lazy {
-        strokedIcon(
-            "Quote",
-            "M4 4.5 v15 M8.5 8 h11.5 M8.5 12 h11.5 M8.5 16 h7",
-        )
-    }
-
     /** Angle brackets: the inline code span. */
     val InlineCode: ImageVector by lazy {
         strokedIcon("InlineCode", "M9 8 L5 12 L9 16 M15 8 L19 12 L15 16 M13.4 5.5 L10.6 18.5")
-    }
-
-    /** The same brackets boxed: a whole fenced block rather than a span. */
-    val CodeBlock: ImageVector by lazy {
-        strokedIcon(
-            "CodeBlock",
-            "M3.5 4.5 h17 v15 h-17 Z M9.5 9.5 L7 12 L9.5 14.5 M14.5 9.5 L17 12 L14.5 14.5",
-        )
-    }
-
-    /** A single rule across the page: the thematic break. */
-    val HorizontalRule: ImageVector by lazy {
-        strokedIcon("HorizontalRule", "M3.5 12 h17")
     }
 
     /** Two chain links. */
@@ -405,37 +375,9 @@ object NotesIcons {
         )
     }
 
-    /** A grid: header row plus two columns. */
-    val Table: ImageVector by lazy {
-        strokedIcon(
-            "Table",
-            "M3.5 4.5 h17 v15 h-17 Z M3.5 9.5 h17 M3.5 14.5 h17 M12 9.5 v10",
-        )
-    }
-
-    /** Two stacked sheets: take a copy of this. */
-    val Copy: ImageVector by lazy {
-        strokedIcon("Copy", "M9 9 h10 v11 h-10 Z M15 9 v-3.5 h-10 v11 h3.5")
-    }
-
     /** A capital H with a descending stem: "this line is a heading". */
     val Heading: ImageVector by lazy {
         strokedIcon("Heading", "M5 4.5 v15 M13 4.5 v15 M5 12 h8 M16.5 19.5 v-7 h4 M20.5 15.5 h-4")
-    }
-
-    /** An eye: leave the source alone and show the formatted result. */
-    val Preview: ImageVector by lazy {
-        strokedIcon(
-            "Preview",
-            "M2.5 12 c3 -4.8 6.2 -7.2 9.5 -7.2 c3.3 0 6.5 2.4 9.5 7.2 " +
-                "c-3 4.8 -6.2 7.2 -9.5 7.2 c-3.3 0 -6.5 -2.4 -9.5 -7.2 Z " +
-                "M12 12 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0",
-        )
-    }
-
-    /** Angle brackets around a slash: show the raw Markdown. */
-    val Source: ImageVector by lazy {
-        strokedIcon("Source", "M8 7 L3.5 12 L8 17 M16 7 L20.5 12 L16 17 M13.6 5 L10.4 19")
     }
 
     /**

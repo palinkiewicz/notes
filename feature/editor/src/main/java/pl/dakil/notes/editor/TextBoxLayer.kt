@@ -23,8 +23,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.sheet.SheetPainter
-import pl.dakil.notes.editor.markdown.MarkdownStaticText
-import pl.dakil.notes.editor.markdown.MarkdownStyles
+import pl.dakil.notes.editor.markdown.RichMarkdownText
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
 import kotlin.math.min
@@ -33,7 +32,7 @@ import kotlin.math.roundToInt
 /**
  * Every text box on the sheet that nobody is typing in, in the paper's own coordinates.
  *
- * Each is a [MarkdownStaticText] drawn from the same plan the editor renders, so "entering" a box
+ * Each is a [RichMarkdownText] parsed by the same engine the editor edits with, so "entering" a box
  * changes which component is mounted and nothing about how the text looks. The box that *is* being
  * typed in is drawn by [TextBoxChrome] instead, in the window's own pixels — see the note there on
  * why a live field cannot sit inside a scale transform.
@@ -54,7 +53,6 @@ fun TextBoxLayer(
     sheet: Sheet,
     state: EditorUiState,
     viewModel: NoteViewModel,
-    styles: MarkdownStyles,
     ptToPx: Float,
     paged: Boolean,
     /** Read at the moment of a tap, so the reach around a box is a constant size on screen. */
@@ -79,7 +77,6 @@ fun TextBoxLayer(
                     box = box,
                     state = state,
                     viewModel = viewModel,
-                    styles = styles,
                     ptToPx = ptToPx,
                     pageBottomPt = (sheet.pageOf(box) + 1) * format.height,
                     modifier = Modifier.layoutId(box.id),
@@ -112,7 +109,6 @@ private fun TextBoxContent(
     box: TextBlock,
     state: EditorUiState,
     viewModel: NoteViewModel,
-    styles: MarkdownStyles,
     ptToPx: Float,
     pageBottomPt: Float,
     modifier: Modifier = Modifier,
@@ -127,16 +123,10 @@ private fun TextBoxContent(
             .clipToBounds()
             .drawBehind { if (hidden > 0f) drawOverflowMarker() },
         content = {
-            MarkdownStaticText(
+            RichMarkdownText(
                 markdown = box.markdown,
-                styles = styles,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = if (active) stringResource(R.string.editor_type_here) else "",
-                onToggleTask = if (state.isReadOnly) {
-                    null
-                } else {
-                    { mark, checked -> viewModel.toggleTask(box.id, mark, checked) }
-                },
             )
         },
     ) { measurables, constraints ->

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.BottomAppBarDefaults
@@ -34,44 +33,49 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.mohamedrejeb.richeditor.model.HeadingStyle
+import com.mohamedrejeb.richeditor.model.RichTextState
 import pl.dakil.notes.editor.InlineSelector
 import pl.dakil.notes.editor.PopupPlacement
 import pl.dakil.notes.editor.R
-import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** Which of the format bar's popups is open. */
-enum class FormatPopup { BLOCK, SIZE }
+enum class FormatPopup { BLOCK }
 
 /**
  * The Markdown formatting controls, as a bottom bar.
  *
- * Every button is a pure text transformation from [MarkdownActions] applied to the field's current
- * selection — the same functions whichever way the note is being displayed, so formatting works
- * identically in the formatted view and in the raw source.
+ * Every button drives the document through [RichTextState] rather than editing Markdown source, so
+ * a press changes what is on the page immediately and the syntax is worked out only when the note
+ * is written.
+ *
+ * ### Why there is no size, colour or highlight control
+ *
+ * The state carries all three and draws them correctly, and every one of them is dropped by
+ * `toMarkdown()` — a size set here would be on the page until the note was reopened and then gone.
+ * A control that silently loses the user's work is worse than a control that is not there, so they
+ * are not offered. Restoring them means storing these documents as HTML, which the library does
+ * round-trip losslessly.
  */
 @Composable
 fun MarkdownFormatBar(
-    state: TextFieldState,
-    pending: PendingStyles,
+    state: RichTextState,
     openPopup: FormatPopup?,
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Whether this document may set its own font sizes. See [MdStyle.SIZE]. */
-    sizes: Boolean = false,
     /**
      * Whether another bar stands below this one.
      *
@@ -97,13 +101,11 @@ fun MarkdownFormatBar(
         ) {
             FormatControls(
                 state = state,
-                pending = pending,
                 placement = PopupPlacement.ABOVE,
                 openPopup = openPopup,
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
-                sizes = sizes,
             )
         }
     }
@@ -112,15 +114,12 @@ fun MarkdownFormatBar(
 /** The same controls docked beside the page, for windows wide enough to spare the width. */
 @Composable
 fun MarkdownFormatRail(
-    state: TextFieldState,
-    pending: PendingStyles,
+    state: RichTextState,
     openPopup: FormatPopup?,
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Whether this document may set its own font sizes. See [MdStyle.SIZE]. */
-    sizes: Boolean = false,
 ) {
     NavigationRail(modifier = modifier) {
         Column(
@@ -132,13 +131,11 @@ fun MarkdownFormatRail(
         ) {
             FormatControls(
                 state = state,
-                pending = pending,
                 placement = PopupPlacement.END,
                 openPopup = openPopup,
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
-                sizes = sizes,
             )
         }
     }
@@ -152,44 +149,22 @@ fun MarkdownFormatRail(
  */
 @Composable
 private fun FormatControls(
-    state: TextFieldState,
-    pending: PendingStyles,
+    state: RichTextState,
     placement: PopupPlacement,
     openPopup: FormatPopup?,
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
-    sizes: Boolean,
 ) {
-    val source = state.text.toString()
-    val selection = state.selection
-    // What a button reports is the style the *next* thing typed will carry, which is not always what
-    // the text around the caret says: a style armed at a bare caret is real to the user — they
-    // pressed it and it lit up — while the document still knows nothing about it. See [PendingStyles].
-    val armed = if (selection.collapsed) pending.stylesAt(selection.start) else emptyList()
-    val marked = remember(source, selection) {
-        MarkdownActions.activeInlineMarkers(source, selection.start, selection.end)
-    }
-    val armedWraps = armed.filterIsInstance<MdPending.Wrap>().mapTo(HashSet()) { it.marker }
-    // The difference between them, either way round: arming a marker that is already in force is a
-    // press to turn it *off* for what comes next, and the button has to go dark to say so.
-    val active = (marked - armedWraps) + (armedWraps - marked)
-    val block = remember(source, selection) { MarkdownActions.blockStyleAt(source, selection.start) }
-    // The two menus are read separately, because a line can be in both at once: `- # Alpha` lights
-    // H1 in the popup *and* the bullet button beside it.
-    val paragraph = remember(source, selection) {
-        MarkdownActions.paragraphStyleAt(source, selection.start)
-    }
-    val list = remember(source, selection) { MarkdownActions.listStyleAt(source, selection.start) }
-    val nestable = remember(source, selection) {
-        MarkdownActions.canIndent(source, selection.start, selection.end)
-    }
-    val nested = remember(source, selection) {
-        MarkdownActions.canOutdent(source, selection.start, selection.end)
-    }
+    // Read straight off the state: what a button reports is the style the next thing typed will
+    // carry, which the library already tracks for a bare caret. The old engine needed a side table
+    // for that (`PendingStyles`) because it was editing source, where an armed style has nowhere
+    // to live until there is a word to put markers round.
+    val span = state.currentSpanStyle
+    val heading = state.currentHeadingStyle
 
     FormatButton(
-        label = block.label(),
+        label = heading.label(),
         description = stringResource(R.string.markdown_paragraph_style),
         selected = openPopup == FormatPopup.BLOCK,
         onClick = { onPopupChange(if (openPopup == FormatPopup.BLOCK) null else FormatPopup.BLOCK) },
@@ -200,44 +175,12 @@ private fun FormatControls(
                 for (style in BLOCK_CHOICES) {
                     BlockChoice(
                         style = style,
-                        selected = style == paragraph,
+                        selected = style == heading,
                         onClick = {
                             onPopupChange(null)
-                            state.applyBlockToggle(pending, style)
+                            state.setHeadingStyle(style)
                         },
                     )
-                }
-            }
-        }
-    }
-
-    if (sizes) {
-        val inText = remember(source, selection) {
-            MarkdownActions.sizeIn(source, selection.start, selection.end)
-        }
-        val armedSize = armed.lastOrNull { it is MdPending.Size } as MdPending.Size?
-        val size = if (armedSize != null) armedSize.sp else inText
-        FormatButton(
-            // The number rather than a glyph: the whole point of the control is which size is in
-            // force, and a letter A with arrows beside it can only say "some size, possibly".
-            label = size?.toString() ?: "Aa",
-            description = stringResource(R.string.markdown_font_size),
-            selected = openPopup == FormatPopup.SIZE,
-            onClick = { onPopupChange(if (openPopup == FormatPopup.SIZE) null else FormatPopup.SIZE) },
-            content = { Text(size?.toString() ?: "Aa", fontWeight = FontWeight.Medium) },
-        ) {
-            if (openPopup == FormatPopup.SIZE) {
-                InlineSelector(placement = placement, onDismiss = { onPopupChange(null) }) {
-                    SizeChoice(label = stringResource(R.string.markdown_block_body), selected = size == null) {
-                        onPopupChange(null)
-                        state.applySize(pending, null)
-                    }
-                    for (choice in SIZE_CHOICES) {
-                        SizeChoice(label = choice.toString(), selected = size == choice) {
-                            onPopupChange(null)
-                            state.applySize(pending, choice)
-                        }
-                    }
                 }
             }
         }
@@ -248,29 +191,39 @@ private fun FormatControls(
     FormatButton(
         label = stringResource(R.string.markdown_bold),
         description = stringResource(R.string.markdown_bold),
-        selected = "**" in active,
-        onClick = { state.applyWrap(pending, "**") },
+        selected = span.fontWeight == FontWeight.Bold,
+        onClick = { state.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold)) },
         content = { Text("B", fontWeight = FontWeight.Bold) },
     )
     FormatButton(
         label = stringResource(R.string.markdown_italic),
         description = stringResource(R.string.markdown_italic),
-        selected = "*" in active,
-        onClick = { state.applyWrap(pending, "*") },
+        selected = span.fontStyle == FontStyle.Italic,
+        onClick = { state.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic)) },
         content = { Text("I", fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium) },
     )
     FormatButton(
         label = stringResource(R.string.markdown_strikethrough),
         description = stringResource(R.string.markdown_strikethrough),
-        selected = "~~" in active,
-        onClick = { state.applyWrap(pending, "~~") },
+        selected = span.textDecoration?.contains(TextDecoration.LineThrough) == true,
+        onClick = { state.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) },
         content = { Text("S", textDecoration = TextDecoration.LineThrough) },
+    )
+    // New here. The previous engine had no underline because CommonMark has no syntax for one; this
+    // one writes `<u>`, which is inline HTML that Markdown readers pass through and that survives
+    // a round-trip through the library unchanged.
+    FormatButton(
+        label = stringResource(R.string.markdown_underline),
+        description = stringResource(R.string.markdown_underline),
+        selected = span.textDecoration?.contains(TextDecoration.Underline) == true,
+        onClick = { state.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline)) },
+        content = { Text("U", textDecoration = TextDecoration.Underline) },
     )
     IconFormatButton(
         icon = NotesIcons.InlineCode,
         description = stringResource(R.string.markdown_code),
-        selected = "`" in active,
-        onClick = { state.applyWrap(pending, "`") },
+        selected = state.isCodeSpan,
+        onClick = { state.toggleCodeSpan() },
     )
 
     Separator(placement)
@@ -278,38 +231,28 @@ private fun FormatControls(
     IconFormatButton(
         icon = NotesIcons.BulletList,
         description = stringResource(R.string.markdown_bulleted_list),
-        selected = list == BlockStyle.BULLET,
-        onClick = { state.applyBlockToggle(pending, BlockStyle.BULLET) },
+        selected = state.isUnorderedList,
+        onClick = { state.toggleUnorderedList() },
     )
     IconFormatButton(
         icon = NotesIcons.NumberedList,
         description = stringResource(R.string.markdown_numbered_list),
-        selected = list == BlockStyle.ORDERED,
-        onClick = { state.applyBlockToggle(pending, BlockStyle.ORDERED) },
-    )
-    IconFormatButton(
-        icon = NotesIcons.TaskList,
-        description = stringResource(R.string.markdown_task_list),
-        selected = list == BlockStyle.TASK,
-        onClick = { state.applyBlockToggle(pending, BlockStyle.TASK) },
+        selected = state.isOrderedList,
+        onClick = { state.toggleOrderedList() },
     )
     // Greyed rather than hidden: a control that comes and goes as the caret moves is one the user
     // has to hunt for, and "you cannot nest this line" is worth saying.
     IconFormatButton(
         icon = NotesIcons.IndentDecrease,
         description = stringResource(R.string.markdown_indent_decrease),
-        enabled = nested,
-        onClick = {
-            state.applyAction(pending) { text, start, end -> MarkdownActions.outdentList(text, start, end) }
-        },
+        enabled = state.canDecreaseListLevel,
+        onClick = { state.decreaseListLevel() },
     )
     IconFormatButton(
         icon = NotesIcons.IndentIncrease,
         description = stringResource(R.string.markdown_indent_increase),
-        enabled = nestable,
-        onClick = {
-            state.applyAction(pending) { text, start, end -> MarkdownActions.indentList(text, start, end) }
-        },
+        enabled = state.canIncreaseListLevel,
+        onClick = { state.increaseListLevel() },
     )
 
     Separator(placement)
@@ -317,81 +260,47 @@ private fun FormatControls(
     IconFormatButton(
         icon = NotesIcons.Link,
         description = stringResource(R.string.markdown_link),
-        onClick = { pending.clear(); onInsertLink() },
+        selected = state.isLink,
+        onClick = onInsertLink,
     )
     IconFormatButton(
         icon = NotesIcons.Image,
         description = stringResource(R.string.markdown_image),
-        onClick = { pending.clear(); onInsertImage() },
-    )
-    IconFormatButton(
-        icon = NotesIcons.CodeBlock,
-        description = stringResource(R.string.markdown_code_block),
-        onClick = {
-            state.applyAction(pending) { text, start, _ -> MarkdownActions.insertCodeFence(text, start) }
-        },
-    )
-    IconFormatButton(
-        icon = NotesIcons.Table,
-        description = stringResource(R.string.markdown_table),
-        onClick = {
-            state.applyAction(pending) { text, start, _ -> MarkdownActions.insertTable(text, start) }
-        },
-    )
-    IconFormatButton(
-        icon = NotesIcons.HorizontalRule,
-        description = stringResource(R.string.markdown_divider),
-        onClick = {
-            state.applyAction(pending) { text, start, _ -> MarkdownActions.insertRule(text, start) }
-        },
+        onClick = onInsertImage,
     )
 }
 
 /**
  * The paragraph styles offered in the popup, in the order a writer reaches for them.
  *
- * Quote lives here rather than out on the bar with the list buttons: it is a *paragraph* style, it
- * cannot be true at the same time as a heading, and a menu of things that exclude each other is
- * exactly what this popup is. It also buys back a slot on a bar that had run out of them.
+ * Quote used to live here. It has no equivalent in the rich-text model — a blockquote is not a
+ * paragraph style the library carries, and its Markdown writer drops the `>` — so offering it
+ * would have been offering a button that did nothing once the note was reopened.
  */
 private val BLOCK_CHOICES = listOf(
-    BlockStyle.PARAGRAPH,
-    BlockStyle.H1,
-    BlockStyle.H2,
-    BlockStyle.H3,
-    BlockStyle.H4,
-    BlockStyle.H5,
-    BlockStyle.H6,
-    BlockStyle.QUOTE,
+    HeadingStyle.Normal,
+    HeadingStyle.H1,
+    HeadingStyle.H2,
+    HeadingStyle.H3,
+    HeadingStyle.H4,
+    HeadingStyle.H5,
+    HeadingStyle.H6,
 )
 
 /**
-   * The name of a block style on the style button.
-   *
-   * `H1`..`H6` stay as they are: they are Markdown's own notation for a heading level, the same in
-   * every language, and a translation would only make them harder to match to what gets typed.
-   */
+ * The name of a block style on the style button.
+ *
+ * `H1`..`H6` stay as they are: they are Markdown's own notation for a heading level, the same in
+ * every language, and a translation would only make them harder to match to what gets typed.
+ */
 @Composable
-private fun BlockStyle.label(): String = when (this) {
-    BlockStyle.H1 -> "H1"
-    BlockStyle.H2 -> "H2"
-    BlockStyle.H3 -> "H3"
-    BlockStyle.H4 -> "H4"
-    BlockStyle.H5 -> "H5"
-    BlockStyle.H6 -> "H6"
-    else -> stringResource(
-        when (this) {
-            BlockStyle.QUOTE -> R.string.markdown_block_quote
-            BlockStyle.BULLET -> R.string.markdown_block_bullet
-            BlockStyle.TASK -> R.string.markdown_block_task
-            BlockStyle.ORDERED -> R.string.markdown_block_ordered
-            else -> R.string.markdown_block_body
-        },
-    )
+private fun HeadingStyle.label(): String = when (this) {
+    HeadingStyle.Normal -> stringResource(R.string.markdown_block_body)
+    else -> "H$level"
 }
 
 @Composable
-private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Unit) {
+private fun BlockChoice(style: HeadingStyle, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(48.dp)
@@ -408,31 +317,9 @@ private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Uni
         Text(
             text = style.label(),
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (style == BlockStyle.PARAGRAPH) FontWeight.Normal else FontWeight.SemiBold,
+            fontWeight = if (style == HeadingStyle.Normal) FontWeight.Normal else FontWeight.SemiBold,
             color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun SizeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                LocalContentColor.current
-            },
         )
     }
 }
@@ -513,46 +400,6 @@ private fun Separator(placement: PopupPlacement) {
     }
 }
 
-// ---- Applying an action to the field ---------------------------------------------------------
-
-/**
- * Bold, italic, strikethrough or code.
- *
- * With something selected this is an edit like any other. With nothing selected there is nothing to
- * put markers round yet, and putting them in anyway is what used to leave `****` on screen — four
- * asterisks that style nothing, so nothing hides them. The request is armed instead, and becomes
- * markers the moment there is a word between them. See [PendingStyles].
- */
-private fun TextFieldState.applyWrap(pending: PendingStyles, marker: String) {
-    if (selection.collapsed) {
-        pending.toggleWrap(selection.start, marker)
-        return
-    }
-    applyAction(pending) { text, start, end -> MarkdownActions.toggleWrap(text, start, end, marker) }
-}
-
-private fun TextFieldState.applyBlockToggle(pending: PendingStyles, style: BlockStyle) =
-    applyAction(pending) { text, start, end -> MarkdownActions.toggleBlockStyle(text, start, end, style) }
-
-/** A size, armed at a bare caret for the same reason [applyWrap] arms a marker. */
-private fun TextFieldState.applySize(pending: PendingStyles, sp: Int?) {
-    if (selection.collapsed) {
-        pending.setSize(selection.start, sp)
-        return
-    }
-    applyAction(pending) { text, start, end -> MarkdownActions.setSize(text, start, end, sp) }
-}
-
-/**
- * The ladder offered in the size menu.
- *
- * A short list of sizes people actually reach for rather than a stepper or a free field: every one
- * of them is one tap, and the sizes in a note that used this list will agree with each other, which
- * is most of what makes a page look deliberate. Anything else can still be typed by hand in source
- * mode — the tag is ordinary text.
- */
-private val SIZE_CHOICES = listOf(10, 12, 14, 16, 20, 24, 32, 48)
-
 /**
  * The height of a bar stacked above another one.
  *
@@ -560,29 +407,3 @@ private val SIZE_CHOICES = listOf(10, 12, 14, 16, 20, 24, 32, 48)
  * apart from the row below without spending a second app bar's worth of screen on air.
  */
 private val CompactBarHeight = 48.dp
-
-/**
- * Runs a [MarkdownActions] transform over the field's current text and selection.
- *
- * `edit` works in source coordinates and so does `selection`, whatever the output transformation is
- * doing on screen — so the same call is correct in both display modes, and one edit means one undo
- * step rather than a dozen.
- */
-private fun TextFieldState.applyAction(
-    pending: PendingStyles,
-    action: (text: String, start: Int, end: Int) -> MarkdownActions.Result,
-) {
-    // Anything that edits the text moves the caret off where a style was armed, and a style armed
-    // for a caret the user has left is one they have moved on from.
-    pending.clear()
-    val before = text.toString()
-    val result = action(before, selection.start, selection.end)
-    if (result.text == before && result.selectionStart == selection.start) return
-    edit {
-        replace(0, length, result.text)
-        selection = TextRange(
-            result.selectionStart.coerceIn(0, result.text.length),
-            result.selectionEnd.coerceIn(0, result.text.length),
-        )
-    }
-}

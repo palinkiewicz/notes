@@ -1,7 +1,7 @@
 package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.text.input.TextFieldState
+import com.mohamedrejeb.richeditor.model.RichTextState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,7 +27,6 @@ import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.InkCallbacks
-import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
 import pl.dakil.notes.ink.PathSplitter
@@ -106,7 +105,7 @@ data class EditorUiState(
      * erasing or typing, so this is independent of [tool] and of [textToolActive].
      */
     val rulerEnabled: Boolean = false,
-    /** The box the caret is in, if any. Its text is in [NoteViewModel.textField]. */
+    /** The box the caret is in, if any. Its text is in [NoteViewModel.richText]. */
     val editingTextBlock: BlockId? = null,
     /** The box under the handles: the one being edited, or one tapped with the text tool. */
     val activeTextBlock: BlockId? = null,
@@ -156,7 +155,7 @@ data class EditorUiState(
  * reaches this class at all — the overlay hands over a finished [Stroke] on pointer-up. That is
  * what keeps a 240 Hz input stream off the recomposition path.
  *
- * Typing is the third rate. A keystroke goes into [textField] and no further, and only when the
+ * Typing is the third rate. A keystroke goes into [richText] and no further, and only when the
  * user pauses does it become an [Edit] on the document. Committing per keystroke would push a whole
  * `Sheet` through the state flow for every character, and would fill the undo stack with one entry
  * per letter — [Edit.ReplaceBlock] merges runs on the same block, so a pause is what separates one
@@ -175,24 +174,16 @@ class NoteViewModel(
     /**
      * The live buffer for the box being edited, replaced wholesale when a different one opens.
      *
-     * A `TextFieldState` per box would put every box's buffer and undo history on the heap at once
+     * A `RichTextState` per box would put every box's document and undo history on the heap at once
      * and let one box's edits reach another's; one field that is handed to whichever box has the
      * caret cannot. Its own undo is deliberately never wired up — the editor's [EditHistory] is the
      * single authority, so that one press of undo steps back through typing and ink in the order
      * they happened rather than through whichever stack happens to be listening.
      */
-    var textField by mutableStateOf(TextFieldState())
+    var richText by mutableStateOf(RichTextState())
         private set
 
-    /**
-     * What the formatting bar has been asked for at a bare caret in [textField].
-     *
-     * Held here for the same reason the field is: the bar that arms a style and the box that spends
-     * it are in two different parts of the screen, and this is the one thing both of them can see.
-     */
-    val pendingStyles = PendingStyles()
-
-    /** Watches [textField] and turns pauses in typing into document edits. */
+    /** Watches [richText] and turns pauses in typing into document edits. */
     private var typingJob: Job? = null
 
     /** The box as it stood when a move or resize began. See [beginTextBlockDrag]. */
@@ -526,7 +517,7 @@ class NoteViewModel(
         beginTextEditing(box.id)
     }
 
-    /** Puts the caret in [id]'s text, loading it into [textField]. */
+    /** Puts the caret in [id]'s text, loading it into [richText]. */
     fun beginTextEditing(id: BlockId) {
         val current = _state.value
         if (current.isReadOnly) return
@@ -537,12 +528,16 @@ class NoteViewModel(
         // last few characters typed into the box being left have not been committed yet.
         commitTypedText()
         typingJob?.cancel()
-        textField = TextFieldState(box.markdown)
+        richText = RichTextState().apply { setMarkdown(box.markdown) }
         _state.update { it.copy(editingTextBlock = id, activeTextBlock = id, selection = null) }
 
         // `drop(1)` skips the value the flow emits on subscription — the text just loaded out of
         // the document, which is already what the document says.
-        typingJob = snapshotFlow { textField.text.toString() }
+        // Watched through `annotatedString`, which is the state the library actually writes on an
+        // edit. `toMarkdown()` merely walks the document and reads nothing the snapshot system is
+        // recording, so a flow built on it never emits — the box would take every keystroke on
+        // screen and commit none of them, and the note would save empty.
+        typingJob = snapshotFlow { richText.annotatedString }
             .drop(1)
             .debounce(TYPING_COMMIT_MS)
             .onEach { commitTypedText() }
@@ -700,7 +695,7 @@ class NoteViewModel(
     }
 
     /**
-     * Writes whatever is in [textField] back into its box.
+     * Writes whatever is in [richText] back into its box.
      *
      * Runs on a pause in typing, when the caret leaves, and before the field is reused for another
      * box. Doing nothing when the text has not changed is what keeps an idle field from pushing an
@@ -711,7 +706,7 @@ class NoteViewModel(
         val id = current.editingTextBlock ?: return
         val box = current.sheet?.block(id) as? TextBlock ?: return
         if (current.isReadOnly) return
-        val typed = textField.text.toString()
+        val typed = richText.toMarkdown()
         if (typed == box.markdown) return
 
         val filled = box.copy(markdown = typed)
@@ -751,7 +746,7 @@ class NoteViewModel(
         typingJob?.cancel()
         typingJob = null
         pendingBox = null
-        textField = TextFieldState()
+        richText = RichTextState()
     }
 
     fun setTitle(title: String) {

@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.SheetTransform
-import pl.dakil.notes.editor.markdown.MarkdownEditor
+import pl.dakil.notes.editor.markdown.RichMarkdownEditor
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
@@ -260,14 +260,10 @@ private fun EditableTextBox(
                 .clipToBounds()
                 .drawBehind { if (hidden > 0f) drawOverflowMarker() },
             content = {
-                MarkdownEditor(
-                    state = viewModel.textField,
-                    sourceMode = false,
-                    // The same one the formatting bar arms. See [PendingStyles].
-                    pending = viewModel.pendingStyles,
+                RichMarkdownEditor(
+                    state = viewModel.richText,
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = stringResource(R.string.editor_type_here),
-                    sizes = true,
                     // Back into the strip's own coordinates, because the thing that has to move to
                     // reveal the caret is the whole sheet.
                     onCaretBounds = { top, bottom ->

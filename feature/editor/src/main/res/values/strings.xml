@@ -12,8 +12,6 @@
     <string name="editor_undo">Undo</string>
     <string name="editor_redo">Redo</string>
     <string name="editor_page_setup">Page setup</string>
-    <string name="editor_show_formatted">Show formatted text</string>
-    <string name="editor_edit_source">Edit Markdown source</string>
     <string name="editor_error_open">Could not open the note</string>
     <string name="editor_more">More</string>
     <string name="editor_export">Export</string>
@@ -125,19 +123,7 @@
     <string name="editor_type_here">Type here…</string>
 
     <!--  MARKDOWN EDITOR  -->
-    <string name="markdown_placeholder">Write something…</string>
-    <string name="markdown_copy_code">Copy code</string>
     <string name="markdown_code">Code</string>
-    <string name="markdown_table_options">Table options</string>
-    <string name="markdown_insert_row">Insert row</string>
-    <string name="markdown_insert_column">Insert column</string>
-    <string name="markdown_row_above">Insert row above</string>
-    <string name="markdown_row_below">Insert row below</string>
-    <string name="markdown_column_left">Insert column left</string>
-    <string name="markdown_column_right">Insert column right</string>
-    <string name="markdown_delete_row">Delete row</string>
-    <string name="markdown_delete_column">Delete column</string>
-    <string name="markdown_delete_table">Delete table</string>
     <string name="markdown_insert_link">Insert link</string>
     <string name="markdown_insert_image">Insert image</string>
     <string name="markdown_link_text">Text</string>
@@ -147,26 +133,18 @@
 
     <!--  FORMAT BAR  -->
     <string name="markdown_paragraph_style">Paragraph style</string>
-    <string name="markdown_font_size">Font size</string>
     <string name="markdown_bold">Bold</string>
     <string name="markdown_italic">Italic</string>
     <string name="markdown_strikethrough">Strikethrough</string>
+    <string name="markdown_underline">Underline</string>
     <string name="markdown_bulleted_list">Bulleted list</string>
     <string name="markdown_numbered_list">Numbered list</string>
-    <string name="markdown_task_list">Task list</string>
     <string name="markdown_indent_decrease">Decrease indent</string>
     <string name="markdown_indent_increase">Increase indent</string>
     <string name="markdown_link">Link</string>
     <string name="markdown_image">Image</string>
-    <string name="markdown_code_block">Code block</string>
-    <string name="markdown_table">Table</string>
-    <string name="markdown_divider">Divider</string>
 
     <!--  BLOCK STYLES  -->
     <string name="markdown_block_body">Body</string>
-    <string name="markdown_block_quote">Quote</string>
-    <string name="markdown_block_bullet">List</string>
-    <string name="markdown_block_task">Tasks</string>
-    <string name="markdown_block_ordered">Numbers</string>
 
 </resources>

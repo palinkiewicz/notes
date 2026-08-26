@@ -12,8 +12,6 @@ import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
-import pl.dakil.notes.editor.markdown.MarkdownRenderer
-import pl.dakil.notes.editor.markdown.toAnnotatedString
 import pl.dakil.notes.model.ExportColorPreset
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.Sheet
@@ -159,8 +157,7 @@ object InkPageExporter {
         fontResolver: FontFamily.Resolver,
     ) {
         if (block.markdown.isBlank()) return
-        val plan = MarkdownRenderer.plan(block.markdown)
-        val annotated = plan.toAnnotatedString(block.markdown, exportMarkdownStyles())
+        val annotated = exportAnnotatedMarkdown(block.markdown)
         val rect = block.worldBounds()
         val widthPx = (rect.width * ptToPx).toInt().coerceAtLeast(1)
         val paragraph = Paragraph(

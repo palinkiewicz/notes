@@ -11,8 +11,6 @@
     <string name="editor_undo">Cofnij</string>
     <string name="editor_redo">Ponów</string>
     <string name="editor_page_setup">Ustawienia strony</string>
-    <string name="editor_show_formatted">Pokaż sformatowany tekst</string>
-    <string name="editor_edit_source">Edytuj źródło Markdown</string>
     <string name="editor_error_open">Nie udało się otworzyć notatki</string>
     <string name="editor_more">Więcej</string>
     <string name="editor_export">Eksportuj</string>
@@ -125,19 +123,7 @@
     <string name="editor_type_here">Pisz tutaj…</string>
 
     <!--  MARKDOWN EDITOR  -->
-    <string name="markdown_placeholder">Napisz coś…</string>
-    <string name="markdown_copy_code">Kopiuj kod</string>
     <string name="markdown_code">Kod</string>
-    <string name="markdown_table_options">Opcje tabeli</string>
-    <string name="markdown_insert_row">Wstaw wiersz</string>
-    <string name="markdown_insert_column">Wstaw kolumnę</string>
-    <string name="markdown_row_above">Wstaw wiersz powyżej</string>
-    <string name="markdown_row_below">Wstaw wiersz poniżej</string>
-    <string name="markdown_column_left">Wstaw kolumnę z lewej</string>
-    <string name="markdown_column_right">Wstaw kolumnę z prawej</string>
-    <string name="markdown_delete_row">Usuń wiersz</string>
-    <string name="markdown_delete_column">Usuń kolumnę</string>
-    <string name="markdown_delete_table">Usuń tabelę</string>
     <string name="markdown_insert_link">Wstaw odnośnik</string>
     <string name="markdown_insert_image">Wstaw obraz</string>
     <string name="markdown_link_text">Tekst</string>
@@ -147,26 +133,18 @@
 
     <!--  FORMAT BAR  -->
     <string name="markdown_paragraph_style">Styl akapitu</string>
-    <string name="markdown_font_size">Rozmiar czcionki</string>
     <string name="markdown_bold">Pogrubienie</string>
     <string name="markdown_italic">Kursywa</string>
     <string name="markdown_strikethrough">Przekreślenie</string>
+    <string name="markdown_underline">Podkreślenie</string>
     <string name="markdown_bulleted_list">Lista punktowana</string>
     <string name="markdown_numbered_list">Lista numerowana</string>
-    <string name="markdown_task_list">Lista zadań</string>
     <string name="markdown_indent_decrease">Zmniejsz wcięcie</string>
     <string name="markdown_indent_increase">Zwiększ wcięcie</string>
     <string name="markdown_link">Odnośnik</string>
     <string name="markdown_image">Obraz</string>
-    <string name="markdown_code_block">Blok kodu</string>
-    <string name="markdown_table">Tabela</string>
-    <string name="markdown_divider">Linia oddzielająca</string>
 
     <!--  BLOCK STYLES  -->
     <string name="markdown_block_body">Tekst</string>
-    <string name="markdown_block_quote">Cytat</string>
-    <string name="markdown_block_bullet">Lista</string>
-    <string name="markdown_block_task">Zadania</string>
-    <string name="markdown_block_ordered">Numery</string>
 
 </resources>

@@ -37,7 +37,6 @@ import pl.dakil.notes.ui.sheet.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.ZoomChip
 import pl.dakil.notes.editor.canvas.sheetTransformGestures
-import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
 import pl.dakil.notes.model.ViewMode
 
 /**
@@ -332,7 +331,6 @@ private fun SheetLayers(
             sheet = sheet,
             state = state,
             viewModel = viewModel,
-            styles = rememberMarkdownStyles(sizes = true),
             ptToPx = ptToPx,
             paged = paged,
             // A lambda for the same reason the lasso outline takes one: the reach around a box is a

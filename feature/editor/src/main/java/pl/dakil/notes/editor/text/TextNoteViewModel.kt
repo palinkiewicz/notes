@@ -1,7 +1,6 @@
 package pl.dakil.notes.editor.text
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +29,6 @@ import pl.dakil.notes.format.FrontmatterCodec
 data class TextNoteUiState(
     val ref: StoreRef? = null,
     val title: String = "",
-    /** Raw Markdown in a monospace font, rather than the formatted view. */
-    val sourceMode: Boolean = false,
     val tags: List<String> = emptyList(),
     val saveState: SaveState = SaveState.Idle,
     val isLoading: Boolean = true,
@@ -51,18 +48,34 @@ data class TextNoteUiState(
  * Drives a plain `.md` note.
  *
  * Far smaller than [pl.dakil.notes.editor.NoteViewModel] because a text note has no document model
- * to keep in sync: the text field's own [TextFieldState] *is* the document. That also means undo is
- * the field's own — `TextFieldState.undoState` already merges typing into bursts, so there is no
- * reason for this screen to run an [pl.dakil.notes.editor.EditHistory] of its own.
+ * to keep in sync: the editor's own `RichTextState` *is* the document. That also means undo is the
+ * editor's own — the library keeps a history that merges typing into bursts, so there is no reason
+ * for this screen to run an [pl.dakil.notes.editor.EditHistory] of its own.
+ *
+ * The state itself lives on the screen rather than here, because a `RichTextState` is Compose
+ * state that has to be created in composition. What this class keeps is the body as it was loaded
+ * ([loaded]) to seed it with, and the Markdown the screen hands back on every edit ([onEdited]).
  */
 class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
 
     private val _state = MutableStateFlow(TextNoteUiState())
     val state: StateFlow<TextNoteUiState> = _state.asStateFlow()
 
-    /** Replaced wholesale when a different note opens, so the undo history never crosses notes. */
-    var text by mutableStateOf(TextFieldState())
+    /**
+     * The note's body as it came off disk, for the screen to seed its editor with.
+     *
+     * Paired with [documentKey], which changes only when a *different* note is opened: that is what
+     * the screen re-seeds on, so reloading never happens mid-typing and the caret is never yanked
+     * back to the top of the note.
+     */
+    var loaded by mutableStateOf("")
         private set
+
+    var documentKey by mutableStateOf(0)
+        private set
+
+    /** The body as the editor last serialised it. What [composed] writes out. */
+    private var body by mutableStateOf("")
 
     private var autosave: Job? = null
 
@@ -80,7 +93,7 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
     private fun composed(): String = FrontmatterCodec.render(
         tags = _state.value.tags,
         remainder = frontmatterRemainder,
-        body = text.text.toString(),
+        body = body,
     )
 
     init {
@@ -99,7 +112,9 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
                 onSuccess = { markdown ->
                     val parsed = FrontmatterCodec.parse(markdown)
                     frontmatterRemainder = parsed.remainder
-                    text = TextFieldState(parsed.body)
+                    loaded = parsed.body
+                    body = parsed.body
+                    documentKey++
                     _state.update {
                         it.copy(
                             title = ref.noteTitle(),
@@ -129,13 +144,26 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         //
         // The ref is read per emission rather than captured, so a rename mid-session redirects the
         // next save instead of writing the note back to the name it no longer has.
-        autosave = snapshotFlow { text.text.toString() }
+        autosave = snapshotFlow { body }
             .drop(1)
             .onEach {
                 val ref = _state.value.ref ?: return@onEach
                 repository.requestSaveMarkdown(ref, composed())
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Takes the Markdown the editor has just serialised.
+     *
+     * Called on every edit from the screen, because the document lives in the editor's state and
+     * this is the only way its text reaches the part of the app that can write it to disk. The
+     * equality check is what keeps a caret move — which re-serialises to the same string — from
+     * touching the file.
+     */
+    fun onEdited(markdown: String) {
+        if (markdown == body) return
+        body = markdown
     }
 
     /**
@@ -180,8 +208,6 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
             _state.update { it.copy(knownTags = tags) }
         }
     }
-
-    fun setSourceMode(source: Boolean) = _state.update { it.copy(sourceMode = source) }
 
     /** Writes immediately, for when the editor is closing rather than pausing. */
     fun flush() {
