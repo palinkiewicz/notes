@@ -231,10 +231,12 @@ class MarkdownRenderPlanTest {
 
     @Test
     fun `a quote marker disappears entirely and leaves a bar to be drawn`() {
-        // The marker becomes the indent that clears the drawn bar.
-        assertEquals("   to be", render("> to be"))
+        // The marker leaves nothing in its place: the bar is drawn out in the margin, so the
+        // quoted text keeps the column the rest of the page is set in — and so do the lines it
+        // wraps onto, which a run of spaces could never have reached.
+        assertEquals("to be", render("> to be"))
         assertEquals(listOf("to be"), styled("> to be", MdStyle.QUOTE))
-        assertEquals(listOf(MdQuote(0, 8)), decorations<MdQuote>("> to be"))
+        assertEquals(listOf(MdQuote(0, 5)), decorations<MdQuote>("> to be"))
     }
 
     @Test

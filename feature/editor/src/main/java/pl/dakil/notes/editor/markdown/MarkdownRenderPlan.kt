@@ -229,8 +229,6 @@ object MarkdownRenderer {
     /** One level of list nesting, in the monospace face [MdStyle.INDENT] sets. */
     private const val INDENT_BLANK = "   "
 
-    /** What clears the bar drawn beside a quotation, in a proportional face. */
-    private const val QUOTE_INDENT = "   "
 
     /**
      * What holds a fenced block's code off the box drawn round it.
@@ -1176,11 +1174,17 @@ object MarkdownRenderer {
 
         MarkdownParser.QUOTE.matchEntire(line)?.let { match ->
             val textStart = end - match.groupValues[1].length
-            // The marker becomes the indent that clears the bar drawn beside it. A `ParagraphStyle`
-            // would be the tidier way to say this and cannot be used: Compose lays a paragraph out
-            // as its own block of text, and one whose range ends on a newline gets an extra empty
-            // line at the bottom of it. See [INDENT].
-            edits += MdEdit(start, textStart, QUOTE_INDENT)
+            // The marker goes without leaving anything in its place. It used to become three spaces
+            // that held the text clear of the bar, and spaces are characters on one visual line: a
+            // quoted sentence long enough to wrap put its first line at the indent and every line
+            // after it hard against the bar. A `ParagraphStyle` with a hanging indent is the tidier
+            // way to say "and its continuations too" and cannot be used — Compose lays a paragraph
+            // out as its own block of text, and one whose range ends on a newline gets an extra
+            // empty line at the bottom of it, which every line of the document either side of a
+            // quote would then have. So the bar moves out into the margin instead and the text
+            // keeps the column everything else is set in, first line and continuations alike.
+            // See [drawQuote].
+            edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, MdStyle.QUOTE)
             openQuote(lines, k, decorations)
             scanInline(text, textStart, end, edits, styles, spans)
