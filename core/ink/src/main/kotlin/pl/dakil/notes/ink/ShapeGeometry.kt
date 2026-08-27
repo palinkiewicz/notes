@@ -97,17 +97,31 @@ fun ShapeSpec.nearestHandle(x: Float, y: Float): Int {
 }
 
 /**
- * Returns this shape with handle [i] dragged to ([x], [y]).
+ * A shape after a handle drag, and the handle the pen is on now.
+ *
+ * The index can change mid-drag: pulling a corner past the one that is pinned mirrors the shape,
+ * and the apex under the pen is then the corner on the other side. Carrying it back out is what
+ * keeps the next sample of the same gesture pinning the same point: the caller holds an index, and
+ * an index that quietly means a different corner makes the shape flail instead of follow the hand.
+ */
+data class DraggedShape(val spec: ShapeSpec, val handle: Int)
+
+/**
+ * Returns this shape with handle [i] dragged to ([x], [y]), and where that handle now is.
  *
  * Every kind pins something and lets the rest follow, because a handle that only translated one
  * vertex would make a square stop being a square the instant it was adjusted. What is pinned is
  * chosen to be the thing the user is not touching: the opposite corner for a rectangle, the centre
  * for a regular polygon. `equilateral` shapes stay equilateral — it records intent, not a
  * measurement, so a square the user drew as a square keeps its corners at 90° while resized.
+ *
+ * Dragged past what is pinned, a shape mirrors about it rather than folding back on itself, which
+ * is what makes a rectangle behave like the rubber band it looks like. The handle index follows the
+ * pen across that flip; see [DraggedShape].
  */
-fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
+fun ShapeSpec.dragHandle(i: Int, x: Float, y: Float): DraggedShape = when (this) {
     is ShapeSpec.Line ->
-        if (i == 0) copy(x0 = x, y0 = y) else copy(x1 = x, y1 = y)
+        DraggedShape(if (i == 0) copy(x0 = x, y0 = y) else copy(x1 = x, y1 = y), i)
 
     is ShapeSpec.Arc -> {
         val p = FloatArray(2)
@@ -117,7 +131,7 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
         handleInto(2, p)
         val bx = p[0]
         val by = p[1]
-        if (i == 1) {
+        val moved = if (i == 1) {
             // Only the component across the chord counts: the crown of an arc is on the chord's
             // perpendicular bisector by definition, so sliding the handle along the chord would be
             // asking the shape to be something it is not, and the arc would jump sideways.
@@ -133,6 +147,8 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
             val y1 = if (i == 0) by else y
             arcFromChord(x0, y0, x1, y1, bow * hypot(x1 - x0, y1 - y0))
         }
+        // An arc is built from its start, so an end that crosses the other stays the end it was.
+        DraggedShape(moved, i)
     }
 
     is ShapeSpec.Poly -> {
@@ -140,7 +156,7 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
         val ny = ys.copyOf()
         nx[i] = x
         ny[i] = y
-        ShapeSpec.Poly(nx, ny)
+        DraggedShape(ShapeSpec.Poly(nx, ny), i)
     }
 
     is ShapeSpec.Rect -> {
@@ -162,13 +178,19 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
         }
         val halfU = du * 0.5f
         val halfV = dv * 0.5f
-        ShapeSpec.Rect(
-            cx = pinned[0] + halfU * ux - halfV * uy,
-            cy = pinned[1] + halfU * uy + halfV * ux,
-            hw = max(abs(halfU), MIN_EXTENT),
-            hh = max(abs(halfV), MIN_EXTENT),
-            rot = rot,
-            equilateral = equilateral,
+        DraggedShape(
+            ShapeSpec.Rect(
+                cx = pinned[0] + halfU * ux - halfV * uy,
+                cy = pinned[1] + halfU * uy + halfV * ux,
+                hw = max(abs(halfU), MIN_EXTENT),
+                hh = max(abs(halfV), MIN_EXTENT),
+                rot = rot,
+                equilateral = equilateral,
+            ),
+            // Which corner the pen ended up on is just which side of the pinned corner it is on,
+            // per axis. Read off the signs rather than from proximity: a square that cannot follow
+            // the pen off its diagonal has its nearest corner on the wrong side of the drag.
+            rectHandle(du, dv),
         )
     }
 
@@ -176,15 +198,17 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
         val dx = x - cx
         val dy = y - cy
         val radius = hypot(dx, dy)
-        if (radius < MIN_EXTENT) this else ShapeSpec.Ngon(
+        val moved = if (radius < MIN_EXTENT) this else ShapeSpec.Ngon(
             cx = cx,
             cy = cy,
             r = radius,
             // Setting rotation from the dragged vertex is what makes the gesture feel direct: the
-            // vertex stays under the pen, so the polygon spins as well as resizes.
+            // vertex stays under the pen, so the polygon spins as well as resizes. It is also why
+            // there is no flip to track here — the vertex follows the pen the whole way round.
             rot = atan2(dy, dx) - i * TWO_PI / sides,
             sides = sides,
         )
+        DraggedShape(moved, i)
     }
 
     is ShapeSpec.Ellipse -> {
@@ -193,10 +217,18 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
             // A circle has no meaningful axes, so treat the drag as a diameter: the new circle
             // passes through the pinned point and the pen.
             val radius = max(hypot(x - pinned[0], y - pinned[1]) * 0.5f, MIN_EXTENT)
-            ShapeSpec.Ellipse(
-                cx = (pinned[0] + x) * 0.5f,
-                cy = (pinned[1] + y) * 0.5f,
-                rx = radius, ry = radius, rot = rot, equilateral = true,
+            val ncx = (pinned[0] + x) * 0.5f
+            val ncy = (pinned[1] + y) * 0.5f
+            DraggedShape(
+                ShapeSpec.Ellipse(
+                    cx = ncx, cy = ncy, rx = radius, ry = radius,
+                    // Turn the invisible axes to face the pen, the same trick as the polygon: on a
+                    // circle the rotation shows up nowhere, and it is what holds the handle under
+                    // the pen instead of letting the pinned point creep round the rim each sample.
+                    rot = atan2(y - ncy, x - ncx) - i * QUARTER_TURN,
+                    equilateral = true,
+                ),
+                i,
             )
         } else {
             val ux = cos(rot)
@@ -205,17 +237,28 @@ fun ShapeSpec.moveHandle(i: Int, x: Float, y: Float): ShapeSpec = when (this) {
             val alongY = if (i == 0 || i == 2) uy else ux
             val along = (x - pinned[0]) * alongX + (y - pinned[1]) * alongY
             val radius = max(abs(along) * 0.5f, MIN_EXTENT)
-            ShapeSpec.Ellipse(
-                cx = pinned[0] + along * 0.5f * alongX,
-                cy = pinned[1] + along * 0.5f * alongY,
-                rx = if (i == 0 || i == 2) radius else rx,
-                ry = if (i == 1 || i == 3) radius else ry,
-                rot = rot,
-                equilateral = false,
+            // Handles 0 and 1 point along that axis and 2 and 3 against it, so the pen is still on
+            // its own end while the two agree in sign, and on the opposite one once it is dragged
+            // through the pinned end.
+            val ownSide = if (i == 0 || i == 1) along >= 0f else along <= 0f
+            DraggedShape(
+                ShapeSpec.Ellipse(
+                    cx = pinned[0] + along * 0.5f * alongX,
+                    cy = pinned[1] + along * 0.5f * alongY,
+                    rx = if (i == 0 || i == 2) radius else rx,
+                    ry = if (i == 1 || i == 3) radius else ry,
+                    rot = rot,
+                    equilateral = false,
+                ),
+                if (ownSide) i else (i + 2) % 4,
             )
         }
     }
 }
+
+/** Which corner of a rectangle lies [du] along and [dv] across its axes from the pinned one. */
+private fun rectHandle(du: Float, dv: Float): Int =
+    if (du < 0f) (if (dv < 0f) 0 else 3) else (if (dv < 0f) 1 else 2)
 
 // ---- Outline -----------------------------------------------------------------------------------
 
