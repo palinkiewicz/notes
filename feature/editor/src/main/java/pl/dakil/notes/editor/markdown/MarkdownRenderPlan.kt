@@ -188,6 +188,18 @@ data class MarkdownRenderPlan(
     val styles: List<MdStyleRange>,
     val decorations: List<MdDecoration>,
     /**
+     * Ranges that need a hanging indent — the one thing a `SpanStyle` cannot say.
+     *
+     * A quotation is held clear of the bar drawn beside it, and an indent written into the line as
+     * spaces only ever indents the visual line those spaces are on: a quoted sentence long enough
+     * to wrap had a first line at the indent and every line after it hard against the bar. So the
+     * indent is stated once for the whole block and applied by the layout, which is what makes it
+     * survive a wrap. Whole blocks rather than lines, and ending short of the newline that ends the
+     * last of them, because a `ParagraphStyle` range is laid out as its own block of text and one
+     * ending on a newline gets an empty line under it.
+     */
+    val indents: List<MdStyleRange> = emptyList(),
+    /**
      * The inline spans, outermost first, and the one part of a plan still in source coordinates.
      *
      * They have to be: their only use is rewriting the source around an edit, and a rewrite works
@@ -308,6 +320,10 @@ object MarkdownRenderer {
             // in transformed coordinates — see [gap] for why they cannot be mapped like the rest.
             styles = styles.map { it.mapped(edits) } + gaps,
             decorations = decorations.map { it.mapped(edits) },
+            // Read off the bars rather than counted again: a bar spans exactly the block of quoted
+            // lines that has to be held clear of it, and is already merged and already mapped.
+            indents = decorations.map { it.mapped(edits) }.filterIsInstance<MdQuote>()
+                .map { MdStyleRange(it.start, it.end, MdStyle.QUOTE) },
             inline = spans,
         )
         lastSource = markdown
@@ -1174,16 +1190,10 @@ object MarkdownRenderer {
 
         MarkdownParser.QUOTE.matchEntire(line)?.let { match ->
             val textStart = end - match.groupValues[1].length
-            // The marker goes without leaving anything in its place. It used to become three spaces
-            // that held the text clear of the bar, and spaces are characters on one visual line: a
-            // quoted sentence long enough to wrap put its first line at the indent and every line
-            // after it hard against the bar. A `ParagraphStyle` with a hanging indent is the tidier
-            // way to say "and its continuations too" and cannot be used — Compose lays a paragraph
-            // out as its own block of text, and one whose range ends on a newline gets an extra
-            // empty line at the bottom of it, which every line of the document either side of a
-            // quote would then have. So the bar moves out into the margin instead and the text
-            // keeps the column everything else is set in, first line and continuations alike.
-            // See [drawQuote].
+            // The marker goes without leaving anything in its place: the indent that clears the
+            // bar is [MarkdownRenderPlan.indents]' to state, once for the whole quotation, so that
+            // the lines it wraps onto are held clear of the bar as well as the lines it is typed
+            // on. Three spaces written here in its place indented neither.
             edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, MdStyle.QUOTE)
             openQuote(lines, k, decorations)

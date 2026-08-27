@@ -150,5 +150,10 @@ fun MarkdownRenderPlan.toAnnotatedString(source: String, styles: MarkdownStyles)
                 addStyle(styles.spanFor(range.style, range.arg), range.start, range.end)
             }
         }
+        for (range in this@toAnnotatedString.indents) {
+            if (range.end > range.start && range.end <= text.length) {
+                addStyle(styles.quoteIndent, range.start, range.end)
+            }
+        }
     }.toAnnotatedString()
 }

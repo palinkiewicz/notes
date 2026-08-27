@@ -8,11 +8,13 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import pl.dakil.notes.editor.markdown.code.CodeColors
@@ -39,6 +41,18 @@ data class MarkdownStyles(
      * all times, so a note that fits on one screen would be shown in less room than it has.
      */
     val trailingSpace: SpanStyle,
+    /**
+     * The hanging indent that holds a quotation clear of the bar drawn beside it.
+     *
+     * A `ParagraphStyle` because it is the only thing that can indent a line the *layout* made —
+     * spaces indent the line they are typed on and nothing else, so a quotation long enough to
+     * wrap had its first line clear of the bar and every line after it against it. See
+     * [MarkdownRenderPlan.indents].
+     *
+     * Defaulted, because a renderer that draws no bar wants no room kept for one: export leaves
+     * quote bars out on purpose, and an indent with nothing beside it is a ragged left edge.
+     */
+    val quoteIndent: ParagraphStyle = ParagraphStyle(),
 ) {
     // Unstyled rather than absent for a style nobody has given a span to: a new [MdStyle] with no
     // entry here is a paragraph that looks plain, which is a bug someone will notice and fix, and
@@ -79,6 +93,11 @@ class MarkdownOutputTransformation(
             for (range in plan.styles) {
                 if (range.end > range.start) {
                     addStyle(styles.spanFor(range.style, range.arg), range.start, range.end)
+                }
+            }
+            for (range in plan.indents) {
+                if (range.end > range.start) {
+                    addStyle(styles.quoteIndent, range.start, range.end)
                 }
             }
         }
@@ -133,6 +152,10 @@ fun rememberMarkdownStyles(sizes: Boolean = true): MarkdownStyles {
             // A blank line of a 14 sp face comes out at about 16 dp, which is what holds the last
             // line of a note off the formatting bar once it has been scrolled to.
             trailingSpace = SpanStyle(fontSize = 14.sp),
+            // Wide enough to clear a three dp bar and read as a step, and the same on the line the
+            // quotation is typed on as on the lines it wraps onto — which is the whole point of
+            // saying it here rather than writing spaces into the text.
+            quoteIndent = ParagraphStyle(textIndent = TextIndent(firstLine = 12.sp, restLine = 12.sp)),
             byStyle = mapOf(
                 MdStyle.H1 to heading(typography.headlineMedium.fontSize),
                 MdStyle.H2 to heading(typography.headlineSmall.fontSize),

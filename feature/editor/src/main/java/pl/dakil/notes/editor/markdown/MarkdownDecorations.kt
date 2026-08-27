@@ -361,19 +361,6 @@ private fun DrawScope.drawRule(
     drawLine(palette.rule, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
 }
 
-/**
- * How far left of the text column the bar beside a quotation stands.
- *
- * In the margin rather than in the text, because a margin is the one place an indent costs nothing
- * to keep: a run of spaces written into the line only ever indents the visual line it is on, so a
- * quoted sentence that wrapped had a first line clear of the bar and continuations against it. The
- * editor's own horizontal padding is 20 dp, so a 3 dp bar ten dp out sits in the middle of it with
- * clearance on both sides, and the quoted text stays in the same column as the rest of the page.
- */
-private val QuoteGutter = 10.dp
-
-private val QuoteBarWidth = 3.dp
-
 private fun DrawScope.drawQuote(
     quote: MdQuote,
     layout: TextLayoutResult,
@@ -386,8 +373,8 @@ private fun DrawScope.drawQuote(
     if (bottom <= top) return
     drawRoundRect(
         color = palette.quoteBar,
-        topLeft = Offset(-QuoteGutter.toPx(), top),
-        size = Size(QuoteBarWidth.toPx(), bottom - top),
+        topLeft = Offset(0f, top),
+        size = Size(3.dp.toPx(), bottom - top),
         cornerRadius = CornerRadius(2.dp.toPx()),
     )
 }

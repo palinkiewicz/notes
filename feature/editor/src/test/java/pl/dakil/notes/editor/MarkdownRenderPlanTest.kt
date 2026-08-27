@@ -8,6 +8,7 @@ import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MdCodeBlock
 import pl.dakil.notes.editor.markdown.MdDecoration
 import pl.dakil.notes.editor.markdown.MdQuote
+import pl.dakil.notes.editor.markdown.MdStyleRange
 import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdStyle
 import pl.dakil.notes.editor.markdown.MdTable
@@ -231,12 +232,29 @@ class MarkdownRenderPlanTest {
 
     @Test
     fun `a quote marker disappears entirely and leaves a bar to be drawn`() {
-        // The marker leaves nothing in its place: the bar is drawn out in the margin, so the
-        // quoted text keeps the column the rest of the page is set in — and so do the lines it
-        // wraps onto, which a run of spaces could never have reached.
+        // The marker leaves nothing in its place: what holds the text clear of the bar is a
+        // hanging indent over the whole block, so the lines a quotation wraps onto are held clear
+        // of it too — which a run of spaces written into the line could never have reached.
         assertEquals("to be", render("> to be"))
         assertEquals(listOf("to be"), styled("> to be", MdStyle.QUOTE))
         assertEquals(listOf(MdQuote(0, 5)), decorations<MdQuote>("> to be"))
+        assertEquals(
+            listOf(MdStyleRange(0, 5, MdStyle.QUOTE)),
+            MarkdownRenderer.plan("> to be").indents,
+        )
+    }
+
+    @Test
+    fun `one indent covers a whole quotation and stops short of the newline after it`() {
+        // One range per block, because a `ParagraphStyle` is laid out as its own piece of text: a
+        // range per line would break the quotation into as many blocks, and one ending on the
+        // newline that closes it gets an empty line underneath.
+        val quoted = "> one\n> two\nafter"
+        assertEquals(listOf(MdStyleRange(0, 7, MdStyle.QUOTE)), MarkdownRenderer.plan(quoted).indents)
+        // The blank line is the gap this app draws between a block and what follows it.
+        assertEquals("one\ntwo\n\nafter", render(quoted))
+        // Nothing quoted, nothing indented.
+        assertEquals(emptyList<MdStyleRange>(), MarkdownRenderer.plan("plain\ntext").indents)
     }
 
     @Test
