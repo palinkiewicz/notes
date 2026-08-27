@@ -39,6 +39,13 @@ object KeepBlocksIntact : InputTransformation {
         ) {
             return
         }
+        // And a deletion that clears several characters off the screen at once is not a keystroke
+        // either, whatever the selection says — so it is granted rather than re-aimed. See
+        // [takeAsAsked], which is where the reason and the two corrections it still applies are.
+        if (MarkdownRenderer.takesMoreThanOneVisibleCharacter(before, deleted.start, deleted.end)) {
+            takeAsAsked(before, deleted)
+            return
+        }
 
         // Judged at the end of what went, not at the caret. A caret standing on hidden syntax maps
         // back to the start of it, so the deletion a backspace produces there runs *forwards* over
@@ -56,6 +63,38 @@ object KeepBlocksIntact : InputTransformation {
                 selection = TextRange(fix.start)
             }
         }
+    }
+
+    /**
+     * Carries out a deletion of several visible characters as the range it asked for.
+     *
+     * A backspace takes one thing off the screen. A range that takes several is a *request* — the
+     * user selected that much, or asked for a word — and re-aiming it at a single character, which
+     * is what [trimToVisible] does for a keystroke, is how "delete half the note" came back as one
+     * letter gone and the selection still standing. That is the bug this exists for: an AOSP-derived
+     * keyboard, FUTO's among them, answers backspace-with-a-selection by *collapsing* the selection
+     * to its end and then asking for as many characters back as it had covered, so by the time the
+     * deletion arrives there is no selection left to recognise it by and the range is all there is.
+     *
+     * Granted, then — with the two corrections that hold whoever asked:
+     *
+     * 1. **Never past the caret.** Everything that deletes backwards deletes behind the caret; a
+     *    range reaching in front of one was widened there by the offset mapping and by nothing else.
+     *    Compose's own delete-previous-word at the end of the bold run in `Apple **is red** now.`
+     *    asks for `red** n` — the word, the closing markers, and the first letter of the next word,
+     *    because the caret sits against a hidden run and the run maps back whole. Cut at the caret it
+     *    is `red`, which is the word that was asked for.
+     * 2. **Nothing hanging off the ends.** What is left may still open or close on syntax nobody can
+     *    see — see [MarkdownRenderer.visibleSpan]. Syntax *between* the first and last visible
+     *    character stays: the request covered it.
+     */
+    private fun TextFieldBuffer.takeAsAsked(before: String, deleted: TextRange) {
+        val end = deleted.end.coerceIn(deleted.start, originalSelection.max)
+        val (from, to) = MarkdownRenderer.visibleSpan(before, deleted.start, end) ?: return
+        if (from == deleted.start && to == deleted.end) return
+        revertAllChanges()
+        replace(from, to, "")
+        selection = TextRange(from)
     }
 
     /**

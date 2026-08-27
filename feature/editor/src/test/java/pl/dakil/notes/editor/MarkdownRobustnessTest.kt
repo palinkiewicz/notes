@@ -80,6 +80,8 @@ class MarkdownRobustnessTest {
         MarkdownStructure.keepMarkers(document, at, document.length, "x")
         MarkdownStructure.spaceOutsideRun(document, at, " ")
         MarkdownStructure.spaceOutsideRunAfterDeletion(document, at, (at + 1).coerceAtMost(document.length))
+        MarkdownRenderer.takesMoreThanOneVisibleCharacter(document, at, document.length)
+        MarkdownRenderer.visibleSpan(document, at, document.length)
         MarkdownStructure.extendableRun(document, at, "**")
         MarkdownStructure.runCaret(document, at)
         MarkdownActions.blockStyleAt(document, at)

@@ -452,6 +452,57 @@ class MarkdownStructureTest {
         assertTrue(MarkdownRenderer.coversVisibleText(source, 4, 5))
     }
 
+    // ---- One character, or a request ------------------------------------------------------------
+
+    @Test
+    fun `the range a field widens for one backspace still takes one visible character`() {
+        // Measured from the field itself. A caret at the end of the bold word in
+        // `Apple **is red** now.` is offset 14, and the deletion that comes back for one press is
+        // [13, 16) — the "d" the user pointed at and the two closing markers behind it, because a
+        // caret standing against a hidden run maps back to the whole of it. One letter goes.
+        val source = "Apple **is red** now."
+        assertFalse(MarkdownRenderer.takesMoreThanOneVisibleCharacter(source, 13, 16))
+        // And the same shape at a heading: the line break above plus the hashes nobody can see.
+        assertFalse(MarkdownRenderer.takesMoreThanOneVisibleCharacter("Line.\n## Head", 5, 9))
+        // A closing fence renders as the blank line below it, so the run holding it counts once.
+        assertFalse(MarkdownRenderer.takesMoreThanOneVisibleCharacter("```\nx\n```\n\nafter", 6, 11))
+    }
+
+    @Test
+    fun `a deletion that clears several visible characters is a request and not a keystroke`() {
+        // What an AOSP-derived keyboard sends for backspace-with-a-selection: the selection is
+        // collapsed first and then as many characters asked back as it covered, so this arrives
+        // looking like a bare caret's keystroke. Judged by what it takes, it plainly is not one.
+        val source = "Apple **is red** now."
+        assertTrue(MarkdownRenderer.takesMoreThanOneVisibleCharacter(source, 0, source.length))
+        assertTrue(MarkdownRenderer.takesMoreThanOneVisibleCharacter(source, 12, 16))
+        // Two visible characters is already more than one press can mean, markers between them or not:
+        // the "d", the closing pair, the space and the "n" after it.
+        assertTrue(MarkdownRenderer.takesMoreThanOneVisibleCharacter(source, 13, 18))
+    }
+
+    @Test
+    fun `a range granted as aimed still gives back the syntax hanging off its ends`() {
+        // A selection dragged to just past the bold word comes back with the closing markers on it,
+        // because a caret against a hidden run maps to the whole run. Deleting it as given would
+        // take a pair the user never saw and unstyle whatever was left wearing it.
+        val source = "Apple **is red** now."
+        assertEquals(8 to 14, MarkdownRenderer.visibleSpan(source, 6, 16))
+        // Syntax *between* the first and last visible character is theirs to lose: they selected
+        // across it, and what is left of a run whose middle has gone is not a run.
+        assertEquals(4 to 18, MarkdownRenderer.visibleSpan(source, 4, 18))
+        // Nothing on screen in the range at all — no span to grant.
+        assertNull(MarkdownRenderer.visibleSpan(source, 6, 8))
+    }
+
+    @Test
+    fun `syntax on its own is not a visible character at all`() {
+        // The markers alone, and then a range with nothing in it: neither takes anything off screen.
+        assertTrue(MarkdownRenderer.takesMoreThanOneVisibleCharacter("**bold**", 2, 6))
+        assertFalse(MarkdownRenderer.takesMoreThanOneVisibleCharacter("**bold**", 0, 2))
+        assertFalse(MarkdownRenderer.takesMoreThanOneVisibleCharacter("**bold**", 4, 4))
+    }
+
     // ---- Markers left holding nothing -------------------------------------------------------------
 
     @Test

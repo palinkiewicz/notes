@@ -350,6 +350,60 @@ object MarkdownRenderer {
     }
 
     /**
+     * Whether `[start, end)` takes away more than one character the reader can see.
+     *
+     * What separates a keystroke from a request. A backspace removes one thing on screen, and the
+     * range a field produces for one is wider than that only in syntax nobody can see: pressed at
+     * the end of the bold word in `Apple **is red** now`, the field asks to delete `d**` — the
+     * letter the user pointed at and the two markers behind it, because a caret against a hidden run
+     * maps back to the whole of it. Every such range holds exactly one visible character.
+     *
+     * A range holding several is nobody's near miss. It is a selection somebody asked to have
+     * deleted — and it arrives looking like a bare caret's keystroke, because an AOSP-derived
+     * keyboard answers backspace-with-a-selection by *collapsing* the selection first and then
+     * asking for as many characters back as it had covered. By the time the deletion is seen the
+     * selection is already gone, so the field can only be judged by what it is taking, and what it
+     * is taking is half a note.
+     */
+    fun takesMoreThanOneVisibleCharacter(markdown: String, start: Int, end: Int): Boolean {
+        val edits = plan(markdown).edits
+        val from = start.coerceAtLeast(0)
+        val to = end.coerceAtMost(markdown.length)
+        var seen = 0
+        for (i in from until to) {
+            if (isHidden(edits, i)) continue
+            // Counted no further than it takes to answer: a deletion of half a note would otherwise
+            // walk every character of it to say what its second one already said.
+            if (++seen > 1) return true
+        }
+        return false
+    }
+
+    /**
+     * `[start, end)` pulled in to the span its visible characters occupy, or null if it holds none.
+     *
+     * What a range means once it is granted that the reader aimed it: everything they can see in it,
+     * and whatever invisible syntax stands *between* the first and the last of that — but nothing
+     * hanging off either end. A selection dragged to just past a bold word comes back in source
+     * coordinates with the closing `**` on it, because a caret against a hidden run maps to the whole
+     * run; deleting the range as given takes markers the user never saw and unstyles the words left
+     * behind. Syntax inside the span is theirs to lose — they selected across it.
+     */
+    fun visibleSpan(markdown: String, start: Int, end: Int): Pair<Int, Int>? {
+        val edits = plan(markdown).edits
+        val from = start.coerceAtLeast(0)
+        val to = end.coerceAtMost(markdown.length)
+        var first = -1
+        var last = -1
+        for (i in from until to) {
+            if (isHidden(edits, i)) continue
+            if (first < 0) first = i
+            last = i
+        }
+        return if (first < 0) null else first to (last + 1)
+    }
+
+    /**
      * Whether anything in `[start, end)` is struck out of the rendering entirely.
      *
      * "Struck out" is narrower than "rewritten": a bullet's `- ` becomes a glyph and a checkbox's
