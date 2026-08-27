@@ -385,6 +385,87 @@ object MarkdownStructure {
     }
 
     /**
+     * Where a run's closer belongs once a deletion has left it touching whitespace it did not touch
+     * before.
+     *
+     * [spaceOutsideRun] moves a space typed against a closing marker to the far side of it, so a run
+     * being finished stays closeable while its author is still typing. The same collision happens in
+     * reverse under a backspace: deleting the last word out of `**Apple is red**` removes it one
+     * visible character at a time, and the keystroke that takes the final letter off "red" lands on
+     * the space that used to separate it from "is". What is left is `**Apple is **` — a closer
+     * preceded by whitespace, which CommonMark will not read as a closer, so a run the user never
+     * touched comes apart on the keystroke that only removed a word they meant to remove.
+     *
+     * [source] is the document as it stood *before* the deletion, with `[deletedStart, deletedEnd)`
+     * the range about to go — the run has to be read there, still whole, because by the time the
+     * deletion has happened its closer is no longer parsed as one and there is nothing left in the
+     * broken text to recognise. The fix is [spaceOutsideRun]'s move made in reverse: the closer steps
+     * back over the space instead of the space stepping over the closer, landing on `**Apple is** `,
+     * exactly where a run finished with [spaceOutsideRun]'s help would already be.
+     *
+     * Null when the run would be left with nothing but whitespace to style — that is not a shorter
+     * run, it is an empty one, and [strandedMarkers] is where an empty run is dealt with.
+     */
+    fun spaceOutsideRunAfterDeletion(source: String, deletedStart: Int, deletedEnd: Int): MdEditAt? {
+        if (deletedStart !in 0..source.length || deletedEnd !in deletedStart..source.length) return null
+        if (deletedStart == 0) return null
+        val exposed = source[deletedStart - 1]
+        if (!exposed.isWhitespace() || exposed == '\n') return null
+
+        val open = MarkdownRenderer.openInlineAt(source, deletedEnd)
+        if (open.none { it.closeStart == deletedEnd && slidesOffSpace(source, it) }) return null
+
+        var wsStart = deletedStart
+        while (wsStart > 0 && source[wsStart - 1].isWhitespace() && source[wsStart - 1] != '\n') wsStart--
+        if (wsStart <= open.first().openEnd) return null
+
+        var past = deletedEnd
+        while (past < source.length && source[past] in "*_~" &&
+            MarkdownRenderer.hidesAnythingIn(source, past, past + 1)
+        ) {
+            past++
+        }
+        if (past == deletedEnd) return null
+
+        val closers = source.substring(deletedEnd, past)
+        val spaces = source.substring(wsStart, deletedStart)
+        return MdEditAt(wsStart, past, closers + spaces, wsStart + closers.length + spaces.length)
+    }
+
+    /**
+     * Where a caret standing at the end of an inline run really belongs, or null if it is already
+     * there.
+     *
+     * A run's closing markers are not on screen, so the offset before them and the offset after
+     * them are the *same place* to the reader — the end of the bold word. Which of the two the
+     * field picks for a tap is nobody's decision: it falls out of how the tap mapped back through
+     * the hidden run, and past the markers is a caret standing outside a run the user pointed at
+     * the inside of. Typing there came out unstyled, and no amount of aiming could fix it, because
+     * both answers look identical.
+     *
+     * So the one inside wins, which is also the rule every word processor follows: what is typed
+     * wears what the character to the left of it wears. The way *out* of a run is the formatting
+     * bar — press bold at the end of a bold word and the next thing typed is not bold, which is
+     * [PendingStyles]' whole job — and not a caret nudged to a place that cannot be seen.
+     *
+     * Innermost first, by construction: pulling back past one closer lands the caret on the next
+     * one in, and the walk repeats until it is against real text. `**a *b***` tapped at the end
+     * comes to rest inside the italic, which is inside the bold.
+     */
+    fun runCaret(source: String, at: Int): Int? {
+        if (at !in 0..source.length) return null
+        val spans = MarkdownRenderer.plan(source).inline
+        var caret = at
+        while (true) {
+            // Strictly inside the closing run or just past it. A caret already *at* `closeStart` is
+            // where this is trying to get to, and stops the walk.
+            val span = spans.firstOrNull { caret > it.closeStart && caret <= it.closeEnd } ?: break
+            caret = span.closeStart
+        }
+        return caret.takeIf { it != at }
+    }
+
+    /**
      * The run of [marker] that ends just before [at], with nothing but whitespace since.
      *
      * What lets a style survive the space that ends a word. A space typed against a closing marker

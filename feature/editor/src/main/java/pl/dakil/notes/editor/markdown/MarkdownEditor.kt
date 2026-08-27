@@ -164,6 +164,7 @@ fun MarkdownEditor(
     val applyPending = remember(pending) { ApplyPendingStyles(pending) }
     val keepInline = remember(pending) { KeepInlineIntact(pending) }
     val keepSpace = remember(pending) { KeepSpaceOutside(pending) }
+    val keepSpaceOnDelete = remember(pending) { KeepSpaceOutsideOnDelete(pending) }
     val focusRequester = remember { FocusRequester() }
 
     var measured by remember { mutableStateOf<MeasuredMarkdown?>(null) }
@@ -258,12 +259,16 @@ fun MarkdownEditor(
         // judges the edit afterwards.
         // [ApplyPendingStyles] runs last in both chains: what it wraps has to be the keystroke as
         // the rest of them left it, not as the keyboard sent it.
+        // [KeepSpaceOutsideOnDelete] runs after [DropStrandedMarkers] so an emptied run is dropped
+        // rather than closed early, and before [ApplyPendingStyles] and `keepSpace` because neither
+        // of those has anything to do with a deletion — the replacement it makes has a non-zero
+        // original range, which is exactly what excludes it from both.
         inputTransformation = if (sourceMode) {
             ListIndent.then(ContinueList).then(applyPending)
         } else {
             KeepBlocksIntact.then(KeepMarkersIntact).then(ListIndent).then(InsertTableRow)
                 .then(ContinueList).then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers)
-                .then(applyPending).then(keepSpace)
+                .then(keepSpaceOnDelete).then(applyPending).then(keepSpace)
         },
         // Present in source mode too, though it renders nothing there: it is also what keeps the
         // blank line at the foot of the document, and the page has the same bottom in both views.
@@ -409,8 +414,15 @@ fun MarkdownEditor(
                     }
                 }
                 if (!selection.collapsed) return@collect
-                val target = MarkdownStructure.cellCaret(source, selection.start) ?: return@collect
-                state.edit { this.selection = TextRange(target.coerceIn(0, length)) }
+                val cell = MarkdownStructure.cellCaret(source, selection.start)
+                if (cell != null) {
+                    state.edit { this.selection = TextRange(cell.coerceIn(0, length)) }
+                    return@collect
+                }
+                // Past a run's closing markers is the same place on screen as inside them, and the
+                // inside is the one the user pointed at. See [MarkdownStructure.runCaret].
+                val inside = MarkdownStructure.runCaret(source, selection.start) ?: return@collect
+                state.edit { this.selection = TextRange(inside.coerceIn(0, length)) }
             }
         }
     }

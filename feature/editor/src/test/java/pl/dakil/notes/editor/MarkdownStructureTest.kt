@@ -691,6 +691,49 @@ class MarkdownStructureTest {
         assertNull(MarkdownStructure.spaceOutsideRun("`code`", 5, " "))
     }
 
+    // ---- The space a deletion uncovers -----------------------------------------------------------
+
+    @Test
+    fun `backspacing the last letter off a word exposes the space in front of it`() {
+        // "**Apple is red**" with "red" backspaced down to "r" and then that "r" removed too — the
+        // last of those keystrokes is the one that would otherwise leave "**Apple is **", a closer
+        // preceded by whitespace and therefore not a closer at all.
+        val source = "**Apple is r**"
+        val fix = MarkdownStructure.spaceOutsideRunAfterDeletion(source, 11, 12)!!
+        assertEquals("**Apple is** ", apply(source, fix))
+        assertEquals(13, fix.caret)
+    }
+
+    @Test
+    fun `a whole word deleted at once uncovers the space the same way`() {
+        // One selection delete rather than three backspaces, landing on the same result: the space
+        // that used to separate the two words is what a closer now touches, wherever the deletion
+        // that exposed it started.
+        val source = "**Apple is red**"
+        val fix = MarkdownStructure.spaceOutsideRunAfterDeletion(source, 11, 14)!!
+        assertEquals("**Apple is** ", apply(source, fix))
+    }
+
+    @Test
+    fun `a deletion that does not reach a closer is an ordinary deletion`() {
+        assertNull(MarkdownStructure.spaceOutsideRunAfterDeletion("**Apple is red**", 10, 11))
+        assertNull(MarkdownStructure.spaceOutsideRunAfterDeletion("plain text", 5, 6))
+    }
+
+    @Test
+    fun `a deletion that does not expose whitespace is left alone`() {
+        // Backspacing "d" off "red" leaves "re", not a space — the run is merely shorter.
+        assertNull(MarkdownStructure.spaceOutsideRunAfterDeletion("**Apple is red**", 13, 14))
+    }
+
+    @Test
+    fun `nothing opens when the deletion's own document never had a run to begin with`() {
+        // "** w**" never parses as bold at all — the opener is followed by whitespace, which is not
+        // a place emphasis can open — so there is no span here for the function to have opinions
+        // about, whatever the deletion.
+        assertNull(MarkdownStructure.spaceOutsideRunAfterDeletion("** w**", 4, 5))
+    }
+
     @Test
     fun `the run a caret has just stepped out of is the one it can carry on`() {
         val span = MarkdownStructure.extendableRun("**test** m", 9, "**")!!
@@ -701,6 +744,43 @@ class MarkdownStructureTest {
         // And never across a line break, which inline markup cannot cross: the run would end up
         // opened on one line and closed on the next, which unstyles both.
         assertNull(MarkdownStructure.extendableRun("**test**\nm", 9, "**"))
+    }
+
+    // ---- A caret at the end of a run -----------------------------------------------------------
+
+    @Test
+    fun `a caret past a run's closing markers belongs inside them`() {
+        // Both offsets are the end of the bold word as far as the reader is concerned, and which
+        // one a tap produces is not something anybody can aim at. Inside is the one that behaves:
+        // what is typed wears what the character to its left wears.
+        assertEquals(7, MarkdownStructure.runCaret("**Apple**", 9))
+        // Stranded between the two asterisks, which an arrow key can manage at the end of a line.
+        assertEquals(7, MarkdownStructure.runCaret("**Apple**", 8))
+        // Already there.
+        assertNull(MarkdownStructure.runCaret("**Apple**", 7))
+    }
+
+    @Test
+    fun `the caret comes to rest in the innermost run it was standing at the end of`() {
+        // Pulling back past the bold closer lands it on the italic one, and the walk repeats.
+        assertEquals(6, MarkdownStructure.runCaret("**a *b***", 9))
+    }
+
+    @Test
+    fun `a caret with no run behind it is left where it was put`() {
+        assertNull(MarkdownStructure.runCaret("plain text", 5))
+        // A heading's marker is hidden too, and is nothing to do with this: moving a caret back
+        // over `# ` would put what came next in front of the hash and take the heading apart.
+        assertNull(MarkdownStructure.runCaret("# Head", 2))
+        // Well past the run, with visible text since.
+        assertNull(MarkdownStructure.runCaret("**Apple** more", 12))
+    }
+
+    @Test
+    fun `the space parked outside a run is not a place the caret is pulled back from`() {
+        // [KeepSpaceOutside] leaves the caret exactly here, and dragging it back inside the markers
+        // would undo the move on the very next frame.
+        assertNull(MarkdownStructure.runCaret("**test** ", 9))
     }
 
     // ---- An edit that reached over syntax nobody can see ---------------------------------------
