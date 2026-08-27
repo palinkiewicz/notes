@@ -9,6 +9,7 @@ import pl.dakil.notes.ink.RULER_MAX_LENGTH_CM
 import pl.dakil.notes.ink.RULER_MIN_LENGTH_CM
 import pl.dakil.notes.ink.RulerSide
 import kotlin.math.PI
+import kotlin.math.hypot
 
 /**
  * What two fingers on the slab do to it.
@@ -83,6 +84,27 @@ class RulerGestureTest {
         // The centre was 100 below the pivot; a quarter turn puts it 100 to the pivot's left.
         assertEquals(0f, ruler.edgeX, 1e-2f)
         assertEquals(100f, ruler.edgeY, 1e-2f)
+    }
+
+    @Test
+    fun `turning past vertical keeps the slab on the same side of its numbered edge`() {
+        // Folding the far half of the circle away would leave the numbered edge where it is and
+        // throw the body of the ruler across to the other side of it — a jump, mid-gesture, at
+        // exactly the heading a user turning the ruler over is passing through.
+        val ruler = placedRuler()
+        val step = (PI / 18).toFloat()
+        var previous = ruler.pose(zoom = 1f).edge(RulerSide.LOWER)
+        // Two thirds of a turn, well past the 90° the old fold gave way at.
+        repeat(12) {
+            ruler.transformBy(0f, 0f, dAngle = step, lengthFactor = 1f, pivotX = 100f, pivotY = 200f)
+            val far = ruler.pose(zoom = 1f).edge(RulerSide.LOWER)
+            // A tenth of a turn moves the far edge a little; a flip would move it the slab's whole
+            // width across the numbered edge in one frame.
+            val moved = hypot(far.x - previous.x, far.y - previous.y)
+            assertTrue("far edge jumped by $moved at step $it", moved < 30f)
+            previous = far
+        }
+        assertEquals(120.0, Math.toDegrees(ruler.angleRad.toDouble()), 1e-2)
     }
 
     @Test
