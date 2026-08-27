@@ -778,6 +778,40 @@ class MarkdownStructureTest {
     }
 
     @Test
+    fun `deleting the first word of a run moves its opener past the space left behind`() {
+        // `** my string**` opens on a space, which CommonMark does not read as emphasis at all — so
+        // the run the user meant to shorten stops being a run.
+        val source = "**This is my string**"
+        val fix = MarkdownStructure.openerOutsideRunAfterDeletion(source, 2, 9)!!
+        assertEquals(" **my string**", apply(source, fix))
+        // Inside the run, ready to carry on in the same style.
+        assertEquals(3, fix.caret)
+    }
+
+    @Test
+    fun `an opener steps past every marker it is nested in`() {
+        // The same rule as its mirror: leaving the space between two openers only moves the problem.
+        val source = "**_this word_**"
+        val fix = MarkdownStructure.openerOutsideRunAfterDeletion(source, 3, 7)!!
+        assertEquals(" **_word_**", apply(source, fix))
+    }
+
+    @Test
+    fun `a deletion that leaves an opener against text is an ordinary deletion`() {
+        // "This" out of the middle leaves `**is my string**` — an opener against a letter, which is
+        // exactly where an opener belongs.
+        assertNull(MarkdownStructure.openerOutsideRunAfterDeletion("**This is my string**", 2, 7))
+        assertNull(MarkdownStructure.openerOutsideRunAfterDeletion("plain text here", 0, 6))
+    }
+
+    @Test
+    fun `a deletion that empties a run leaves the pair for the stranding rule`() {
+        // "a b" out of `**a b**` closes the markers up against each other, and `****` is four
+        // asterisks rather than an empty run. Nothing here to relocate — see [strandedMarkers].
+        assertNull(MarkdownStructure.openerOutsideRunAfterDeletion("**a b**", 2, 5))
+    }
+
+    @Test
     fun `nothing opens when the deletion's own document never had a run to begin with`() {
         // "** w**" never parses as bold at all — the opener is followed by whitespace, which is not
         // a place emphasis can open — so there is no span here for the function to have opinions

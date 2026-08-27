@@ -527,6 +527,46 @@ object MarkdownActions {
      * it is the cheap answer; a bar whose lit buttons lag a keystroke behind would be worse than one
      * that is occasionally optimistic about a half-typed span.
      */
+    /**
+     * Which inline markers an *armed* [marker] stands for, by the rule [activeInlineMarkers] reads
+     * the document by.
+     *
+     * A style carried onto a bare caret is read off the parse, and the parse of `***word***` is one
+     * span three asterisks wide — so what comes back armed is `***`, which is neither of the two
+     * markers the bold and italic buttons test for. Both went dark the moment a space was typed at
+     * the end of a bold-italic word, and the user was told their formatting had been dropped by a
+     * bar that was merely spelling it differently. Counted as a run, as the document is, `***` is
+     * bold *and* italic, which is what it renders as and what it says here.
+     */
+    fun inlineMarkersOf(marker: String): Set<String> {
+        val symbol = marker.firstOrNull() ?: return emptySet()
+        // Only a repeated symbol is a run to be counted. Anything else is its own marker already.
+        if (marker.any { it != symbol }) return setOf(marker)
+        return INLINE_MARKERS.filterTo(HashSet()) {
+            it[0] == symbol &&
+                if (it.length == 1) marker.length % 2 == 1 else marker.length >= it.length
+        }
+    }
+
+    /**
+     * [armed] with [marker] turned on if it was off and off if it was on.
+     *
+     * Read through [inlineMarkersOf] on the way in, so a press lands on what the button was showing:
+     * bold pressed while `***` is armed leaves italic, rather than arming a second `**` on top of a
+     * run that already had one.
+     *
+     * What comes back is always one marker per button, never the combined run. A `***` is what the
+     * *document* is written as, and only [carried] hands one over; arming one before there is any
+     * text to style would send `***` to [toggleWrap] as a marker in its own right, which is not one
+     * of the four it knows.
+     */
+    fun toggleArmedMarker(armed: List<MdPending>, marker: String): List<MdPending> {
+        val lit = LinkedHashSet<String>()
+        for (style in armed) if (style is MdPending.Wrap) lit += inlineMarkersOf(style.marker)
+        if (!lit.remove(marker)) lit += marker
+        return lit.map { MdPending.Wrap(it) } + armed.filterIsInstance<MdPending.Size>()
+    }
+
     fun activeInlineMarkers(text: String, start: Int, end: Int): Set<String> {
         val spans = proseSpans(text, start, end)
         // Lit only when every line of the selection has it, matching what pressing the button would

@@ -277,6 +277,56 @@ class MarkdownPendingStylesTest {
         assertEquals("**is** ", result.text)
     }
 
+    // ---- What an armed marker says to the bar ---------------------------------------------------
+
+    @Test
+    fun `a carried triple marker is bold and italic, which is what it renders as`() {
+        // The parse of `***word***` is one span three asterisks wide, so that is what a caret
+        // carrying its style away holds. Asked which buttons it lights, it has to answer as the
+        // document does — both — or a space typed at the end of a bold-italic word puts the bar out.
+        assertEquals(setOf("**", "*"), MarkdownActions.inlineMarkersOf("***"))
+        assertEquals(setOf("**"), MarkdownActions.inlineMarkersOf("**"))
+        assertEquals(setOf("*"), MarkdownActions.inlineMarkersOf("*"))
+        // Markers that are not a run of one symbol are already themselves.
+        assertEquals(setOf("~~"), MarkdownActions.inlineMarkersOf("~~"))
+        assertEquals(setOf("`"), MarkdownActions.inlineMarkersOf("`"))
+    }
+
+    @Test
+    fun `pressing bold on a carried triple marker leaves italic armed`() {
+        // The button was lit, so the press means "off" — and what is left has to be the other half
+        // rather than a second `**` armed on top of a run that already had one.
+        val armed = listOf<MdPending>(MdPending.Wrap("***"))
+        assertEquals(listOf(MdPending.Wrap("*")), MarkdownActions.toggleArmedMarker(armed, "**"))
+        assertEquals(listOf(MdPending.Wrap("**")), MarkdownActions.toggleArmedMarker(armed, "*"))
+    }
+
+    @Test
+    fun `arming two markers keeps them apart, one per button`() {
+        // Never combined into `***`: that is how the *document* writes them, and arming one before
+        // there is text to style would hand `***` to [toggleWrap] as a marker it does not know.
+        val bold = listOf<MdPending>(MdPending.Wrap("**"))
+        assertEquals(
+            listOf(MdPending.Wrap("**"), MdPending.Wrap("*")),
+            MarkdownActions.toggleArmedMarker(bold, "*"),
+        )
+        assertEquals(
+            listOf(MdPending.Wrap("**"), MdPending.Wrap("~~")),
+            MarkdownActions.toggleArmedMarker(bold, "~~"),
+        )
+        // And a press of a lit button still turns it off.
+        assertEquals(emptyList<MdPending>(), MarkdownActions.toggleArmedMarker(bold, "**"))
+    }
+
+    @Test
+    fun `a size armed beside a wrap survives a wrap being toggled`() {
+        val armed = listOf(MdPending.Wrap("**"), MdPending.Size(24))
+        assertEquals(
+            listOf(MdPending.Wrap("**"), MdPending.Wrap("*"), MdPending.Size(24)),
+            MarkdownActions.toggleArmedMarker(armed, "*"),
+        )
+    }
+
     /** Whether the one character that was typed came out wearing what it was meant to. */
     private fun assertItalicNotBold(text: String) = assertStyles(text, MdStyle.ITALIC, MdStyle.BOLD)
 

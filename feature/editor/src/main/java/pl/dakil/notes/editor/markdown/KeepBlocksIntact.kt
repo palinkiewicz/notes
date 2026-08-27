@@ -33,16 +33,18 @@ object KeepBlocksIntact : InputTransformation {
         // hidden syntax is reported back as a *range* covering the whole hidden run, which is not a
         // selection at all, and reading it as one is what let a backspace beside a code block eat
         // the closing fence and leave the rest of the note inside the block.
+        //
+        // Theirs to delete is not the same as theirs as written, though: the same widening puts
+        // syntax on the *ends* of a real selection too, and that is [takeAsAsked]'s to trim. A
+        // deletion that clears several characters off the screen at once goes the same way, whatever
+        // the selection says, because it is a request rather than a keystroke.
         val before = originalText.toString()
-        if (originalSelection.length != 0 &&
-            MarkdownRenderer.coversVisibleText(before, originalSelection.start, originalSelection.end)
-        ) {
-            return
-        }
-        // And a deletion that clears several characters off the screen at once is not a keystroke
-        // either, whatever the selection says — so it is granted rather than re-aimed. See
-        // [takeAsAsked], which is where the reason and the two corrections it still applies are.
-        if (MarkdownRenderer.takesMoreThanOneVisibleCharacter(before, deleted.start, deleted.end)) {
+        val asked = (
+            originalSelection.length != 0 &&
+                MarkdownRenderer.coversVisibleText(before, originalSelection.start, originalSelection.end)
+            ) ||
+            MarkdownRenderer.takesMoreThanOneVisibleCharacter(before, deleted.start, deleted.end)
+        if (asked) {
             takeAsAsked(before, deleted)
             return
         }
@@ -66,15 +68,16 @@ object KeepBlocksIntact : InputTransformation {
     }
 
     /**
-     * Carries out a deletion of several visible characters as the range it asked for.
+     * Carries out a deletion the user asked for as the range they asked for.
      *
      * A backspace takes one thing off the screen. A range that takes several is a *request* — the
      * user selected that much, or asked for a word — and re-aiming it at a single character, which
      * is what [trimToVisible] does for a keystroke, is how "delete half the note" came back as one
-     * letter gone and the selection still standing. That is the bug this exists for: an AOSP-derived
-     * keyboard, FUTO's among them, answers backspace-with-a-selection by *collapsing* the selection
-     * to its end and then asking for as many characters back as it had covered, so by the time the
-     * deletion arrives there is no selection left to recognise it by and the range is all there is.
+     * letter gone and the selection still standing. That is one of the bugs this exists for: an
+     * AOSP-derived keyboard, FUTO's among them, answers backspace-with-a-selection by *collapsing*
+     * the selection to its end and then asking for as many characters back as it had covered, so by
+     * the time the deletion arrives there is no selection left to recognise it by and the range is
+     * all there is.
      *
      * Granted, then — with the two corrections that hold whoever asked:
      *
@@ -85,8 +88,10 @@ object KeepBlocksIntact : InputTransformation {
      *    because the caret sits against a hidden run and the run maps back whole. Cut at the caret it
      *    is `red`, which is the word that was asked for.
      * 2. **Nothing hanging off the ends.** What is left may still open or close on syntax nobody can
-     *    see — see [MarkdownRenderer.visibleSpan]. Syntax *between* the first and last visible
-     *    character stays: the request covered it.
+     *    see — see [MarkdownRenderer.visibleSpan]. Selecting `string` in `**This is my string**` and
+     *    pressing delete used to leave `**This is my `, the closing pair gone with the word because
+     *    the selection's end had mapped through it; selecting the lot left `**` standing over
+     *    nothing. Syntax *between* the first and last visible character stays: the request covered it.
      */
     private fun TextFieldBuffer.takeAsAsked(before: String, deleted: TextRange) {
         val end = deleted.end.coerceIn(deleted.start, originalSelection.max)

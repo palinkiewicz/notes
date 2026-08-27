@@ -170,7 +170,10 @@ private fun FormatControls(
     val marked = remember(source, selection) {
         MarkdownActions.activeInlineMarkers(source, selection.start, selection.end)
     }
-    val armedWraps = armed.filterIsInstance<MdPending.Wrap>().mapTo(HashSet()) { it.marker }
+    // Through [inlineMarkersOf], because an armed marker is written as the run it will be typed as:
+    // a bold-italic caret carries `***`, and the buttons ask about `**` and `*`.
+    val armedWraps = armed.filterIsInstance<MdPending.Wrap>()
+        .flatMapTo(HashSet()) { MarkdownActions.inlineMarkersOf(it.marker) }
     // The difference between them, either way round: arming a marker that is already in force is a
     // press to turn it *off* for what comes next, and the button has to go dark to say so.
     val active = (marked - armedWraps) + (armedWraps - marked)

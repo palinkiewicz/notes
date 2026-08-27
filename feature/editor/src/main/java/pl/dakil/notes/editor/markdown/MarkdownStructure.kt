@@ -433,6 +433,51 @@ object MarkdownStructure {
     }
 
     /**
+     * [spaceOutsideRunAfterDeletion] at the other end of the run: where an *opener* is left touching
+     * whitespace the deletion uncovered in front of it.
+     *
+     * Emphasis opens only on a marker up against the text it styles, so deleting the first word out
+     * of `**This is my string**` gives `** my string**` — an opening pair against a space, which
+     * CommonMark reads as two asterisks and not as markup at all. The whole run comes apart on a
+     * keystroke that was meant to shorten it.
+     *
+     * The same move as its mirror, made the other way: the opener steps forward over the space
+     * instead of the space stepping back over the opener, landing on ` **my string**` — the space
+     * kept, the run intact, and the caret inside it ready to carry on.
+     *
+     * [source] is the document as it stood before the deletion, for the reason given there: once the
+     * opener is against a space it is no longer parsed as an opener, and there is nothing left in the
+     * broken text to recognise.
+     */
+    fun openerOutsideRunAfterDeletion(source: String, deletedStart: Int, deletedEnd: Int): MdEditAt? {
+        if (deletedStart !in 0..source.length || deletedEnd !in deletedStart..source.length) return null
+        if (deletedEnd >= source.length) return null
+        val exposed = source[deletedEnd]
+        if (!exposed.isWhitespace() || exposed == '\n') return null
+
+        val open = MarkdownRenderer.openInlineAt(source, deletedStart)
+        if (open.none { it.openEnd == deletedStart && slidesOffSpace(source, it) }) return null
+
+        var wsEnd = deletedEnd
+        while (wsEnd < source.length && source[wsEnd].isWhitespace() && source[wsEnd] != '\n') wsEnd++
+        // Nothing but whitespace left for the run to style is an empty run, which is
+        // [strandedMarkers]' case and not a marker to relocate.
+        if (wsEnd >= open.first().closeStart) return null
+
+        var back = deletedStart
+        while (back > 0 && source[back - 1] in "*_~" &&
+            MarkdownRenderer.hidesAnythingIn(source, back - 1, back)
+        ) {
+            back--
+        }
+        if (back == deletedStart) return null
+
+        val openers = source.substring(back, deletedStart)
+        val spaces = source.substring(deletedEnd, wsEnd)
+        return MdEditAt(back, wsEnd, spaces + openers, back + spaces.length + openers.length)
+    }
+
+    /**
      * Where a caret standing at the end of an inline run really belongs, or null if it is already
      * there.
      *

@@ -80,8 +80,12 @@ class MarkdownRobustnessTest {
         MarkdownStructure.keepMarkers(document, at, document.length, "x")
         MarkdownStructure.spaceOutsideRun(document, at, " ")
         MarkdownStructure.spaceOutsideRunAfterDeletion(document, at, (at + 1).coerceAtMost(document.length))
+        MarkdownStructure.openerOutsideRunAfterDeletion(document, at, (at + 1).coerceAtMost(document.length))
         MarkdownRenderer.takesMoreThanOneVisibleCharacter(document, at, document.length)
         MarkdownRenderer.visibleSpan(document, at, document.length)
+        for (marker in listOf("**", "*", "~~", "`", "***")) {
+            MarkdownActions.toggleArmedMarker(MarkdownStructure.stylesOpenAt(document, at), marker)
+        }
         MarkdownStructure.extendableRun(document, at, "**")
         MarkdownStructure.runCaret(document, at)
         MarkdownActions.blockStyleAt(document, at)
