@@ -15,7 +15,8 @@ import androidx.compose.ui.text.TextRange
  * Deliberately narrow. One plain insertion at the offset the styles were armed at, with no line
  * break in it — anything else is not the sentence the user was about to write, and the armed style
  * is dropped rather than guessed at. Inline markup cannot cross a line break, so an Enter ends the
- * chance to use it.
+ * chance to use it. An insertion of nothing but whitespace is the one thing that neither spends the
+ * style nor drops it; see below.
  */
 @OptIn(ExperimentalFoundationApi::class)
 class ApplyPendingStyles(private val pending: PendingStyles) : InputTransformation {
@@ -34,8 +35,18 @@ class ApplyPendingStyles(private val pending: PendingStyles) : InputTransformati
         if (styles.isEmpty()) return
 
         val before = toString()
-        if ('\n' in before.substring(typed.start, typed.end)) {
+        val inserted = before.substring(typed.start, typed.end)
+        if ('\n' in inserted) {
             pending.clear()
+            return
+        }
+        // A keyboard that writes the space before the next word has not started the word yet. The
+        // style stays armed for whatever follows the space rather than being spent on it: markers
+        // round a blank are not markup, and `Apple** is**` is what spending it here used to give.
+        // Re-armed at the caret the field has just moved to, so the `keepAt` watching the selection
+        // finds it where it expects to and keeps it.
+        if (inserted.isBlank()) {
+            pending.carry(selection.start, styles)
             return
         }
 
@@ -49,8 +60,36 @@ class ApplyPendingStyles(private val pending: PendingStyles) : InputTransformati
         val head = commonPrefix(before, result.text)
         val tail = commonSuffix(before, result.text, head)
         replace(head, before.length - tail, result.text.substring(head, result.text.length - tail))
-        // Inside the markers, where the next keystroke belongs — not after the closing one.
-        selection = TextRange(result.selectionEnd)
+        selection = TextRange(caretFor(before, typed.end, inserted, result))
+    }
+
+    /**
+     * Where the caret goes: inside the markers, unless the keyboard wrote a space after the word.
+     *
+     * Inside them is the ordinary answer, and the one people notice — it is what lets the rest of a
+     * bold word be typed after the first letter of it turned bold. But a keyboard that commits
+     * "is " in one go has put a character past the closing marker, and leaving the caret in front
+     * of that space means the next keystroke jumps behind it. So the caret follows the insertion
+     * instead, exactly where the field itself would have left it.
+     *
+     * Only when the text past the insertion really did come through untouched — [MarkdownActions]
+     * is free to have rewritten a good deal more than the word, and where it did, its own answer is
+     * the only one counted in the right coordinates.
+     *
+     * The style is not armed again either way: it has been spent, on the word it was armed for. A
+     * space that arrives *on its own* never gets this far, and keeps it armed instead.
+     */
+    private fun caretFor(
+        before: String,
+        insertedEnd: Int,
+        inserted: String,
+        result: MarkdownActions.Result,
+    ): Int {
+        if (inserted.trimEnd() == inserted) return result.selectionEnd
+        val tail = before.length - insertedEnd
+        val past = result.text.length - tail
+        val kept = past >= 0 && result.text.regionMatches(past, before, insertedEnd, tail)
+        return if (kept) past else result.selectionEnd
     }
 
     private fun commonPrefix(before: String, after: String): Int {

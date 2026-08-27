@@ -75,6 +75,11 @@ class MarkdownRobustnessTest {
             MarkdownStructure.removeColumn(document, cell.table, cell.column)
             MarkdownStructure.removeTable(document, cell.table)
         }
+        MarkdownStructure.stylesOpenAt(document, at)
+        MarkdownStructure.splitOpenRuns(document, at, at, "x", 1)
+        MarkdownStructure.keepMarkers(document, at, document.length, "x")
+        MarkdownStructure.spaceOutsideRun(document, at, " ")
+        MarkdownStructure.extendableRun(document, at, "**")
         MarkdownActions.blockStyleAt(document, at)
         MarkdownActions.paragraphStyleAt(document, at)
         MarkdownActions.listStyleAt(document, at)

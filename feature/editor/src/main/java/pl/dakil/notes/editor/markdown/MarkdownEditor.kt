@@ -163,6 +163,7 @@ fun MarkdownEditor(
     val transformation = remember(styles, sourceMode) { MarkdownOutputTransformation(styles, !sourceMode) }
     val applyPending = remember(pending) { ApplyPendingStyles(pending) }
     val keepInline = remember(pending) { KeepInlineIntact(pending) }
+    val keepSpace = remember(pending) { KeepSpaceOutside(pending) }
     val focusRequester = remember { FocusRequester() }
 
     var measured by remember { mutableStateOf<MeasuredMarkdown?>(null) }
@@ -251,13 +252,18 @@ fun MarkdownEditor(
         // pipes are on screen, and editing them is something a person can mean. They run *before*
         // `ContinueList`, so each one judges the user's own keystroke rather than another
         // transformation's rewrite of it.
+        // [KeepMarkersIntact] stands beside [KeepBlocksIntact] because both repair a range the
+        // *field* invented rather than one the user aimed; the two can never both fire, so their
+        // order relative to each other is not load-bearing, but they must precede everything that
+        // judges the edit afterwards.
         // [ApplyPendingStyles] runs last in both chains: what it wraps has to be the keystroke as
         // the rest of them left it, not as the keyboard sent it.
         inputTransformation = if (sourceMode) {
             ListIndent.then(ContinueList).then(applyPending)
         } else {
-            KeepBlocksIntact.then(ListIndent).then(InsertTableRow).then(ContinueList)
-                .then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers).then(applyPending)
+            KeepBlocksIntact.then(KeepMarkersIntact).then(ListIndent).then(InsertTableRow)
+                .then(ContinueList).then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers)
+                .then(applyPending).then(keepSpace)
         },
         // Present in source mode too, though it renders nothing there: it is also what keeps the
         // blank line at the foot of the document, and the page has the same bottom in both views.

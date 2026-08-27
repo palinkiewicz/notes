@@ -1323,13 +1323,16 @@ object MarkdownRenderer {
             // reads `test*2*` as an italic 2, and so does every other renderer this app's files
             // will be opened in, so a note that hid the difference would render two ways.
             if (symbol == '_' && isWordChar(text.getOrNull(i - 1))) continue
-            // What keeps `2 * 3 * 4` arithmetic instead of italics, now that being inside a word no
-            // longer disqualifies a single marker: CommonMark opens emphasis only on a marker up
-            // against the text it styles, and closes it only on one up against the end of it.
-            if (length == 1 && isBlank(text.getOrNull(i + length))) continue
+            // CommonMark's flanking rule, and the whole of it: emphasis opens only on a marker up
+            // against the text it styles and closes only on one up against the end of it. It is
+            // what keeps `2 * 3 * 4` arithmetic instead of italics — and it applies to every width
+            // of marker, not just one. `** bold**` is bold in no other Markdown reader, so a note
+            // written here that leant on it would open somewhere else with the asterisks on show;
+            // showing them here too is what makes the file mean one thing.
+            if (isBlank(text.getOrNull(runEndAt(text, i, symbol)))) continue
 
             var close = text.indexOf(rule.marker, i + length)
-            while (length == 1 && close > i && isBlank(text.getOrNull(close - 1))) {
+            while (close > i && isBlank(text.getOrNull(runStartAt(text, close, symbol) - 1))) {
                 close = text.indexOf(rule.marker, close + 1)
             }
             // An empty span is left alone so a shorter marker gets its turn at the same characters.
@@ -1462,6 +1465,26 @@ object MarkdownRenderer {
 
     /** The end of the text counts as blank: there is nothing there for a marker to be against. */
     private fun isBlank(c: Char?): Boolean = c == null || c.isWhitespace()
+
+    /**
+     * Where the run of [symbol] through [at] ends, and where it starts.
+     *
+     * Flanking is a property of the whole delimiter run, not of the one character next to the
+     * marker being tried. Judging it a character at a time let the second `*` of `**bold **` close
+     * the first, because what stood next to it was the *other* asterisk of its own run rather than
+     * the space in front of both — so a pair that closes nothing rendered as an italic anyway.
+     */
+    private fun runEndAt(text: String, at: Int, symbol: Char): Int {
+        var i = at
+        while (i < text.length && text[i] == symbol) i++
+        return i
+    }
+
+    private fun runStartAt(text: String, at: Int, symbol: Char): Int {
+        var i = at
+        while (i > 0 && text[i - 1] == symbol) i--
+        return i
+    }
 
     /**
      * How wide a run of [symbol] `[from, to)` has left open — what a run after it has to close.

@@ -92,6 +92,26 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `a wide marker keeps clear of whitespace too, the way a narrow one does`() {
+        // `** bold**` is bold in no other Markdown reader: emphasis opens only on a marker up
+        // against the text it styles. Rendering it as bold here would make this app the only
+        // program that agreed with the file, which is the one thing a plain-text format may not do.
+        assertEquals("** bold**", render("** bold**"))
+        assertEquals("**bold **", render("**bold **"))
+        assertEquals("~~struck ~~", render("~~struck ~~"))
+        // And the well-formed ones are untouched.
+        assertEquals("bold", render("**bold**"))
+        assertEquals("struck", render("~~struck~~"))
+    }
+
+    @Test
+    fun `a marker against a space still closes a run somewhere else on the line`() {
+        // The scan does not give up at the first candidate it turns down: `**a ** b**` closes on
+        // the second pair, which is the one against the text.
+        assertEquals("a ** b", render("**a ** b**"))
+    }
+
+    @Test
     fun `underscores are emphasis too`() {
         assertEquals("strong", render("__strong__"))
         assertEquals(listOf("strong"), styled("__strong__", MdStyle.BOLD))

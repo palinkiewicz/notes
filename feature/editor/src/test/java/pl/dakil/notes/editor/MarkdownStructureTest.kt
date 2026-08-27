@@ -568,7 +568,10 @@ class MarkdownStructureTest {
         // `**bo*ld**` closes the italic with the bold's asterisks and neither survives.
         val source = "**bold *and italic* text**"
         val fix = MarkdownStructure.lineBreak(source, 12, "\n")!!
-        assertEquals("**bold *and ***\n***italic* text**", apply(source, fix.edit))
+        // The closers land against "and" rather than against the space after it. `*and ***` closes
+        // nothing — emphasis does not end on a marker preceded by whitespace — so the space stays
+        // behind on the line and the markers go in front of it.
+        assertEquals("**bold *and*** \n***italic* text**", apply(source, fix.edit))
     }
 
     @Test
@@ -613,6 +616,153 @@ class MarkdownStructureTest {
         val shown = MarkdownRenderer.render(apply(source, fix.edit))
         assertFalse('*' in shown)
         assertFalse('`' in shown)
+    }
+
+    // ---- Text typed out of the run it was typed into ------------------------------------------
+
+    @Test
+    fun `a run split round typed text closes before it and opens after it`() {
+        // The middle is handed over as-is: what it says is the caller's business, and all this does
+        // is make sure it stands outside the run rather than inside it.
+        val fix = MarkdownStructure.splitOpenRuns("**boXld**", 4, 5, "X", 1)!!
+        assertEquals("**bo**X**ld**", apply("**boXld**", fix))
+        assertEquals(7, fix.caret)
+    }
+
+    @Test
+    fun `typed text at the end of a run is left standing outside it`() {
+        // The whole complaint: wrapping it where it stands gives `**bold**X****`, and `****` is
+        // four asterisks on screen rather than an empty bold run.
+        val fix = MarkdownStructure.splitOpenRuns("**boldX**", 6, 7, "X", 1)!!
+        assertEquals("**bold**X", apply("**boldX**", fix))
+        assertEquals(9, fix.caret)
+    }
+
+    @Test
+    fun `typed text at the start of a run is left in front of it`() {
+        val fix = MarkdownStructure.splitOpenRuns("**Xbold**", 2, 3, "X", 1)!!
+        assertEquals("X**bold**", apply("**Xbold**", fix))
+        assertEquals(1, fix.caret)
+    }
+
+    @Test
+    fun `text typed where no run is open is the field's own business`() {
+        assertNull(MarkdownStructure.splitOpenRuns("plain text", 5, 6, "X", 1))
+        // Markers typed into a run change what the run *is* — here they close it early, so the two
+        // ends no longer stand inside the same one and there is no pair of halves to make.
+        assertNull(MarkdownStructure.splitOpenRuns("**bo**ld**", 4, 6, "**", 2))
+    }
+
+    @Test
+    fun `the styles in force at a caret name themselves`() {
+        // Read off the parse, so `***` answers as the one span it is rather than as two.
+        assertEquals(listOf(MdPending.Wrap("***")), MarkdownStructure.stylesOpenAt("***a***", 4))
+        assertEquals(listOf(MdPending.Wrap("`")), MarkdownStructure.stylesOpenAt("`c`", 2))
+        assertEquals(listOf(MdPending.Size(24)), MarkdownStructure.stylesOpenAt("[a]{size=24}", 2))
+        assertEquals(emptyList<MdPending>(), MarkdownStructure.stylesOpenAt("plain", 3))
+    }
+
+    // ---- The space that ends a word ------------------------------------------------------------
+
+    @Test
+    fun `a space typed against a closing marker goes past it`() {
+        // `**test **` closes nothing — emphasis does not end on a marker preceded by whitespace —
+        // so the space that ends a bold word used to unbold the word.
+        val fix = MarkdownStructure.spaceOutsideRun("**test**", 6, " ")!!
+        assertEquals("**test** ", apply("**test**", fix))
+        assertEquals(9, fix.caret)
+    }
+
+    @Test
+    fun `a space goes past every marker that ends where it was typed`() {
+        // Leaving it between two closers would only move the problem out to the wider one.
+        val source = "**a *b***"
+        val fix = MarkdownStructure.spaceOutsideRun(source, 6, " ")!!
+        assertEquals("**a *b*** ", apply(source, fix))
+    }
+
+    @Test
+    fun `a space in the middle of a run is an ordinary space`() {
+        // Nothing to protect and nothing to move: rewriting this would be rewriting what somebody
+        // wrote.
+        assertNull(MarkdownStructure.spaceOutsideRun("**test**", 4, " "))
+        assertNull(MarkdownStructure.spaceOutsideRun("plain text", 5, " "))
+        // A code span may hold a space against its backtick, so it is left out of this.
+        assertNull(MarkdownStructure.spaceOutsideRun("`code`", 5, " "))
+    }
+
+    @Test
+    fun `the run a caret has just stepped out of is the one it can carry on`() {
+        val span = MarkdownStructure.extendableRun("**test** m", 9, "**")!!
+        assertEquals(6, span.closeStart)
+        // Only across whitespace, and only for the same marker.
+        assertNull(MarkdownStructure.extendableRun("**test** and m", 13, "**"))
+        assertNull(MarkdownStructure.extendableRun("**test** m", 9, "*"))
+        // And never across a line break, which inline markup cannot cross: the run would end up
+        // opened on one line and closed on the next, which unstyles both.
+        assertNull(MarkdownStructure.extendableRun("**test**\nm", 9, "**"))
+    }
+
+    // ---- An edit that reached over syntax nobody can see ---------------------------------------
+
+    @Test
+    fun `an edit that would eat a hidden marker is pulled clear of it`() {
+        // What a keyboard asks for when it corrects the one word it can see inside `**Aple**`: the
+        // offsets it names are mapped back over the markers at both ends.
+        val fix = MarkdownStructure.keepMarkers("**Aple**", 0, 8, "Apple")!!
+        assertEquals("**Apple**", apply("**Aple**", fix))
+        // Between the word and the closing marker, or the next keystroke leaves the run.
+        assertEquals(7, fix.caret)
+    }
+
+    @Test
+    fun `the space a suggestion brings with it is left outside the markers`() {
+        // Accepting a correction writes the word and the space after it together. Putting that
+        // back between the markers gives `**Apple **`, and a closing pair against whitespace is
+        // not a closing pair — the same rule that keeps a space out of what the bar wraps.
+        val fix = MarkdownStructure.keepMarkers("**Aple**", 0, 8, "Apple ")!!
+        assertEquals("**Apple** ", apply("**Aple**", fix))
+        // Where the keyboard thinks it left the caret: past the space it just wrote.
+        assertEquals(10, fix.caret)
+    }
+
+    @Test
+    fun `an edit clear of hidden markers is left exactly as it was`() {
+        assertNull(MarkdownStructure.keepMarkers("**Aple**", 2, 6, "Apple"))
+        assertNull(MarkdownStructure.keepMarkers("plain text", 0, 5, "X"))
+    }
+
+    @Test
+    fun `an edit covering nothing but markers writes its text and takes none of them`() {
+        // The keyboard asked to replace the closing pair, which it cannot see and cannot have
+        // meant. It gets to write what it wrote; the markers are the app's.
+        val fix = MarkdownStructure.keepMarkers("**Aple**", 6, 8, "X")!!
+        assertEquals("**Aple**X", apply("**Aple**", fix))
+    }
+
+    @Test
+    fun `an edit may not reach past a marker into the line below`() {
+        // The reported case: correcting "Aple" in `**Aple**\nPineapple` came back as a range over
+        // the closing pair, the newline *and* the first letter of the next line, and accepting the
+        // correction gave `**Appleineapple`. A correction is one word, on one line.
+        val source = "**Aple**\nPineapple"
+        val fix = MarkdownStructure.keepMarkers(source, 2, 10, "Apple")!!
+        assertEquals("**Apple**\nPineapple", apply(source, fix))
+        assertEquals(7, fix.caret)
+    }
+
+    @Test
+    fun `a correction that brings a space with it does not reach past the line either`() {
+        val source = "**Aple**\nPineapple"
+        val fix = MarkdownStructure.keepMarkers(source, 2, 10, "Apple ")!!
+        assertEquals("**Apple** \nPineapple", apply(source, fix))
+    }
+
+    @Test
+    fun `a hidden heading prefix is not something an edit may swallow`() {
+        // The same widening, on a run that is hidden for a quite different reason.
+        val fix = MarkdownStructure.keepMarkers("### Head", 0, 8, "Chapter")!!
+        assertEquals("### Chapter", apply("### Head", fix))
     }
 
     private fun apply(source: String, edit: MdEditAt): String =

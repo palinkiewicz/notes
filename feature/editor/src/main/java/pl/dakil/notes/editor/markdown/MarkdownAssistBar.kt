@@ -566,12 +566,97 @@ object MarkdownActions {
     /**
      * Puts the styles armed at a bare caret round `[start, end)` — the text just typed there.
      *
-     * The same calls the bar would have made had the user typed the words first and then selected
-     * them, run one after another over the range the last one handed back, so that arming bold and
-     * italic and then typing gives the run both. Nothing here is a special case for empty markup:
-     * there is text between the markers by the time this runs, which is the whole point of waiting.
+     * Three things happen here, in this order, and each of them is a rule about where markers may
+     * go rather than a special case:
+     *
+     * 1. **Markers never touch whitespace.** The range is narrowed to its non-blank core first.
+     *    `** is**` is not emphasis to any Markdown reader, and a keyboard that puts a space in
+     *    front of the next word — most of them do, after a suggestion — used to spend the armed
+     *    style on that space and give `Apple** is**`. Nothing left to wrap means nothing to do,
+     *    and [ApplyPendingStyles] keeps the style armed for the word that follows.
+     * 2. **A style already in force is being turned off.** Pressing a lit button is a press to end
+     *    the run, so what was typed goes *outside* it: the run is closed before the new text and
+     *    opened again after it, by [MarkdownStructure.splitOpenRuns]. Wrapping it in place — which
+     *    is what this used to do, always — is right in the middle of a run and wrong at either
+     *    edge, where the empty pair it leaves behind stops being markup and becomes four asterisks
+     *    on screen.
+     * 3. **Anything else is wrapped where it stands.** The same calls the bar would have made had
+     *    the user typed the words first and then selected them, run one after another over the
+     *    range the last one handed back, so that arming bold and italic and then typing gives the
+     *    run both. Adding a style *inside* a run belongs here and not in 2: `*a**x**b*` is tidier
+     *    than a split, and says the same thing.
      */
     fun applyPending(text: String, start: Int, end: Int, styles: List<MdPending>): Result {
+        val from = start.coerceIn(0, text.length)
+        val to = end.coerceIn(from, text.length)
+        val typed = text.substring(from, to)
+        val body = typed.trim()
+        if (body.isEmpty() || styles.isEmpty()) return Result(text, start, end)
+        val lead = typed.take(typed.length - typed.trimStart().length)
+        val trail = typed.takeLast(typed.length - typed.trimEnd().length)
+
+        // The runs to close are the ones that were open before this keystroke, read off the
+        // document as it stood then. Reading them off the document as it stands *now* is wrong the
+        // moment the keystroke was a space: `**Apples **` no longer parses as bold at all, so the
+        // run this is here to end would look as though it had never been open.
+        val was = text.removeRange(from, to)
+        val open = MarkdownStructure.stylesOpenAt(was, from)
+
+        val middle = residual(open, styles)
+        if (middle != null) {
+            val inner = wrapEach(body, 0, body.length, middle)
+            val split = MarkdownStructure.splitOpenRuns(
+                source = was,
+                start = from,
+                end = from,
+                middle = lead + inner.text + trail,
+                middleCaret = lead.length + inner.selectionEnd,
+            )
+            if (split != null) {
+                val out = was.replaceRange(split.start, split.end, split.text)
+                return Result(out, split.caret - (inner.selectionEnd - inner.selectionStart), split.caret)
+            }
+        }
+        return wrapOrExtend(text, from + lead.length, to - trail.length, styles)
+    }
+
+    /**
+     * Rule 3, plus the one thing that is not a wrap: carrying on a run the caret has just left.
+     *
+     * A space at the end of a bold word is moved outside the run rather than left against its
+     * closing marker, so the next word is typed at a caret that is no longer inside anything. The
+     * user has not stopped writing in bold, though, so the closer comes off and goes on again after
+     * the new word — one run of two words, rather than two runs of one.
+     */
+    private fun wrapOrExtend(text: String, start: Int, end: Int, styles: List<MdPending>): Result {
+        var out = text
+        var from = start
+        var to = end
+        for (style in styles) {
+            val step = when {
+                style is MdPending.Wrap -> extend(out, from, to, style.marker) ?: toggleWrap(out, from, to, style.marker)
+                else -> setSize(out, from, to, (style as MdPending.Size).sp)
+            }
+            out = step.text
+            from = step.selectionStart
+            to = step.selectionEnd
+        }
+        return Result(out, from, to)
+    }
+
+    /** Puts `[from, to)` inside the [marker] run that ended just before it, or null if there is none. */
+    private fun extend(text: String, from: Int, to: Int, marker: String): Result? {
+        val span = MarkdownStructure.extendableRun(text, from, marker) ?: return null
+        val width = span.closeEnd - span.closeStart
+        val out = text.substring(0, span.closeStart) +
+            text.substring(span.closeEnd, to) +
+            marker +
+            text.substring(to)
+        return Result(out, from - width, to - width)
+    }
+
+    /** Rule 3: each style in turn, over the range the one before it handed back. */
+    private fun wrapEach(text: String, start: Int, end: Int, styles: List<MdPending>): Result {
         var out = text
         var from = start
         var to = end
@@ -585,6 +670,64 @@ object MarkdownActions {
             to = step.selectionEnd
         }
         return Result(out, from, to)
+    }
+
+    /**
+     * What the newly typed text should wear, or null when nothing was being turned off.
+     *
+     * [open] is what the text there already wears and [armed] what the user asked for; an armed
+     * style that answers one of the open ones cancels it, and the rest of that one — if there is
+     * any — is what the new text keeps. The rest matters because the renderer reads `***` as *one*
+     * span conferring two styles, so turning bold off inside `***Apple***` has to leave the italic
+     * behind rather than the whole thing.
+     *
+     * Null, meaning "nothing was cancelled", is the answer that sends the caller down the ordinary
+     * wrapping path — including when the bar's buttons and the parse disagree about what is in
+     * force. The failure mode is then a button that lied, never a document taken apart.
+     */
+    private fun residual(open: List<MdPending>, armed: List<MdPending>): List<MdPending>? {
+        val spent = BooleanArray(armed.size)
+        val middle = ArrayList<MdPending>()
+        // Innermost first: an armed marker answers the nearest run that confers it.
+        for (conferred in open.asReversed()) {
+            var wears: MdPending? = conferred
+            var again = true
+            while (again) {
+                again = false
+                val worn = wears ?: break
+                for (i in armed.indices) {
+                    if (spent[i] || !cancels(worn, armed[i])) continue
+                    spent[i] = true
+                    wears = leftOf(worn, armed[i])
+                    again = true
+                    break
+                }
+            }
+            wears?.let { middle += it }
+        }
+        if (spent.none { it }) return null
+        middle.reverse()
+        armed.filterIndexedTo(middle) { i, _ -> !spent[i] }
+        return middle
+    }
+
+    /** Whether pressing [armed] at a caret inside a run wearing [conferred] means "end this run". */
+    private fun cancels(conferred: MdPending, armed: MdPending): Boolean = when {
+        conferred is MdPending.Wrap && armed is MdPending.Wrap ->
+            conferred.marker[0] == armed.marker[0] && conferred.marker.length >= armed.marker.length
+
+        // A size is a choice rather than a toggle, so any size answers any other — including
+        // "body", which is the one that takes the tag off.
+        else -> conferred is MdPending.Size && armed is MdPending.Size
+    }
+
+    /** What is left of [conferred] once [armed] has cancelled it, or null for nothing at all. */
+    private fun leftOf(conferred: MdPending, armed: MdPending): MdPending? = when {
+        armed is MdPending.Size -> armed.sp?.let { MdPending.Size(it) }
+        conferred is MdPending.Wrap && armed is MdPending.Wrap ->
+            conferred.marker.drop(armed.marker.length).takeIf { it.isNotEmpty() }?.let { MdPending.Wrap(it) }
+
+        else -> null
     }
 
     // ---- Font size ------------------------------------------------------------------------
