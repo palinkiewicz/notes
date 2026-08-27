@@ -181,6 +181,34 @@ class MarkdownPendingStylesTest {
     }
 
     @Test
+    fun `a second style pressed inside a run is added to it, not swapped for it`() {
+        // A press of a button that is *not* lit says "this as well". Read as "the run being stood
+        // in is longer than the marker pressed", italic inside a bold word came out as "end the
+        // bold", and the rest of the sentence lost the styling it was being added to.
+        val typed = "**Apple**".let { it.substring(0, 7) + "s" + it.substring(7) }
+        val result = MarkdownActions.applyPending(typed, 7, 8, listOf(MdPending.Wrap("*")))
+        assertEquals("**Apple*s***", result.text)
+        assertBoldAndItalic(result.text)
+    }
+
+    @Test
+    fun `bold pressed inside an italic run is added to it as well`() {
+        // The mirror of it, and the case that always worked — the run being stood in is the shorter
+        // of the two, so no length test ever mistook it for a cancellation.
+        val typed = "*Apple*".let { it.substring(0, 6) + "s" + it.substring(6) }
+        val result = MarkdownActions.applyPending(typed, 6, 7, listOf(MdPending.Wrap("**")))
+        assertBoldAndItalic(result.text)
+    }
+
+    @Test
+    fun `strikethrough pressed inside a bold run is added to it as well`() {
+        val typed = "**Apple**".let { it.substring(0, 7) + "s" + it.substring(7) }
+        val result = MarkdownActions.applyPending(typed, 7, 8, listOf(MdPending.Wrap("~~")))
+        assertStyles(result.text, MdStyle.STRIKE, MdStyle.ITALIC)
+        assertStyles(result.text, MdStyle.BOLD, MdStyle.ITALIC)
+    }
+
+    @Test
     fun `turning a style off where nothing has it on still turns it on`() {
         // The bar's lit buttons are a guess at a half-typed span and the parse is not. When they
         // disagree there is no run to close, and wrapping is the honest fallback.
@@ -325,6 +353,11 @@ class MarkdownPendingStylesTest {
             listOf(MdPending.Wrap("**"), MdPending.Wrap("*"), MdPending.Size(24)),
             MarkdownActions.toggleArmedMarker(armed, "*"),
         )
+    }
+
+    private fun assertBoldAndItalic(text: String) {
+        assertStyles(text, MdStyle.BOLD, MdStyle.CODE)
+        assertStyles(text, MdStyle.ITALIC, MdStyle.CODE)
     }
 
     /** Whether the one character that was typed came out wearing what it was meant to. */

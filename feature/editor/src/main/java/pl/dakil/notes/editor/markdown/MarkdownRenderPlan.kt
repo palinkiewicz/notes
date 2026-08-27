@@ -1386,7 +1386,7 @@ object MarkdownRenderer {
             if (isBlank(text.getOrNull(runEndAt(text, i, symbol)))) continue
 
             var close = text.indexOf(rule.marker, i + length)
-            while (close > i && isBlank(text.getOrNull(runStartAt(text, close, symbol) - 1))) {
+            while (close > i && !closesSpan(text, i, i + length, close, symbol, length)) {
                 close = text.indexOf(rule.marker, close + 1)
             }
             // An empty span is left alone so a shorter marker gets its turn at the same characters.
@@ -1541,6 +1541,51 @@ object MarkdownRenderer {
     }
 
     /**
+     * Whether the run of [symbol] through [close] is the one that ends a span opened at
+     * [openStart], whose body starts at [bodyStart] and whose marker is [length] wide.
+     *
+     * Three ways a run of the right characters is still not this span's closer, and every one of
+     * them used to leave markers standing in the formatted view:
+     *
+     * 1. **It is not against the text it would close.** CommonMark's flanking rule, read over the
+     *    whole delimiter run rather than the one character beside the marker being tried — `**bold
+     *    **` closes nothing, and judging it a character at a time let the second asterisk of the
+     *    pair close the first.
+     * 2. **The body left more open than this run can close.** Markers pair off innermost first, so
+     *    what the body opened comes off the front of this run and only what is left over can end
+     *    this span. `*a **b** c*` closes the bold on the run after "b" and the italic on the last
+     *    asterisk of the line; reading the bold's closer as the italic's cut the span in half and
+     *    put the rest of it on screen.
+     * 3. **CommonMark's rule of three.** Where either run could go both ways — text on both sides
+     *    of it — a pairing whose two widths add to a multiple of three is refused, unless both are
+     *    multiples of three themselves. It is the rule that decides which side of `*a**b***` the
+     *    middle pair belongs to: 1 + 2 is three, so the `**` opens the bold rather than closing the
+     *    italic, and the run at the end is read as the three closers it is. Taking it the other way
+     *    stranded the last two asterisks in plain view, which is what an italic word with something
+     *    bold at the end of it used to look like.
+     */
+    private fun closesSpan(
+        text: String,
+        openStart: Int,
+        bodyStart: Int,
+        close: Int,
+        symbol: Char,
+        length: Int,
+    ): Boolean {
+        val runStart = runStartAt(text, close, symbol)
+        val runEnd = runEndAt(text, close, symbol)
+        if (isBlank(text.getOrNull(runStart - 1))) return false
+
+        val width = runEnd - runStart
+        if (width < openedWithin(text, bodyStart, runStart, symbol) + length) return false
+
+        val opener = runEndAt(text, openStart, symbol) - openStart
+        val eitherWay = !isBlank(text.getOrNull(openStart - 1)) || !isBlank(text.getOrNull(runEnd))
+        if (!eitherWay) return true
+        return (opener + width) % 3 != 0 || (opener % 3 == 0 && width % 3 == 0)
+    }
+
+    /**
      * How wide a run of [symbol] `[from, to)` has left open — what a run after it has to close.
      *
      * Runs are paired off as they are met, which is all [scanEmphasis] needs to know: whether the
@@ -1556,7 +1601,15 @@ object MarkdownRenderer {
             }
             var end = k
             while (end < to && text[end] == symbol) end++
-            open = if (open == 0) end - k else 0
+            // Only a run that could actually be one counts, by the same flanking rule the scan
+            // itself goes by. A run with a space on both sides of it — the middle pair of
+            // `**a ** b**` — opens nothing and closes nothing, and counting it as an open left the
+            // run at the end of the line looking too narrow to close anything either.
+            open = when {
+                open != 0 && !isBlank(text.getOrNull(k - 1)) -> 0
+                open == 0 && !isBlank(text.getOrNull(end)) -> end - k
+                else -> open
+            }
             k = end
         }
         return open

@@ -226,6 +226,21 @@ object MarkdownStructure {
     private val MARKERS = listOf("***", "___", "**", "__", "~~", "*", "_", "`", "$")
 
     /**
+     * Whether [inserted] is a line break and nothing else — a newline and at most the marker the
+     * field wrote after it to carry a list on.
+     *
+     * What tells Enter from a paste, for the two transformations that treat the two differently.
+     * Text that merely *contains* a newline is somebody else's structure arriving whole, and
+     * neither a run the break would be taken through nor a style armed for the next word has any
+     * business rewriting it.
+     */
+    fun breaksLineOnly(inserted: String): Boolean {
+        if (!inserted.startsWith("\n")) return false
+        val rest = inserted.substring(1)
+        return MarkdownActions.prefixOf(rest).length == rest.length
+    }
+
+    /**
      * How to break the line at [at] without taking the formatting apart, or null when there is no
      * formatting there to take apart.
      *

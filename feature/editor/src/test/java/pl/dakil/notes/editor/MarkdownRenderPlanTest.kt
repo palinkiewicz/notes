@@ -112,6 +112,43 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `a bold word inside an italic one closes on the right asterisks`() {
+        // Nesting the *wider* marker inside the narrower one is the case the scan used to get
+        // backwards: it took the `**` for the italic's closer, which left the run at the end with
+        // two asterisks nothing had asked for, in full view. CommonMark's rule of three is what
+        // says the middle run belongs to what comes after it — 1 + 2 is a multiple of three.
+        assertEquals("ab", render("*a**b***"))
+        assertEquals(listOf("ab"), styled("*a**b***", MdStyle.ITALIC))
+        assertEquals(listOf("b"), styled("*a**b***", MdStyle.BOLD))
+        // And the other way round, which always worked and has to go on working.
+        assertEquals(listOf("ab"), styled("**a*b***", MdStyle.BOLD))
+        assertEquals(listOf("b"), styled("**a*b***", MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `a bold run inside an italic one does not end the italic with it`() {
+        // The bold closes on its own pair and the italic carries on to the end of the line. Read
+        // as the italic's closer, the run after "b" ended the span half a sentence early and the
+        // rest of its markers were left on screen.
+        assertEquals("a b c", render("*a **b** c*"))
+        assertEquals(listOf("a b c"), styled("*a **b** c*", MdStyle.ITALIC))
+        assertEquals(listOf("b"), styled("*a **b** c*", MdStyle.BOLD))
+        assertEquals("ab c", render("*a**b** c*"))
+        assertEquals(listOf("ab c"), styled("*a**b** c*", MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `three markers each side stay one span of two styles`() {
+        // The rule of three excuses itself when both widths are multiples of it, which is what
+        // keeps a bold-italic run from being read as a bold one with a stray asterisk beside it.
+        assertEquals("both", render("***both***"))
+        assertEquals(listOf("both"), styled("***both***", MdStyle.BOLD))
+        assertEquals(listOf("both"), styled("***both***", MdStyle.ITALIC))
+        assertEquals("test2", render("**test*2***"))
+        assertEquals(listOf("2"), styled("**test*2***", MdStyle.ITALIC))
+    }
+
+    @Test
     fun `underscores are emphasis too`() {
         assertEquals("strong", render("__strong__"))
         assertEquals(listOf("strong"), styled("__strong__", MdStyle.BOLD))

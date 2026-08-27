@@ -542,10 +542,28 @@ object MarkdownActions {
         val symbol = marker.firstOrNull() ?: return emptySet()
         // Only a repeated symbol is a run to be counted. Anything else is its own marker already.
         if (marker.any { it != symbol }) return setOf(marker)
-        return INLINE_MARKERS.filterTo(HashSet()) {
-            it[0] == symbol &&
-                if (it.length == 1) marker.length % 2 == 1 else marker.length >= it.length
+        return INLINE_MARKERS.filterTo(HashSet()) { confers(marker, it) }
+    }
+
+    /**
+     * Whether a run written as [conferred] is wearing the style [armed] stands for.
+     *
+     * Counted as runs, never by length alone: a longer run is not every shorter one. `**` is bold
+     * and nothing else, so an odd number of asterisks is what it takes to be italic and two of them
+     * are not one twice over. Only `***` is two runs at once — bold and italic together — and
+     * either button answers it.
+     *
+     * The rule the whole family shares. [inlineMarkersOf] reads it to light the bar's buttons and
+     * [cancels] reads it to decide whether a press means "and this as well" or "no more of this",
+     * and the two would be answering the same question differently if either had its own copy: a
+     * bar showing bold and italic both lit while the italic press was quietly ending the bold.
+     */
+    private fun confers(conferred: String, armed: String): Boolean {
+        val symbol = conferred.firstOrNull() ?: return false
+        if (armed.isEmpty() || conferred.any { it != symbol } || armed.any { it != symbol }) {
+            return conferred == armed
         }
+        return if (armed.length == 1) conferred.length % 2 == 1 else conferred.length >= armed.length
     }
 
     /**
@@ -751,10 +769,16 @@ object MarkdownActions {
         return middle
     }
 
-    /** Whether pressing [armed] at a caret inside a run wearing [conferred] means "end this run". */
+    /**
+     * Whether pressing [armed] at a caret inside a run wearing [conferred] means "end this run".
+     *
+     * Through [confers], because only a run that is actually wearing the style being pressed has
+     * anything to end. Asking merely whether the run were the longer of the two read italic pressed
+     * inside a bold word as "stop the bold", and the words that followed came out italic and plain
+     * — a style *added* to what was already there taking away what it was added to.
+     */
     private fun cancels(conferred: MdPending, armed: MdPending): Boolean = when {
-        conferred is MdPending.Wrap && armed is MdPending.Wrap ->
-            conferred.marker[0] == armed.marker[0] && conferred.marker.length >= armed.marker.length
+        conferred is MdPending.Wrap && armed is MdPending.Wrap -> confers(conferred.marker, armed.marker)
 
         // A size is a choice rather than a toggle, so any size answers any other — including
         // "body", which is the one that takes the tag off.

@@ -650,6 +650,22 @@ class MarkdownStructureTest {
     }
 
     @Test
+    fun `a break and its list marker is a break, and anything else is a paste`() {
+        // What tells Enter from text arriving whole. A style armed for the next word travels
+        // across the first and is dropped by the second, and so is the surgery that carries a run
+        // over a break — somebody else's structure is not either of theirs to rewrite.
+        assertTrue(MarkdownStructure.breaksLineOnly("\n"))
+        assertTrue(MarkdownStructure.breaksLineOnly("\n- "))
+        assertTrue(MarkdownStructure.breaksLineOnly("\n  1. "))
+        assertTrue(MarkdownStructure.breaksLineOnly("\n> - [ ] "))
+        assertFalse(MarkdownStructure.breaksLineOnly("\nfoo"))
+        assertFalse(MarkdownStructure.breaksLineOnly("foo\n"))
+        assertFalse(MarkdownStructure.breaksLineOnly("\na\nb"))
+        assertFalse(MarkdownStructure.breaksLineOnly(""))
+        assertFalse(MarkdownStructure.breaksLineOnly(" "))
+    }
+
+    @Test
     fun `a break in plain text is the field's own business`() {
         assertNull(MarkdownStructure.lineBreak("plain text", 5, "\n"))
         // Beside a run rather than inside it: the whole run goes down to the next line intact.

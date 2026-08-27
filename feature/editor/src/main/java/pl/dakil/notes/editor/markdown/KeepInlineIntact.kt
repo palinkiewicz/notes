@@ -31,9 +31,7 @@ class KeepInlineIntact(private val pending: PendingStyles) : InputTransformation
         // the next item's marker. Text that merely *contains* a newline is a paste — somebody
         // else's structure, and not this one's to rewrite.
         val separator = toString().substring(inserted.start, inserted.end)
-        if (!separator.startsWith("\n")) return
-        val rest = separator.substring(1)
-        if (MarkdownActions.prefixOf(rest).length != rest.length) return
+        if (!MarkdownStructure.breaksLineOnly(separator)) return
 
         // Where the break went, in the document as it will stand once it is there. Enter pressed
         // over a selection deletes it first, and it is the text after that deletion the markers

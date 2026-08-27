@@ -12,11 +12,12 @@ import androidx.compose.ui.text.TextRange
  * chain, after the transformations that continue a list or guard a block, so that what it wraps is
  * the keystroke as those left it rather than as the keyboard sent it.
  *
- * Deliberately narrow. One plain insertion at the offset the styles were armed at, with no line
- * break in it — anything else is not the sentence the user was about to write, and the armed style
- * is dropped rather than guessed at. Inline markup cannot cross a line break, so an Enter ends the
- * chance to use it. An insertion of nothing but whitespace is the one thing that neither spends the
- * style nor drops it; see below.
+ * Deliberately narrow. One plain insertion at the offset the styles were armed at — anything else
+ * is not the sentence the user was about to write, and the armed style is dropped rather than
+ * guessed at. Two insertions neither spend the style nor drop it, and both for the same reason,
+ * that the words it was armed for have not arrived yet: whitespace on its own, and a bare line
+ * break. Inline markup cannot cross a break, but an armed style is not markup — it is a plan, and
+ * it travels to wherever the caret has gone. See below for both.
  */
 @OptIn(ExperimentalFoundationApi::class)
 class ApplyPendingStyles(private val pending: PendingStyles) : InputTransformation {
@@ -37,7 +38,14 @@ class ApplyPendingStyles(private val pending: PendingStyles) : InputTransformati
         val before = toString()
         val inserted = before.substring(typed.start, typed.end)
         if ('\n' in inserted) {
-            pending.clear()
+            // A break moves where the next words will be typed; it does not say the user has
+            // changed their mind about how they are to look. Nothing in the document is at stake
+            // either — the markers have not been written yet — so the armed style simply travels
+            // to the new caret, which is what [KeepInlineIntact] does for a run that *is* written.
+            // Dropping it here meant a second Enter forgot what the first one had just carried:
+            // bold survived one line break and not two, for no reason the user could see.
+            if (MarkdownStructure.breaksLineOnly(inserted)) pending.carry(selection.start, styles)
+            else pending.clear()
             return
         }
         // A keyboard that writes the space before the next word has not started the word yet. The
