@@ -207,16 +207,35 @@ object MarkdownStructure {
      * [before] is the document as it was, and is what says whether these characters were styling at
      * all: markers the renderer had hidden were doing that job, and a pair of asterisks it left on
      * screen was always just a pair of asterisks and is the user's to keep.
+     *
+     * Every pair that has been left empty, not the innermost one: styles stack, and a word wearing
+     * four of them is four pairs deep. Taking one pair off uncovers the next, which is now just as
+     * empty as the one that went — so a word deleted out of `***~~`code`~~***` used to give back
+     * the code pair and leave `***~~~~***` behind, which is a bold-italic run of four visible
+     * tildes. The peel runs outward until it meets a marker with something still to style, which
+     * is the same rule stated once and applied as many times as it holds.
+     *
+     * The characters taken are one contiguous span either side of [at], because that is what
+     * nesting means: the pairs sit inside each other, so their markers are packed against the
+     * empty middle with nothing else in between.
      */
     fun strandedMarkers(before: String, after: String, at: Int): MdEditAt? {
-        for (marker in MARKERS) {
-            val open = at - marker.length
-            if (open < 0 || at + marker.length > after.length) continue
-            if (!after.startsWith(marker, open) || !after.startsWith(marker, at)) continue
-            if (!MarkdownRenderer.hidesAnythingIn(before, open, at)) continue
-            return MdEditAt(open, at + marker.length, "", open)
+        if (at !in 0..after.length) return null
+        var start = at
+        var end = at
+        while (true) {
+            // Offsets in front of [at] are the same in both documents, and every opener this walks
+            // over is one of them — which is what lets [before] be asked about a marker whose place
+            // in [after] has already moved.
+            val marker = MARKERS.firstOrNull {
+                start - it.length >= 0 && end + it.length <= after.length &&
+                    after.startsWith(it, start - it.length) && after.startsWith(it, end) &&
+                    MarkdownRenderer.hidesAnythingIn(before, start - it.length, start)
+            } ?: break
+            start -= marker.length
+            end += marker.length
         }
-        return null
+        return if (start == end) null else MdEditAt(start, end, "", start)
     }
 
     /**

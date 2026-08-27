@@ -524,6 +524,22 @@ class MarkdownStructureTest {
     }
 
     @Test
+    fun `every pair a deletion emptied goes, not just the innermost`() {
+        // Styles stack, so a word wearing four of them is four pairs deep and taking one off only
+        // uncovers the next. Stopping after the first left `***~~~~***` on the page — a bold-italic
+        // run of four tildes, where the user had asked for their word back and nothing else.
+        val before = "***~~`code`~~***"
+        val after = "***~~``~~***"
+        assertEquals(MdEditAt(0, 12, "", 0), MarkdownStructure.strandedMarkers(before, after, 6))
+        assertEquals("", apply(after, MarkdownStructure.strandedMarkers(before, after, 6)!!))
+        // And it stops at the first pair that still has something to style.
+        assertEquals(
+            MdEditAt(3, 9, "", 3),
+            MarkdownStructure.strandedMarkers("**a~~`c`~~**", "**a~~``~~**", 6),
+        )
+    }
+
+    @Test
     fun `a run that still has text in it keeps its markers`() {
         // The rule the user asked for, and its whole point: markup goes when the last of the text
         // it covers goes, and never merely because the run got shorter.
