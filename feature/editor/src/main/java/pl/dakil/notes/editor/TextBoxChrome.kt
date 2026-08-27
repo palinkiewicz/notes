@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -256,6 +257,14 @@ private fun EditableTextBox(
     ) {
         Layout(
             modifier = Modifier
+                // Measured with no width or height limit of its own, and only then cut down to the
+                // window. A box zoomed past the width of the screen measures wider than the
+                // constraints it was handed, and Compose answers an over-sized child by reporting
+                // the constrained size and *centring* the real layout on it — half the overflow to
+                // the left, growing with every further zoom, until the words walk off the glass.
+                // The paper is allowed to be wider than the window; the node standing in for it
+                // here is not.
+                .wrapContentSize(Alignment.TopStart, unbounded = true)
                 .offset(offset)
                 .clipToBounds()
                 .drawBehind { if (hidden > 0f) drawOverflowMarker() },
