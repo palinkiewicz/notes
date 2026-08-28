@@ -52,6 +52,7 @@
     <string name="editor_pressure_sensitivity">Czułość na nacisk</string>
     <string name="editor_speed_thinning">Zwężanie przy szybkim ruchu</string>
     <string name="editor_eraser_size">Rozmiar gumki</string>
+    <string name="editor_size_set_custom">Własny rozmiar</string>
 
     <!--  ZOOM CHIP  -->
     <string name="editor_zoom_lock">Zablokuj powiększenie</string>

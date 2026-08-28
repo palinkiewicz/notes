@@ -8,6 +8,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
@@ -28,9 +31,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,6 +52,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -540,6 +546,11 @@ private fun SizeButton(
     val erasing = spec.tool.isEraser
     val value = if (erasing) spec.eraserRadius else spec.width
     val range = if (erasing) ERASER_RANGE else WIDTH_RANGE
+    var customDialogOpen by remember { mutableStateOf(false) }
+
+    fun applyValue(newValue: Float) {
+        onUpdateTool(if (erasing) spec.copy(eraserRadius = newValue) else spec.copy(width = newValue))
+    }
 
     Box(
         modifier = Modifier
@@ -566,15 +577,22 @@ private fun SizeButton(
                     maxLines = 1,
                     softWrap = false,
                     textAlign = TextAlign.End,
-                    modifier = Modifier.width(40.dp).padding(start = 8.dp),
+                    modifier = Modifier
+                        .width(40.dp)
+                        .padding(start = 8.dp)
+                        // The slider's own range is a comfortable band, not a ceiling; tapping the
+                        // number is the way to a value the slider cannot reach.
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            onOpenChange(false)
+                            customDialogOpen = true
+                        },
                 )
                 Slider(
                     value = value,
-                    onValueChange = {
-                        onUpdateTool(
-                            if (erasing) spec.copy(eraserRadius = it) else spec.copy(width = it)
-                        )
-                    },
+                    onValueChange = { applyValue(it) },
                     valueRange = range,
                     modifier = Modifier.width(196.dp).padding(horizontal = 12.dp),
                 )
@@ -592,10 +610,63 @@ private fun SizeButton(
             }
         }
     }
+
+    if (customDialogOpen) {
+        SizeCustomDialog(
+            initialValue = value,
+            onDismiss = { customDialogOpen = false },
+            onConfirm = {
+                customDialogOpen = false
+                applyValue(it)
+            },
+        )
+    }
 }
 
 /** Three significant digits and one decimal: `2.0`, `16.5`, `40.0` — a stable width to lay out. */
 private fun formatSize(value: Float): String = String.format(Locale.getDefault(), "%.1f", value)
+
+/**
+ * A tap on the size value: a plain number field, unbounded by the slider's range.
+ *
+ * The field itself has to be locale-independent — [formatSize] uses the device locale, which in
+ * Polish writes a comma decimal, but the number keyboard's own dot key still submits a dot.
+ * Accepting either and always seeding and displaying with a dot keeps typing from silently failing
+ * validation depending on the reader's language.
+ */
+@Composable
+private fun SizeCustomDialog(
+    initialValue: Float,
+    onDismiss: () -> Unit,
+    onConfirm: (Float) -> Unit,
+) {
+    var text by remember { mutableStateOf(String.format(Locale.ROOT, "%.1f", initialValue)) }
+    val parsed = text.replace(',', '.').toFloatOrNull()?.takeIf { it > 0f && it.isFinite() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.editor_size_set_custom)) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                isError = parsed == null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = parsed != null,
+                onClick = { parsed?.let(onConfirm) },
+            ) { Text(stringResource(R.string.editor_ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+        },
+    )
+}
 
 /**
  * The popup itself: one row, one row high, floating clear of the bar that opened it.
@@ -732,8 +803,8 @@ private fun SwatchItem(color: Int, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-private val WIDTH_RANGE = 0.5f..40f
-private val ERASER_RANGE = 2f..48f
+private val WIDTH_RANGE = 0.5f..20f
+private val ERASER_RANGE = 2f..32f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

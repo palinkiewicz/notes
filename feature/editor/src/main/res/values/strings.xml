@@ -53,6 +53,7 @@
     <string name="editor_pressure_sensitivity">Pressure sensitivity</string>
     <string name="editor_speed_thinning">Speed thinning</string>
     <string name="editor_eraser_size">Eraser size</string>
+    <string name="editor_size_set_custom">Custom size</string>
 
     <!--  ZOOM CHIP  -->
     <string name="editor_zoom_lock">Lock zoom</string>
