@@ -13,6 +13,8 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.Tessellator
+import androidx.compose.ui.graphics.Matrix
+import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.Stroke
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
@@ -46,6 +48,9 @@ class StrokeRenderer {
 
     /** Scratch geometry for the wet stroke and the live shape, which are rebuilt every frame. */
     private val path = Path()
+
+    /** Scratch for the live selection transform, so a drag allocates nothing per frame. */
+    private val scratchMatrix = Matrix()
     private val outline = StrokeOutline()
 
     /**
@@ -79,6 +84,12 @@ class StrokeRenderer {
      *   page, that is a single translation rather than something to work out per point — which is
      *   what lets one cached path serve every page, zoom and view mode.
      */
+    /**
+     * @param matrix an extra transform in **document points**, applied inside the scale to pixels
+     *   so the cached paths — which are in document points — are reused untouched. This is what
+     *   lets a selection be dragged, scaled and turned at input rate without rebuilding a single
+     *   path: the strokes are the same instances throughout and only the canvas moves.
+     */
     fun DrawScope.drawStrokes(
         strokes: List<Stroke>,
         ptToPx: Float,
@@ -86,18 +97,24 @@ class StrokeRenderer {
         opacity: Float = 1f,
         docTop: Float = -Float.MAX_VALUE,
         docBottom: Float = Float.MAX_VALUE,
+        matrix: Affine? = null,
     ) {
         if (strokes.isEmpty()) return
         withTransform({
             translate(0f, stripOffsetPx)
             scale(ptToPx, ptToPx, Offset.Zero)
+            if (matrix != null && !matrix.isIdentity) transform(matrix.toMatrix())
         }) {
             for (stroke in strokes) {
                 // Assigned to pages by the centreline, not the inked extent. A stroke cut at a page
                 // boundary ends exactly on it, and judging by the inked extent would place it on
                 // both pages — painting the lower half of its end cap as a dot at the top of the
                 // page below.
-                val core = stroke.coreBounds
+                //
+                // Where the pass carries a transform the band has to be tested against where the
+                // stroke is *going*, not where the document still says it is — a selection dragged
+                // onto the next page would otherwise be culled off the page it is now on.
+                val core = if (matrix == null) stroke.coreBounds else matrix.mapBounds(stroke.coreBounds)
                 if (core.bottom <= docTop || core.top >= docBottom) continue
                 drawCachedStroke(stroke, opacity)
             }
@@ -302,6 +319,23 @@ class StrokeRenderer {
          * any zoom, which is all that has to stay resident for a pan to cost nothing.
          */
         const val CACHE_MAX = 2048
+    }
+
+    /**
+     * The model's six-number transform as the 4x4 the canvas wants.
+     *
+     * `Affine` is `matrix(a, b, c, d, tx, ty)` in SVG order — column-major 2x3 — so `a` and `b` are
+     * the first *column*, not the first row. Compose's [Matrix] is column-major too, which is what
+     * makes this the plain index mapping it looks like rather than a transpose.
+     */
+    private fun Affine.toMatrix(): Matrix = scratchMatrix.also {
+        it.reset()
+        it[0, 0] = a
+        it[0, 1] = b
+        it[1, 0] = c
+        it[1, 1] = d
+        it[3, 0] = tx
+        it[3, 1] = ty
     }
 
     private fun BlendId.toBlendMode(): BlendMode = when (this) {

@@ -31,7 +31,9 @@ import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
 import pl.dakil.notes.ink.PathSplitter
+import pl.dakil.notes.ink.toStroke
 import pl.dakil.notes.model.Affine
+import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.InputConfig
@@ -42,9 +44,12 @@ import pl.dakil.notes.model.PageMargins
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
+import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
+import pl.dakil.notes.model.translated
+import pl.dakil.notes.model.withId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.ViewMode
@@ -777,6 +782,7 @@ class NoteViewModel(
             val layer = current.activeLayer(sheet) ?: return
             if (layer.locked) return
 
+            dropSelection()
             // Each stroke is its own undo step: fast handwriting is many strokes, not one edit.
             commitEdit(
                 Edit.ReplaceBlock(
@@ -838,6 +844,8 @@ class NoteViewModel(
             }
 
             if (edits.isEmpty()) return
+            // Erasing splits and drops strokes, which renumbers every one after the cut.
+            dropSelection()
             commitEdit(if (edits.size == 1) edits[0] else Edit.Batch(edits))
         }
 
@@ -847,7 +855,9 @@ class NoteViewModel(
             val byBlock = LinkedHashMap<BlockId, List<Int>>()
             var bounds = Rect.EMPTY
             for (block in sheet.blocks) {
-                if (block !is InkBlock || !block.visible) continue
+                // Locked ink is skipped for the reason the eraser skips it: handles over ink that
+                // cannot be edited are handles that silently do nothing.
+                if (block !is InkBlock || !block.visible || block.locked) continue
                 val hits = HitTester.strokesInPolygon(block.strokes, xs, ys, count)
                 if (hits.isEmpty()) continue
                 byBlock[block.id] = hits
@@ -866,13 +876,91 @@ class NoteViewModel(
             val selection = Selection(byBlock, texts.toSet(), bounds)
             _state.update { it.copy(selection = selection.takeUnless { s -> s.isEmpty }) }
         }
+
+        override fun onSelectAt(x: Float, y: Float, radius: Float) = selectAt(x, y, radius)
+
+        override fun onSelectionTransformed(matrix: Affine) = transformSelection(matrix)
     }
 
     // ---- Selection -------------------------------------------------------------------------------
 
-    fun transformSelection(matrix: Affine) = mutateSelection { it.transformed(matrix) }
+    /**
+     * Moves, scales or turns everything selected.
+     *
+     * Text boxes are carried but never scaled or turned. A box's width is a measurement the reader
+     * chose — it is what decides where the lines break — and its height is whatever the words need,
+     * so the only part of a transform that can honestly apply to one is where its top-left corner
+     * ends up. Rotating a paragraph is not something this document format can express at all.
+     */
+    fun transformSelection(matrix: Affine) = mutateSelection(
+        stroke = { it.transformed(matrix) },
+        block = { block ->
+            val r = block.rect
+            block.translated(matrix.mapX(r.left, r.top) - r.left, matrix.mapY(r.left, r.top) - r.top)
+        },
+    )
 
-    fun recolorSelection(color: Int) = mutateSelection { it.withStyle(color = color) }
+    fun recolorSelection(color: Int) = mutateSelection(stroke = { it.withStyle(color = color) })
+
+    /**
+     * A tap with the select tool: take hold of whatever is under it, or let go if that is bare paper.
+     *
+     * Searched topmost-first, so where two things overlap the one on top is the one meant. Ink is
+     * asked before text for the same reason: the ink is drawn over it.
+     */
+    fun selectAt(x: Float, y: Float, radius: Float) {
+        val sheet = _state.value.sheet ?: return
+        val topDown = sheet.blocksInPaintOrder().asReversed()
+
+        for (block in topDown) {
+            if (block !is InkBlock || !block.visible || block.locked) continue
+            val hit = HitTester.strokeAt(block.strokes, x, y, radius) ?: continue
+            select(Selection(mapOf(block.id to listOf(hit)), emptySet(), block.strokes[hit].bounds))
+            return
+        }
+        for (block in topDown) {
+            if (block !is TextBlock) continue
+            val r = block.worldBounds()
+            if (!r.contains(x, y)) continue
+            select(Selection(emptyMap(), setOf(block.id), r))
+            return
+        }
+        clearSelection()
+    }
+
+    /**
+     * Rebuilds a selected shape after one of its apexes was dragged.
+     *
+     * The stroke is replaced **at its own index**, so the indices the selection is holding stay
+     * pointing at the same ink and the handles do not jump to something else the moment they are
+     * let go. Only a lone selected stroke can be reshaped; a shape is one stroke by construction.
+     */
+    fun replaceSelectedShape(spec: ShapeSpec) {
+        val current = _state.value
+        val selection = current.selection ?: return
+        val sheet = current.sheet ?: return
+        if (current.isReadOnly) return
+
+        val entry = selection.strokesByBlock.entries.singleOrNull() ?: return
+        val index = entry.value.singleOrNull() ?: return
+        val block = sheet.block(entry.key) as? InkBlock ?: return
+        val old = block.strokes.getOrNull(index) ?: return
+        val replacement = spec.toStroke(old.tool, old.color, old.width, old.blend)
+
+        commitEdit(
+            Edit.ReplaceBlock(
+                block,
+                block.copy(
+                    strokes = block.strokes.mapIndexed { i, s -> if (i == index) replacement else s },
+                ),
+                mergeable = false,
+            )
+        )
+        select(selection.copy(bounds = replacement.bounds))
+    }
+
+    private fun select(selection: Selection) =
+        _state.update { it.copy(selection = selection.takeUnless { s -> s.isEmpty }) }
 
     fun clearSelection() = _state.update { it.copy(selection = null) }
 
@@ -900,42 +988,109 @@ class NoteViewModel(
         _state.update { it.copy(selection = null) }
     }
 
+    /**
+     * Copies everything selected, and hands the selection to the copies.
+     *
+     * Duplicating and then dragging is the usual pair, and it is the *copy* the user means to drag
+     * away — leaving the original selected would move the very thing they just took a copy of, and
+     * leave the copy sitting where the original had been.
+     */
     fun duplicateSelection() {
         val current = _state.value
         val selection = current.selection ?: return
         val sheet = current.sheet ?: return
+        if (current.isReadOnly) return
 
         // Offset the copy so it is visibly distinct rather than hidden behind the original.
         val offset = Affine.translate(DUPLICATE_OFFSET, DUPLICATE_OFFSET)
         val edits = ArrayList<Edit>()
+        val copiedStrokes = LinkedHashMap<BlockId, List<Int>>()
+        val copiedText = LinkedHashSet<BlockId>()
+        var bounds = Rect.EMPTY
+
         for ((blockId, indices) in selection.strokesByBlock) {
             val block = sheet.block(blockId) as? InkBlock ?: continue
             val copies = indices.mapNotNull { block.strokes.getOrNull(it)?.transformed(offset) }
-            edits += Edit.ReplaceBlock(block, block.copy(strokes = block.strokes + copies))
+            if (copies.isEmpty()) continue
+            // Appended, so the copies take the indices just past the end of the list as it stands
+            // — which is what lets the selection move onto them without searching for them again.
+            val first = block.strokes.size
+            copiedStrokes[blockId] = List(copies.size) { first + it }
+            for (copy in copies) bounds = bounds.union(copy.bounds)
+            edits += Edit.ReplaceBlock(
+                block, block.copy(strokes = block.strokes + copies), mergeable = false,
+            )
         }
+
+        // Text boxes are copied too, each with an id of its own. `Sheet.nextBlockId` answers one
+        // at a time and would hand the same id to every copy in the batch, so the ids already
+        // taken are tracked across the loop.
+        val taken = sheet.blocks.mapTo(HashSet()) { it.id.raw }
+        var n = taken.size
+        for (blockId in selection.textBlocks) {
+            val text = sheet.block(blockId) as? TextBlock ?: continue
+            while ("b$n" in taken) n++
+            taken += "b$n"
+            val copy = text.translated(DUPLICATE_OFFSET, DUPLICATE_OFFSET).withId(BlockId("b$n"))
+            copiedText += copy.id
+            bounds = bounds.union(copy.worldBounds())
+            edits += Edit.AddBlock(copy)
+        }
+
         if (edits.isEmpty()) return
         commitEdit(if (edits.size == 1) edits[0] else Edit.Batch(edits))
+        select(Selection(copiedStrokes, copiedText, bounds))
     }
 
-    private fun mutateSelection(transform: (Stroke) -> Stroke) {
+    /**
+     * Applies an edit to everything selected, as one undo step.
+     *
+     * The selection is re-published with fresh bounds rather than left as it was. It holds stroke
+     * *indices*, which [stroke] preserves — the strokes are mapped in place — but its `bounds` are
+     * geometry, and a stale box means the next drag grabs the wrong part of the page and the
+     * outline sits where the ink used to be.
+     *
+     * [block] is null for edits that have no meaning for a text box, such as recolouring.
+     */
+    private fun mutateSelection(
+        stroke: (Stroke) -> Stroke,
+        block: ((TextBlock) -> Block)? = null,
+    ) {
         val current = _state.value
         val selection = current.selection ?: return
         val sheet = current.sheet ?: return
         if (current.isReadOnly) return
 
         val edits = ArrayList<Edit>()
+        var bounds = Rect.EMPTY
+
         for ((blockId, indices) in selection.strokesByBlock) {
-            val block = sheet.block(blockId) as? InkBlock ?: continue
+            val inkBlock = sheet.block(blockId) as? InkBlock ?: continue
             val targets = indices.toHashSet()
-            edits += Edit.ReplaceBlock(
-                block,
-                block.copy(
-                    strokes = block.strokes.mapIndexed { i, s -> if (i in targets) transform(s) else s },
-                ),
-            )
+            val updated = inkBlock.strokes.mapIndexed { i, s -> if (i in targets) stroke(s) else s }
+            for (i in indices) updated.getOrNull(i)?.let { bounds = bounds.union(it.bounds) }
+            // Never merged. One gesture is one undo step: a drag and the scale after it are two
+            // deliberate acts, and taking both back with one tap is not what the second one asked
+            // for. The same reasoning that makes each committed stroke its own step.
+            edits += Edit.ReplaceBlock(inkBlock, inkBlock.copy(strokes = updated), mergeable = false)
         }
+
+        if (block != null) {
+            for (blockId in selection.textBlocks) {
+                val text = sheet.block(blockId) as? TextBlock ?: continue
+                val moved = block(text)
+                bounds = bounds.union(moved.worldBounds())
+                edits += Edit.ReplaceBlock(text, moved, mergeable = false)
+            }
+        } else {
+            for (blockId in selection.textBlocks) {
+                sheet.block(blockId)?.let { bounds = bounds.union(it.worldBounds()) }
+            }
+        }
+
         if (edits.isEmpty()) return
         commitEdit(if (edits.size == 1) edits[0] else Edit.Batch(edits))
+        select(selection.copy(bounds = bounds))
     }
 
     // ---- Layers ----------------------------------------------------------------------------------
@@ -958,12 +1113,28 @@ class NoteViewModel(
 
     fun undo() {
         val note = _state.value.note ?: return
-        publish(history.undo(note) ?: return)
+        val undone = history.undo(note) ?: return
+        dropSelection()
+        publish(undone)
     }
 
     fun redo() {
         val note = _state.value.note ?: return
-        publish(history.redo(note) ?: return)
+        val redone = history.redo(note) ?: return
+        dropSelection()
+        publish(redone)
+    }
+
+    /**
+     * Lets go of the selection because the ink it points at may no longer be there.
+     *
+     * [Selection] holds stroke *indices*, not copies, so any edit that adds, removes or reorders
+     * strokes leaves them pointing at the wrong ink — or past the end of the list. Re-mapping them
+     * through an arbitrary edit is not worth building; letting go is what the user expects anyway,
+     * since the thing they had hold of has just changed under them.
+     */
+    private fun dropSelection() {
+        if (_state.value.selection != null) _state.update { it.copy(selection = null) }
     }
 
     // ---- Plumbing --------------------------------------------------------------------------------

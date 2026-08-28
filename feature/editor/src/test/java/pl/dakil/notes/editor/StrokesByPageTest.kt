@@ -118,6 +118,24 @@ class StrokesByPageTest {
     }
 
     @Test
+    fun `an excluded stroke is left out of every page it would have been on`() {
+        // The current selection is kept out of these buckets because the overlay redraws it itself
+        // under the live transform. Missing it from one bucket would paint a stroke being dragged
+        // twice: once following the finger and once still lying where it started.
+        val selected = stroke(80f, 120f)
+        val other = stroke(10f, 20f)
+        val pages = strokesByPage(
+            listOf(layer(selected, other)),
+            pageCount = 2,
+            pageHeight = pageHeight,
+            exclude = setOf(selected),
+        )
+
+        assertEquals(listOf(other), pages[0])
+        assertTrue(pages[1].isEmpty())
+    }
+
+    @Test
     fun `a stroke above the first page is clamped onto it rather than dropped`() {
         // Negative document y is reachable by dragging a selection upwards; it must not index a
         // bucket that does not exist.

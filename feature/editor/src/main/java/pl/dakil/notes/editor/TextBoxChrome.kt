@@ -1,25 +1,16 @@
 package pl.dakil.notes.editor
 
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,11 +18,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
@@ -186,8 +174,12 @@ fun TextBoxChrome(
                 ) { dx, _ ->
                     viewModel.dragTextBlockTo(id, box.rect.copy(right = box.rect.right + toDocument(dx)))
                 }
-                DeleteButton(
+                HandleButton(
+                    icon = NotesIcons.Delete,
+                    description = stringResource(R.string.editor_text_box_delete),
                     modifier = Modifier.layoutId(Handle.DELETE),
+                    container = MaterialTheme.colorScheme.errorContainer,
+                    content = MaterialTheme.colorScheme.onErrorContainer,
                     onClick = { viewModel.deleteTextBlock(id) },
                 )
             },
@@ -205,10 +197,10 @@ fun TextBoxChrome(
                         // the edge covers the first word of what the user came here to read.
                         val middle = (f.top + f.bottom) / 2f
                         val centre = when (handle) {
-                            Handle.MOVE -> Offset(f.left + half, f.top - half - GAP)
-                            Handle.DELETE -> Offset(f.right - half, f.top - half - GAP)
-                            Handle.LEFT -> Offset(f.left - half - GAP, middle)
-                            else -> Offset(f.right + half + GAP, middle)
+                            Handle.MOVE -> Offset(f.left + half, f.top - half - HANDLE_GAP)
+                            Handle.DELETE -> Offset(f.right - half, f.top - half - HANDLE_GAP)
+                            Handle.LEFT -> Offset(f.left - half - HANDLE_GAP, middle)
+                            else -> Offset(f.right + half + HANDLE_GAP, middle)
                         }
                         placeable.place(
                             x = (centre.x - placeable.width / 2f).roundToInt(),
@@ -297,96 +289,3 @@ private fun EditableTextBox(
 }
 
 private enum class Handle { MOVE, LEFT, RIGHT, DELETE }
-
-/** How far clear of the box its handles sit, in window pixels. */
-private const val GAP = 8f
-
-/**
- * One draggable grip.
- *
- * A `Surface` rather than an `IconButton` because it has to be *dragged* rather than pressed, and a
- * button reports a drag as nothing at all — the box would sit still however far the finger went and
- * then take the whole journey in one jump, or not at all.
- *
- * Every frame is consumed. Unlike the taps on the sheet below, which are watched and left alone so
- * that a drag can still be a pan, a finger on a handle is unambiguous: it came down on a control
- * that is only there because the user put a box under it.
- */
-@Composable
-private fun Grip(
-    icon: ImageVector,
-    description: String,
-    modifier: Modifier = Modifier,
-    onStart: () -> Unit,
-    onEnd: () -> Unit,
-    onDrag: (dx: Float, dy: Float) -> Unit,
-) {
-    // The gesture loop is started once and never restarted, so it would otherwise hold the very
-    // first `onDrag` it was given — one that closes over the box's rect as it stood before the
-    // finger moved. Every frame would then apply a single frame's delta to the *original* position,
-    // and the box would sit shivering in place instead of following the hand.
-    val currentDrag by rememberUpdatedState(onDrag)
-    val currentStart by rememberUpdatedState(onStart)
-    val currentEnd by rememberUpdatedState(onEnd)
-
-    HandleSurface(
-        modifier = modifier.pointerInput(Unit) {
-            detectDragGestures(
-                onDragStart = { currentStart() },
-                onDragEnd = { currentEnd() },
-                onDragCancel = { currentEnd() },
-            ) { change, delta ->
-                change.consume()
-                currentDrag(delta.x, delta.y)
-            }
-        },
-        icon = icon,
-        description = description,
-    )
-}
-
-/** The one handle that is a button: the box goes away, and there is nothing to drag about that. */
-@Composable
-private fun DeleteButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val current by rememberUpdatedState(onClick)
-    HandleSurface(
-        modifier = modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                awaitFirstDown().consume()
-                val up = waitForUpOrCancellation()
-                if (up != null) {
-                    up.consume()
-                    current()
-                }
-            }
-        },
-        icon = NotesIcons.Delete,
-        description = stringResource(R.string.editor_text_box_delete),
-        container = MaterialTheme.colorScheme.errorContainer,
-        content = MaterialTheme.colorScheme.onErrorContainer,
-    )
-}
-
-@Composable
-private fun HandleSurface(
-    icon: ImageVector,
-    description: String,
-    modifier: Modifier = Modifier,
-    container: Color = MaterialTheme.colorScheme.primary,
-    content: Color = MaterialTheme.colorScheme.onPrimary,
-) {
-    Surface(
-        shape = CircleShape,
-        color = container,
-        contentColor = content,
-        shadowElevation = 2.dp,
-        modifier = modifier.size(HandleSize),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(16.dp))
-        }
-    }
-}
-
-/** Comfortably tappable at any zoom, because it is never scaled by one. */
-private val HandleSize = 32.dp

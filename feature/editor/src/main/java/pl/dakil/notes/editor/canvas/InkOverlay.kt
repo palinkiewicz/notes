@@ -12,7 +12,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -20,17 +22,22 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.RequestDisallowInterceptTouchEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.dp
 import pl.dakil.notes.ink.InputIntent
 import pl.dakil.notes.ink.InputRouter
 import pl.dakil.notes.ink.RulerEdge
 import pl.dakil.notes.ink.RulerGuide
 import pl.dakil.notes.ink.StrokeBuilder
+import pl.dakil.notes.editor.Selection
+import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.PointerSample
+import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ToolId
@@ -46,6 +53,17 @@ interface InkCallbacks {
     fun onStrokeCommitted(stroke: Stroke)
     fun onEraseAlong(x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, wholeStroke: Boolean)
     fun onLassoCommitted(xs: FloatArray, ys: FloatArray, count: Int)
+
+    /**
+     * A tap with the select tool: pick the stroke under it, or clear the selection if there is none.
+     *
+     * [radius] is a fingertip's reach around the point, in document points, worked out from the
+     * zoom at the moment of the tap so it stays the same reach on the glass at any magnification.
+     */
+    fun onSelectAt(x: Float, y: Float, radius: Float)
+
+    /** A finished move, scale or rotation of the current selection. */
+    fun onSelectionTransformed(matrix: Affine)
 }
 
 /**
@@ -134,6 +152,16 @@ fun InkOverlay(
      * would be to put the pen down and use a finger. The tool the user picked is the tool they get.
      */
     textToolActive: Boolean = false,
+    /** What the select tool currently has hold of, or null. Its outline and handles come from it. */
+    selection: Selection? = null,
+    /**
+     * The live move/scale/rotate/reshape gesture.
+     *
+     * Shared with [pl.dakil.notes.editor.SelectionChrome], which drives the handles that sit
+     * outside the sheet's transform, exactly as [RulerState] is shared with the ruler's overlay.
+     * The overlay reads it inside its draw lambda, so a drag never recomposes anything.
+     */
+    controller: SelectionController = remember { SelectionController() },
     modifier: Modifier = Modifier,
     darkTheme: Boolean = false,
     /** The scale the sheet is placed at, for anything that must stay a fixed size on screen. */
@@ -168,12 +196,24 @@ fun InkOverlay(
     val currentTool by rememberUpdatedState(tool)
     val currentRulerEdgeFor by rememberUpdatedState(rulerEdgeFor)
     val currentTextToolActive by rememberUpdatedState(textToolActive)
+    val currentSelection by rememberUpdatedState(selection)
+    val touchReachPx = with(LocalDensity.current) { SELECTION_REACH.toPx() }
     val format = sheet.format
     val currentFormat by rememberUpdatedState(format)
     val currentPaged by rememberUpdatedState(paged)
     val pageCount = sheet.pageCount()
 
-    router.config = inputConfig
+    // The select tool is not a drawing tool, but a finger still has to be able to work it. Left to
+    // the ordinary rule, one finger with the lasso out would be routed to pan — pick the tool,
+    // draw a loop, and watch the page slide instead — which is no select tool at all on a phone
+    // without a pen. Two fingers still pan and still revoke the loop: that rule outranks this one
+    // inside the router, so the page never becomes unnavigable.
+    router.config =
+        if (tool.tool == ToolId.LASSO && !inputConfig.fingerDrawingEnabled) {
+            inputConfig.copy(fingerDrawingEnabled = true)
+        } else {
+            inputConfig
+        }
 
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -196,11 +236,33 @@ fun InkOverlay(
 
     val paintOrder = remember(sheet, documentVersion) { sheet.blocksInPaintOrder() }
 
+    // The selected strokes, pulled out of the document once per selection rather than looked up
+    // per frame. `Stroke` declares no `equals`, so a plain HashSet is already keyed by identity —
+    // which is the right key, since a selection means *these* strokes and not ones that look alike.
+    val selected = remember(sheet, documentVersion, selection) {
+        selection?.let { sel ->
+            val out = HashSet<Stroke>()
+            for ((blockId, indices) in sel.strokesByBlock) {
+                val block = sheet.block(blockId) as? InkBlock ?: continue
+                for (i in indices) block.strokes.getOrNull(i)?.let(out::add)
+            }
+            out
+        } ?: emptySet()
+    }
+
+    // In paint order, so a selection spanning two layers is redrawn in the order it was drawn in.
+    val selectedInOrder = remember(paintOrder, selected) {
+        if (selected.isEmpty()) emptyList()
+        else paintOrder.filterIsInstance<InkBlock>()
+            .filter { it.visible }
+            .flatMap { block -> block.strokes.filter { it in selected } }
+    }
+
     // Paged view draws one clipped pass per page, and used to re-scan every block and every stroke
     // in the note inside each of them — O(pages x strokes) bound tests before a line was drawn.
     // Grouping them once per edit makes a page cost what that page holds.
-    val strokesByPage = remember(sheet, documentVersion, paged, pageCount) {
-        if (paged) strokesByPage(paintOrder, pageCount, format.height) else emptyList()
+    val strokesByPage = remember(sheet, documentVersion, paged, pageCount, selected) {
+        if (paged) strokesByPage(paintOrder, pageCount, format.height, selected) else emptyList()
     }
 
     Canvas(
@@ -245,6 +307,12 @@ fun InkOverlay(
                     lasso = lasso,
                     shape = shape,
                     guide = guide,
+                    selection = currentSelection,
+                    controller = controller,
+                    // A fingertip's reach, in document points. Read at the moment of the touch, so
+                    // the reach around a stroke is the same distance on the glass whatever the page
+                    // is magnified to — the same reasoning as the dwell tolerance below it.
+                    reach = { touchReachPx / (ptToPx * zoom().coerceAtLeast(MIN_ZOOM)) },
                     rulerEdgeFor = currentRulerEdgeFor,
                     tool = currentTool,
                     config = inputConfig,
@@ -263,12 +331,22 @@ fun InkOverlay(
     ) {
         @Suppress("UNUSED_EXPRESSION")
         inkVersion.intValue
+        // Read for its side effect, exactly like the counter above it: a selection being dragged
+        // bumps this per input sample, and the read is what makes the canvas repaint without
+        // anything recomposing.
+        @Suppress("UNUSED_EXPRESSION")
+        controller.version
 
         val toStripPx = { y: Float -> SheetPainter.documentYToStripPx(y, format, ptToPx, paged) }
         // While a shape is live it *is* the stroke under the pen; the builder still holds the
         // free-hand path it replaced, which must not be drawn underneath it.
         val live = shape.spec
         val wet = live == null && !builder.isEmpty && currentTool.tool.isDrawing
+
+        // The one stroke whose apex is being dragged, if any. The preview takes its weight and
+        // colour from the ink it is about to replace, so what is under the grip while it is being
+        // pulled looks like what will be committed when it is let go.
+        val reshaping = if (controller.liveShape != null) selectedInOrder.firstOrNull() else null
 
         // A page of slack either side of the window, so a fling never outruns the ink and shows it
         // arriving. Generous on purpose: the saving is against the length of the *note*, and a note
@@ -287,8 +365,20 @@ fun InkOverlay(
                     if (block !is InkBlock || !block.visible) continue
                     // Continuous view lays the pages out with no gaps, so document y and strip y
                     // are the same measure and the pass needs no offset.
-                    drawStrokes(block.strokes, ptToPx, 0f, 1f, bandTop, bandBottom)
+                    val strokes =
+                        if (selected.isEmpty()) block.strokes
+                        else block.strokes.filter { it !in selected }
+                    drawStrokes(strokes, ptToPx, 0f, 1f, bandTop, bandBottom)
                 }
+                if (reshaping == null && selectedInOrder.isNotEmpty()) {
+                    drawStrokes(
+                        selectedInOrder, ptToPx, 0f, 1f, bandTop, bandBottom, controller.live,
+                    )
+                }
+                if (reshaping != null) drawShapePreview(
+                    controller.outline, ptToPx, toStripPx,
+                    reshaping.width, reshaping.color, reshaping.blend,
+                )
                 if (wet) drawWetStroke(builder, ptToPx, toStripPx)
                 if (live != null) drawShapePreview(
                     shape.outline, ptToPx, toStripPx,
@@ -317,6 +407,19 @@ fun InkOverlay(
                         drawStrokes(
                             strokesByPage[page], ptToPx, page * gapPx, 1f, docTop, docBottom,
                         )
+                        // The selection is drawn after the ink it was lifted out of, under the
+                        // live transform, and culled by where it is *going* rather than where the
+                        // document still says it is — see `drawStrokes`.
+                        if (reshaping == null && selectedInOrder.isNotEmpty()) {
+                            drawStrokes(
+                                selectedInOrder, ptToPx, page * gapPx, 1f,
+                                docTop, docBottom, controller.live,
+                            )
+                        }
+                        if (reshaping != null) drawShapePreview(
+                            controller.outline, ptToPx, toStripPx,
+                            reshaping.width, reshaping.color, reshaping.blend,
+                        )
                         // Culled by the same band the committed strokes are, and for a sharper
                         // reason: the wet stroke is tessellated on every frame, so drawing it once
                         // per page would multiply that by the length of the note.
@@ -343,6 +446,25 @@ fun InkOverlay(
                 radius = radiusPx,
                 center = center,
                 style = DrawStroke(width = 1.5f / zoom().coerceAtLeast(MIN_ZOOM)),
+            )
+        }
+
+        // The selection's outline, following the live transform so it stays round what it
+        // contains while that is being dragged. Like the marquee below it this is UI rather than
+        // ink, so its weight and its dashes are divided back out of the placement scale.
+        if (selection != null && reshaping == null) {
+            val scale = zoom().coerceAtLeast(MIN_ZOOM)
+            val box = controller.live.mapBounds(selection.bounds.inflate(SELECTION_PAD_PT))
+            val top = toStripPx(box.top)
+            val dash = SELECTION_DASH_PX / scale
+            drawRect(
+                color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8),
+                topLeft = Offset(box.left * ptToPx, top),
+                size = Size(box.width * ptToPx, toStripPx(box.bottom) - top),
+                style = DrawStroke(
+                    width = 1.5f / scale,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)),
+                ),
             )
         }
 
@@ -385,6 +507,12 @@ internal fun strokesByPage(
     blocks: List<Block>,
     pageCount: Int,
     pageHeight: Float,
+    /**
+     * Strokes to leave out — the current selection, which the overlay redraws itself under the
+     * live transform. Kept out of the buckets rather than skipped at draw time so a selection
+     * being dragged is never painted twice, once where it is and once where it was.
+     */
+    exclude: Set<Stroke> = emptySet(),
 ): List<List<Stroke>> {
     val pages = List(pageCount) { ArrayList<Stroke>() }
     if (pageCount == 0 || pageHeight <= 0f) return pages
@@ -392,6 +520,7 @@ internal fun strokesByPage(
     for (block in blocks) {
         if (block !is InkBlock || !block.visible) continue
         for (stroke in block.strokes) {
+            if (stroke in exclude) continue
             val core = stroke.coreBounds
             var page = floor(core.top / pageHeight).toInt().coerceAtLeast(0)
             // `page * pageHeight < core.bottom` is the surviving half of the cull's test; the other
@@ -504,6 +633,10 @@ private fun handleEvent(
     lasso: LassoBuffer,
     shape: ShapeController,
     guide: RulerGuide,
+    selection: Selection?,
+    controller: SelectionController,
+    /** A fingertip's reach in document points, for grabbing a selection and for tapping a stroke. */
+    reach: () -> Float,
     rulerEdgeFor: ((Float, Float) -> RulerEdge?)?,
     tool: ToolSpec,
     config: InputConfig,
@@ -557,6 +690,9 @@ private fun handleEvent(
             if (decision.revoked.isNotEmpty()) {
                 builder.reset()
                 lasso.reset()
+                // A second finger means pan/zoom, which revokes the drag the first one had
+                // started. Only the overlay's own — a grip's gesture is not this pointer's.
+                if (controller.isMoving) controller.cancel()
                 shape.reset()
                 guide.release()
             }
@@ -571,7 +707,10 @@ private fun handleEvent(
                         guide.engage(rulerEdgeFor(landed.x, landed.y))
                     }
                     val sample = guide.snap(landed)
-                    beginAction(builder, lasso, tool, config, sample, guide.edge)
+                    beginAction(
+                        builder, lasso, tool, config, sample, selection, controller, reach(),
+                        guide.edge,
+                    )
                     // A stroke drawn against the edge is already the shape it is meant to be;
                     // pausing at the end of a ruled line should not turn it into a rectangle.
                     if (config.autoShapeEnabled && tool.tool.isDrawing && !guide.isEngaged) {
@@ -628,7 +767,11 @@ private fun handleEvent(
                             eraseStep(builder, sample, tool, callbacks)
                         }
                         ToolId.LASSO ->
-                            if (lasso.add(sample.x, sample.y)) redraw = true
+                            if (controller.isMoving) {
+                                controller.moveTo(sample.x, sample.y)
+                            } else if (lasso.add(sample.x, sample.y)) {
+                                redraw = true
+                            }
                         // Once a shape has been recognised the pen is no longer drawing: it is
                         // holding the apex it snapped on, and moving adjusts the shape.
                         else -> if (shape.isLive) {
@@ -655,7 +798,10 @@ private fun handleEvent(
             // resting on the glass lifting off mid-word.
             if (event.actionMasked == MotionEvent.ACTION_UP || !router.isDrawing) claim(false)
             if (intent is InputIntent.Draw) {
-                finishAction(builder, lasso, shape, tool, guide.snap(sampleAt(index)), callbacks)
+                finishAction(
+                    builder, lasso, shape, controller, tool,
+                    guide.snap(sampleAt(index)), reach(), callbacks,
+                )
                 guide.release()
                 // A hovering stylus corrects this right back on its next proximity sample; a
                 // finger has no hover to fall back on, so the ring must not outlive its touch.
@@ -673,6 +819,9 @@ private fun handleEvent(
             router.cancel()
             builder.reset()
             lasso.reset()
+            // Only the overlay's own drag. A cancel also arrives when a handle above the sheet
+            // takes the gesture, and that scale or rotation is still very much in flight.
+            if (controller.isMoving) controller.cancel()
             shape.reset()
             guide.release()
             claim(false)
@@ -684,12 +833,16 @@ private fun handleEvent(
     return false
 }
 
+@Suppress("LongParameterList")
 private fun beginAction(
     builder: StrokeBuilder,
     lasso: LassoBuffer,
     tool: ToolSpec,
     config: InputConfig,
     sample: PointerSample,
+    selection: Selection?,
+    controller: SelectionController,
+    reach: Float,
     /** The straightedge the stroke has taken hold of, which the builder has to honour past its
      *  own smoothing — see [StrokeBuilder]'s guide. */
     guideEdge: RulerEdge? = null,
@@ -697,7 +850,17 @@ private fun beginAction(
     when (tool.tool) {
         ToolId.LASSO -> {
             lasso.reset()
-            lasso.add(sample.x, sample.y)
+            // Landing inside what is already selected picks it up instead of starting a new loop —
+            // the same "drag it to move it" every other notes app offers, and the reason the move
+            // is routed through the overlay at all: a pen must be able to do it, and the overlay is
+            // the only thing a pen talks to.
+            //
+            // Not while a grip is already dragging: that gesture belongs to the chrome, which is a
+            // different subtree, and taking the controller off it mid-drag would strand it.
+            val grabbed = selection != null && !controller.isActive &&
+                selection.bounds.inflate(reach).contains(sample.x, sample.y)
+            if (grabbed) controller.beginMove(sample.x, sample.y)
+            else lasso.add(sample.x, sample.y)
         }
         ToolId.ERASER_STROKE, ToolId.ERASER_POINT -> {
             builder.reset()
@@ -738,14 +901,25 @@ private fun finishAction(
     builder: StrokeBuilder,
     lasso: LassoBuffer,
     shape: ShapeController,
+    controller: SelectionController,
     tool: ToolSpec,
     sample: PointerSample,
+    reach: Float,
     callbacks: InkCallbacks,
 ) {
     shape.stopTicking()
     when (tool.tool) {
         ToolId.LASSO -> {
-            if (lasso.count >= 3) callbacks.onLassoCommitted(lasso.xs, lasso.ys, lasso.count)
+            when {
+                controller.isMoving ->
+                    controller.endTransform()?.let(callbacks::onSelectionTransformed)
+                // A loop that never went anywhere is a tap, not a lasso round nothing: pick the
+                // stroke under it, or clear what is selected if the paper there is bare. Judged by
+                // how far the pointer wandered rather than by how many samples arrived, because a
+                // slow finger deposits plenty of samples without ever moving.
+                lassoSpan(lasso) <= reach -> callbacks.onSelectAt(lasso.xs[0], lasso.ys[0], reach)
+                lasso.count >= 3 -> callbacks.onLassoCommitted(lasso.xs, lasso.ys, lasso.count)
+            }
             lasso.reset()
         }
         ToolId.ERASER_STROKE, ToolId.ERASER_POINT -> builder.reset()
@@ -770,6 +944,29 @@ private fun finishAction(
  */
 private const val DWELL_TOLERANCE_PT = 2f
 private const val MIN_ZOOM = 0.05f
+
+/**
+ * How far the pointer wandered from where it landed, in document points.
+ *
+ * Measured against the first point rather than summed along the path: a tap held long enough to
+ * tremble travels a real distance without ever going anywhere.
+ */
+private fun lassoSpan(lasso: LassoBuffer): Float {
+    if (lasso.count == 0) return Float.MAX_VALUE
+    var worst = 0f
+    for (i in 1 until lasso.count) {
+        val d = hypot(lasso.xs[i] - lasso.xs[0], lasso.ys[i] - lasso.ys[0])
+        if (d > worst) worst = d
+    }
+    return worst
+}
+
+/** Dash length on the glass, divided back out of the zoom so it is one length at every scale. */
+private const val SELECTION_DASH_PX = 6f
+
+/** A fingertip's reach: how near a stroke a tap counts as on it, and how far outside the
+ *  selection's outline still counts as inside it. A size on the glass, never on the page. */
+private val SELECTION_REACH = 10.dp
 
 /** Growable buffer for the lasso outline, in document coordinates. */
 class LassoBuffer {

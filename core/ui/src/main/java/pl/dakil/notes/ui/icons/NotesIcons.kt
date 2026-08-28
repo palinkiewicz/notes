@@ -129,6 +129,22 @@ object NotesIcons {
         )
     }
 
+    /** A circular arrow: the grip that turns a selection about its middle. */
+    val Rotate: ImageVector by lazy {
+        strokedIcon(
+            "Rotate",
+            "M20 12 a8 8 0 1 1 -2.34 -5.66 M20 3 L20 7 L16 7",
+        )
+    }
+
+    /** Arrows out of a corner: the grip that scales a selection about the opposite corner. */
+    val Resize: ImageVector by lazy {
+        strokedIcon(
+            "Resize",
+            "M5 19 L19 5 M5 13 L5 19 L11 19 M13 5 L19 5 L19 11",
+        )
+    }
+
     val Layers: ImageVector by lazy {
         strokedIcon(
             "Layers",

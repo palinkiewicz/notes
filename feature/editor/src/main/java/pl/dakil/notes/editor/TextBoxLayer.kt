@@ -22,6 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.editor.canvas.SelectionController
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.markdown.MarkdownStaticText
 import pl.dakil.notes.editor.markdown.MarkdownStyles
@@ -59,6 +60,14 @@ fun TextBoxLayer(
     paged: Boolean,
     /** Read at the moment of a tap, so the reach around a box is a constant size on screen. */
     zoom: () -> Float,
+    /**
+     * The live selection gesture, so a box being carried along with one follows the finger.
+     *
+     * Read at *placement* time, which is all a move needs: text is only ever translated by a
+     * selection — never scaled or turned, since a box's width is the reader's choice and its
+     * height is whatever the words need — so nothing has to be measured again as it travels.
+     */
+    controller: SelectionController,
     modifier: Modifier = Modifier,
 ) {
     // The one being edited is left out: it is drawn out in the window with its handles, and a
@@ -70,6 +79,7 @@ fun TextBoxLayer(
         sheet.textBlocks().filter { it.id != state.editingTextBlock }
     }
     val format = sheet.format
+    val moving = state.selection?.textBlocks.orEmpty()
 
     Layout(
         modifier = modifier.textBoxTaps(sheet, state, viewModel, ptToPx, paged, zoom),
@@ -96,10 +106,19 @@ fun TextBoxLayer(
             measurable.measure(Constraints(minWidth = width, maxWidth = width)) to box
         }
         layout(constraints.maxWidth, constraints.maxHeight) {
+            // Read for its side effect, so a drag in progress re-places the boxes it is carrying
+            // without recomposing or remeasuring one of them.
+            @Suppress("UNUSED_EXPRESSION")
+            controller.version
+            val live = controller.live
+
             for ((placeable, box) in placed) {
+                val carried = box.id in moving && !live.isIdentity
+                val left = if (carried) live.mapX(box.rect.left, box.rect.top) else box.rect.left
+                val top = if (carried) live.mapY(box.rect.left, box.rect.top) else box.rect.top
                 placeable.place(
-                    x = (box.rect.left * ptToPx).roundToInt(),
-                    y = SheetPainter.documentYToStripPx(box.rect.top, format, ptToPx, paged).roundToInt(),
+                    x = (left * ptToPx).roundToInt(),
+                    y = SheetPainter.documentYToStripPx(top, format, ptToPx, paged).roundToInt(),
                 )
             }
         }

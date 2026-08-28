@@ -109,6 +109,24 @@ object HitTester {
         return out
     }
 
+    /**
+     * The stroke under a tap, or null if the tap landed on bare paper.
+     *
+     * Searched from the end of the list because that is the order the ink was laid down in: where
+     * two strokes overlap, the one drawn last is the one on top and the one the user is pointing at.
+     *
+     * [radius] is a reach around the fingertip, in document points, and is added to half the
+     * stroke's own width — a hairline drawn at 0.5 pt has to be as easy to hit as a highlighter.
+     */
+    fun strokeAt(strokes: List<Stroke>, x: Float, y: Float, radius: Float): Int? {
+        for (i in strokes.indices.reversed()) {
+            val stroke = strokes[i]
+            if (!stroke.bounds.inflate(radius).contains(x, y)) continue
+            if (strokeIntersectsSegment(stroke, x, y, x, y, radius)) return i
+        }
+        return null
+    }
+
     /** Even-odd ray casting. The polygon is treated as closed regardless of the caller. */
     fun pointInPolygon(x: Float, y: Float, xs: FloatArray, ys: FloatArray, count: Int): Boolean {
         var inside = false

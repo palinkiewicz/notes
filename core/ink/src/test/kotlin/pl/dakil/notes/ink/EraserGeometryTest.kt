@@ -2,6 +2,7 @@ package pl.dakil.notes.ink
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -159,6 +160,38 @@ class EraserGeometryTest {
     fun `a degenerate lasso selects nothing`() {
         val strokes = listOf(line())
         assertTrue(HitTester.strokesInPolygon(strokes, floatArrayOf(0f, 1f), floatArrayOf(0f, 1f), 2).isEmpty())
+    }
+
+    // ---- Tap to select -------------------------------------------------------------------------
+
+    @Test
+    fun `a tap picks the stroke it lands on and nothing when it lands on paper`() {
+        val strokes = listOf(line())
+        assertEquals(0, HitTester.strokeAt(strokes, 50f, 0f, radius = 4f))
+        // Well clear of the line, and clear of the reach around it.
+        assertNull(HitTester.strokeAt(strokes, 50f, 40f, radius = 4f))
+    }
+
+    @Test
+    fun `the reach round a tap is added to the stroke's own width`() {
+        // A hairline has to be as easy to hit as a highlighter, which is what the reach is for:
+        // 6pt off the centreline is nowhere near a 2pt line's edge but is inside the reach.
+        assertEquals(0, HitTester.strokeAt(listOf(line(width = 2f)), 50f, 6f, radius = 6f))
+        assertNull(HitTester.strokeAt(listOf(line(width = 2f)), 50f, 6f, radius = 1f))
+        // Half of a 30pt line's width reaches 15pt out on its own.
+        assertEquals(0, HitTester.strokeAt(listOf(line(width = 30f)), 50f, 12f, radius = 1f))
+    }
+
+    @Test
+    fun `where two strokes overlap the tap takes the one drawn last`() {
+        // The ink on top is the ink being pointed at, and later in the list is later on the page.
+        val strokes = listOf(line(), line())
+        assertEquals(1, HitTester.strokeAt(strokes, 50f, 0f, radius = 4f))
+    }
+
+    @Test
+    fun `a tap on an empty layer finds nothing`() {
+        assertNull(HitTester.strokeAt(emptyList(), 0f, 0f, radius = 4f))
     }
 
     @Test
