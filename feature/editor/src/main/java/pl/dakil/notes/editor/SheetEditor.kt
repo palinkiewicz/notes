@@ -332,7 +332,7 @@ private fun SheetLayers(
             sheet = sheet,
             state = state,
             viewModel = viewModel,
-            styles = rememberMarkdownStyles(sizes = true),
+            styles = rememberMarkdownStyles(attributes = true),
             ptToPx = ptToPx,
             paged = paged,
             // A lambda for the same reason the lasso outline takes one: the reach around a box is a

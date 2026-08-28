@@ -227,22 +227,41 @@ object MarkdownStructure {
             // Offsets in front of [at] are the same in both documents, and every opener this walks
             // over is one of them — which is what lets [before] be asked about a marker whose place
             // in [after] has already moved.
-            val marker = MARKERS.firstOrNull {
-                start - it.length >= 0 && end + it.length <= after.length &&
-                    after.startsWith(it, start - it.length) && after.startsWith(it, end) &&
-                    MarkdownRenderer.hidesAnythingIn(before, start - it.length, start)
+            val marker = MARKERS.firstOrNull { (open, close) ->
+                start - open.length >= 0 && end + close.length <= after.length &&
+                    after.startsWith(open, start - open.length) && after.startsWith(close, end) &&
+                    MarkdownRenderer.hidesAnythingIn(before, start - open.length, start)
             } ?: break
-            start -= marker.length
-            end += marker.length
+            start -= marker.first.length
+            end += marker.second.length
         }
         return if (start == end) null else MdEditAt(start, end, "", start)
     }
 
     /**
-     * Longest first, for the same reason the renderer scans them that way: `**` matched inside
-     * `***` would take two of the three and leave the last one standing on its own.
+     * What opens a span and what closes it, longest first — for the same reason the renderer scans
+     * them that way: `**` matched inside `***` would take two of the three and leave the last one
+     * standing on its own.
+     *
+     * Held as pairs rather than as single strings because not every span is symmetrical. The writer
+     * falls back to `<em>` and `<strong>` where asterisks cannot say what the styles mean (see
+     * [InlineModel]), and a tag emptied by a deletion has to be cleared away like any other pair —
+     * `<em></em>` is not markup, it is nine characters of it on screen.
      */
-    private val MARKERS = listOf("***", "___", "**", "__", "~~", "*", "_", "`", "$")
+    private val MARKERS = listOf(
+        "<strong>" to "</strong>",
+        "<del>" to "</del>",
+        "<em>" to "</em>",
+        "***" to "***",
+        "___" to "___",
+        "**" to "**",
+        "__" to "__",
+        "~~" to "~~",
+        "*" to "*",
+        "_" to "_",
+        "`" to "`",
+        "$" to "$",
+    )
 
     /**
      * Whether [inserted] is a line break and nothing else — a newline and at most the marker the
@@ -282,7 +301,7 @@ object MarkdownStructure {
         val split = splitRuns(source, at, at, separator) ?: return null
         return MdLineBreak(
             edit = split.edit,
-            carry = split.open.filterIndexed { i, _ -> split.tailEmpty[i] }.mapNotNull { carried(source, it) },
+            carry = split.open.filterIndexed { i, _ -> split.tailEmpty[i] }.flatMap { carried(source, it) },
         )
     }
 
@@ -577,7 +596,7 @@ object MarkdownStructure {
      * this is not.
      */
     fun stylesOpenAt(source: String, at: Int): List<MdPending> =
-        MarkdownRenderer.openInlineAt(source, at).mapNotNull { carried(source, it) }
+        MarkdownRenderer.openInlineAt(source, at).flatMap { carried(source, it) }
 
     /**
      * The same edit, pulled clear of any hidden markers it had reached over.
@@ -697,13 +716,28 @@ object MarkdownStructure {
         return true
     }
 
-    /** The style [span] stands for, for a caret to carry onto a line that has no markers yet. */
-    internal fun carried(source: String, span: MdInline): MdPending? {
+    /**
+     * The styles [span] stands for, for a caret to carry onto a line that has no markers yet.
+     *
+     * A list rather than one, because a bracketed span's braces can say two things at once — a
+     * phrase set large *and* in a colour is one span, and a line break taken inside it has to carry
+     * both onto the line below or the second half comes out half-styled.
+     */
+    internal fun carried(source: String, span: MdInline): List<MdPending> {
         val opener = source.substring(span.openStart, span.openEnd)
-        if (opener != "[") return MdPending.Wrap(opener)
-        // A size is not a marker that can be doubled up, so it is carried as the size it is.
-        val size = MarkdownRenderer.sizeSuffixAt(source, span.closeStart + 1, span.closeEnd)
-        return size?.let { MdPending.Size(it.first) }
+        // A run written as a tag is carried as the marker the bar knows it by: `<strong>` is the
+        // same boldness as `**`, and a caret leaving one has to arm a style the buttons answer to.
+        InlineModel.Kind.entries.firstOrNull { opener == "<" + it.tag + ">" }
+            ?.let { return listOf(MdPending.Wrap(it.marker)) }
+        if (opener != "[") return listOf(MdPending.Wrap(opener))
+        // Neither a size nor a colour is a marker that can be doubled up, so each is carried as the
+        // value it is.
+        val attrs = MarkdownRenderer.attrSuffixAt(source, span.closeStart + 1, span.closeEnd)?.attrs
+            ?: return emptyList()
+        return listOfNotNull(
+            attrs.size?.let { MdPending.Size(it) },
+            attrs.color?.let { MdPending.Color(it) },
+        )
     }
 
     /**

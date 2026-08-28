@@ -198,7 +198,10 @@ class MarkdownBlockActionsTest {
         val italic = MarkdownActions.toggleWrap(bold.text, bold.selectionStart, bold.selectionEnd, "*")
         assertEquals("***word***", italic.text)
         val struck = MarkdownActions.toggleWrap(italic.text, italic.selectionStart, italic.selectionEnd, "~~")
-        assertEquals("***~~word~~***", struck.text)
+        // Which of the three is written outermost is the writer's business, not the document's:
+        // it nests them widest-first and settles ties in one fixed order, so a word wearing all
+        // three has one spelling rather than one per order the buttons happened to be pressed in.
+        assertEquals("**~~*word*~~**", struck.text)
     }
 
     @Test

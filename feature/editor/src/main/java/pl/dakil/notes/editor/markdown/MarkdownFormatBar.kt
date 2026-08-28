@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -49,10 +50,12 @@ import pl.dakil.notes.editor.InlineSelector
 import pl.dakil.notes.editor.PopupPlacement
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
+import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.ui.color.ColorSwatch
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** Which of the format bar's popups is open. */
-enum class FormatPopup { BLOCK, SIZE }
+enum class FormatPopup { BLOCK, SIZE, COLOR }
 
 /**
  * The Markdown formatting controls, as a bottom bar.
@@ -70,8 +73,8 @@ fun MarkdownFormatBar(
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Whether this document may set its own font sizes. See [MdStyle.SIZE]. */
-    sizes: Boolean = false,
+    /** Whether this document may set its own sizes and colours. See [MdStyle.SIZE]. */
+    attributes: Boolean = false,
     /**
      * Whether another bar stands below this one.
      *
@@ -103,7 +106,7 @@ fun MarkdownFormatBar(
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
-                sizes = sizes,
+                attributes = attributes,
             )
         }
     }
@@ -119,8 +122,8 @@ fun MarkdownFormatRail(
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Whether this document may set its own font sizes. See [MdStyle.SIZE]. */
-    sizes: Boolean = false,
+    /** Whether this document may set its own sizes and colours. See [MdStyle.SIZE]. */
+    attributes: Boolean = false,
 ) {
     NavigationRail(modifier = modifier) {
         Column(
@@ -138,7 +141,7 @@ fun MarkdownFormatRail(
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
-                sizes = sizes,
+                attributes = attributes,
             )
         }
     }
@@ -159,7 +162,7 @@ private fun FormatControls(
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
-    sizes: Boolean,
+    attributes: Boolean,
 ) {
     val source = state.text.toString()
     val selection = state.selection
@@ -214,7 +217,7 @@ private fun FormatControls(
         }
     }
 
-    if (sizes) {
+    if (attributes) {
         val inText = remember(source, selection) {
             MarkdownActions.sizeIn(source, selection.start, selection.end)
         }
@@ -241,6 +244,47 @@ private fun FormatControls(
                             state.applySize(pending, choice)
                         }
                     }
+                }
+            }
+        }
+
+        val inTextColor = remember(source, selection) {
+            MarkdownActions.colorIn(source, selection.start, selection.end)
+        }
+        val armedColor = armed.lastOrNull { it is MdPending.Color } as MdPending.Color?
+        val color = if (armedColor != null) armedColor.argb else inTextColor
+        FormatButton(
+            label = stringResource(R.string.markdown_text_color),
+            description = stringResource(R.string.markdown_text_color),
+            selected = openPopup == FormatPopup.COLOR,
+            onClick = { onPopupChange(if (openPopup == FormatPopup.COLOR) null else FormatPopup.COLOR) },
+            content = {
+                // The letter in the colour it would apply, over a bar of the same: the swatch says
+                // what the button does, and the letter stays legible when the colour is a pale one.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("A", fontWeight = FontWeight.Medium)
+                    Box(
+                        Modifier
+                            .padding(top = 2.dp)
+                            .width(18.dp)
+                            .height(3.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .background(
+                                color?.let { Color(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                    )
+                }
+            },
+        ) {
+            if (openPopup == FormatPopup.COLOR) {
+                InlineSelector(placement = placement, onDismiss = { onPopupChange(null) }) {
+                    TextColorChoices(
+                        selected = color,
+                        onSelect = {
+                            onPopupChange(null)
+                            state.applyColor(pending, it)
+                        },
+                    )
                 }
             }
         }
@@ -418,6 +462,48 @@ private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Uni
     }
 }
 
+/**
+ * The colours offered for text, plus the way back to the document's own.
+ *
+ * The same fixed list the pen offers, and fixed for the same reason: this is document content, not
+ * app chrome. A colour picked from the Material scheme would mean one thing on the device it was
+ * chosen on and another on the next, and something else again after a theme change — and the note
+ * outlives all three. Anything outside the list can still be written by hand in source mode, where
+ * the tag is ordinary text.
+ */
+@Composable
+private fun TextColorChoices(selected: Int?, onSelect: (Int?) -> Unit) {
+    // "Default" first: it is the way out, and the way out belongs where the thumb lands.
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .clickable(onClick = { onSelect(null) })
+            .then(
+                if (selected == null) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+                else Modifier
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "A",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = if (selected == null) MaterialTheme.colorScheme.onSecondaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    for (choice in TEXT_COLORS) {
+        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            ColorSwatch(
+                color = choice,
+                selected = choice == selected,
+                onClick = { onSelect(choice) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun SizeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
@@ -546,6 +632,15 @@ private fun TextFieldState.applySize(pending: PendingStyles, sp: Int?) {
     applyAction(pending) { text, start, end -> MarkdownActions.setSize(text, start, end, sp) }
 }
 
+/** A colour, armed at a bare caret for the same reason [applySize] arms a size. */
+private fun TextFieldState.applyColor(pending: PendingStyles, argb: Int?) {
+    if (selection.collapsed) {
+        pending.setColor(selection.start, argb)
+        return
+    }
+    applyAction(pending) { text, start, end -> MarkdownActions.setColor(text, start, end, argb) }
+}
+
 /**
  * The ladder offered in the size menu.
  *
@@ -555,6 +650,14 @@ private fun TextFieldState.applySize(pending: PendingStyles, sp: Int?) {
  * mode — the tag is ordinary text.
  */
 private val SIZE_CHOICES = listOf(10, 12, 14, 16, 20, 24, 32, 48)
+
+/**
+ * The colours offered in the colour menu — the pen's own palette.
+ *
+ * Shared with ink deliberately: a page annotated in the red pen and a heading written in the red
+ * text colour should be the same red, and two lists that drift apart is how they stop being.
+ */
+private val TEXT_COLORS = ColorCodec.INK_PRESETS.toList()
 
 /**
  * The height of a bar stacked above another one.

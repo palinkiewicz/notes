@@ -96,7 +96,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
         factory = NoteViewModel.factory(container.repository, container.settings)
     )
     val textNoteViewModel: TextNoteViewModel = viewModel(
-        factory = TextNoteViewModel.factory(container.repository)
+        factory = TextNoteViewModel.factory(container.repository, container.settings)
     )
 
     LaunchedEffect(Unit) { libraryViewModel.start() }

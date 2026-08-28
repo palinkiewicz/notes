@@ -41,10 +41,10 @@ object TextPageExporter {
     private const val PNG_DPI = 150f
     private val TEXT_COLOR = Color(0xFF1B1B1F)
 
-    fun exportToPdf(context: Context, markdown: String): File {
+    fun exportToPdf(context: Context, markdown: String, attributes: Boolean): File {
         val fontResolver = createFontFamilyResolver(context)
         val ptToPx = 1f
-        val paragraph = buildParagraph(markdown, fontResolver, ptToPx)
+        val paragraph = buildParagraph(markdown, fontResolver, ptToPx, attributes)
         val breaks = pageBreaks(paragraph, contentHeightPx(ptToPx))
         val widthPt = PAGE_WIDTH_PT.toInt()
         val heightPt = PAGE_HEIGHT_PT.toInt()
@@ -64,10 +64,10 @@ object TextPageExporter {
         return file
     }
 
-    fun exportToPngs(context: Context, markdown: String): List<File> {
+    fun exportToPngs(context: Context, markdown: String, attributes: Boolean): List<File> {
         val fontResolver = createFontFamilyResolver(context)
         val ptToPx = PNG_DPI / 72f
-        val paragraph = buildParagraph(markdown, fontResolver, ptToPx)
+        val paragraph = buildParagraph(markdown, fontResolver, ptToPx, attributes)
         val breaks = pageBreaks(paragraph, contentHeightPx(ptToPx))
         val widthPx = (PAGE_WIDTH_PT * ptToPx).toInt().coerceAtLeast(1)
         val heightPx = (PAGE_HEIGHT_PT * ptToPx).toInt().coerceAtLeast(1)
@@ -96,9 +96,14 @@ object TextPageExporter {
 
     private fun contentHeightPx(ptToPx: Float): Float = (PAGE_HEIGHT_PT - 2 * MARGIN_PT) * ptToPx
 
-    private fun buildParagraph(markdown: String, fontResolver: FontFamily.Resolver, ptToPx: Float): Paragraph {
+    private fun buildParagraph(
+        markdown: String,
+        fontResolver: FontFamily.Resolver,
+        ptToPx: Float,
+        attributes: Boolean,
+    ): Paragraph {
         val plan = MarkdownRenderer.plan(markdown)
-        val annotated = plan.toAnnotatedString(markdown, exportMarkdownStyles())
+        val annotated = plan.toAnnotatedString(markdown, exportMarkdownStyles(attributes))
         val widthPx = ((PAGE_WIDTH_PT - 2 * MARGIN_PT) * ptToPx).toInt().coerceAtLeast(1)
         return Paragraph(
             text = annotated.text,

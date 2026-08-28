@@ -3,6 +3,8 @@ package pl.dakil.notes.editor.markdown
 import pl.dakil.notes.editor.markdown.code.CodeHighlighter
 import pl.dakil.notes.editor.markdown.code.CodeLanguages
 import pl.dakil.notes.editor.markdown.code.CodeToken
+import pl.dakil.notes.model.ColorCodec
+import java.util.Locale
 
 /**
  * What a run of characters should look like once the syntax around it is gone.
@@ -59,13 +61,15 @@ enum class MdStyle {
     /**
      * Text set at a size the author picked, in sp, carried in [MdStyleRange.arg].
      *
-     * The one thing a sheet's text can do that a `.md` note's cannot. A note is a Markdown *file*
-     * and has to stay one — a size baked into it would render as literal punctuation in every other
-     * editor the user opens it in — whereas a sheet is a page of paper, where a heading three times
-     * the size of the body is the most ordinary thing in the world. Both understand the syntax and
-     * both hide it; only one of them acts on it. See `rememberMarkdownStyles`.
+     * One of the two things Pandoc's bracketed-span syntax says here — see [MdAttrs]. Understood
+     * and hidden in both kinds of note; whether it is *obeyed* is a document's own affair, because
+     * a `.md` file has to stay a Markdown file that other editors render sensibly. A sheet always
+     * obeys it, and a note does when the user has asked for it. See `rememberMarkdownStyles`.
      */
     SIZE,
+
+    /** Text in a colour the author picked, as packed ARGB in [MdStyleRange.arg]. See [SIZE]. */
+    COLOR,
 
     /** A blank line standing between one paragraph and the next. */
     PARAGRAPH_GAP,
@@ -94,11 +98,78 @@ data class MdEdit(
 /**
  * A run of characters wearing one [MdStyle].
  *
- * [arg] is the style's parameter where it has one, and zero where it does not. Only [MdStyle.SIZE]
- * uses it. A whole parallel list of sized ranges would have been the alternative, and would have
- * meant every consumer of a plan learning that styles come in two kinds.
+ * [arg] is the style's parameter where it has one, and zero where it does not — a size in sp for
+ * [MdStyle.SIZE], packed ARGB for [MdStyle.COLOR], and nothing for every other style. A whole
+ * parallel list of parameterised ranges would have been the alternative, and would have meant every
+ * consumer of a plan learning that styles come in two kinds.
  */
 data class MdStyleRange(val start: Int, val end: Int, val style: MdStyle, val arg: Int = 0)
+
+/**
+ * What a bracketed span's braces say: `{size=18 color=#c0392b}`.
+ *
+ * Both fields are optional and null means "not stated" rather than "set to the default" — a span
+ * that names only a colour leaves the size alone, which is what lets one word inside a large
+ * heading be recoloured without also being pinned to a size the user never chose.
+ *
+ * One type for the pair of them, rather than two independent tags, because they share a span: the
+ * renderer reads them out of one set of braces and the formatting bar writes them back into one.
+ */
+data class MdAttrs(val size: Int? = null, val color: Int? = null) {
+
+    val isEmpty: Boolean get() = size == null && color == null
+
+    /**
+     * [other]'s stated attributes laid over this one's.
+     *
+     * How setting a colour on already-sized text keeps the size: the bar names the one attribute
+     * the button is about, and everything the span already carried comes through underneath.
+     */
+    fun mergedWith(other: MdAttrs): MdAttrs =
+        MdAttrs(size = other.size ?: size, color = other.color ?: color)
+
+    /** The braces, as written into the document. Empty when there is nothing left to say. */
+    fun render(): String {
+        if (isEmpty) return ""
+        val out = StringBuilder("{")
+        size?.let { out.append("size=").append(it) }
+        color?.let {
+            if (out.length > 1) out.append(' ')
+            out.append("color=").append(hexOf(it))
+        }
+        return out.append('}').toString()
+    }
+
+    private companion object {
+        /**
+         * `#rrggbb`, or `#aarrggbb` where the colour is not opaque.
+         *
+         * Lower case, and folded with [Locale.ROOT] rather than the device's: a Turkish phone folds
+         * `I` to a dotless `ı`, and a colour written that way is one no other device can read back.
+         */
+        fun hexOf(argb: Int): String =
+            ColorCodec.toHex(argb, includeAlpha = ColorCodec.alpha(argb) != 0xFF)
+                .lowercase(Locale.ROOT)
+    }
+}
+
+/** [MdAttrs] plus where the braces holding them end. See [MarkdownRenderer.attrSuffixAt]. */
+data class MdAttrSuffix(val attrs: MdAttrs, val end: Int)
+
+/**
+ * A whole `[body]{…}` in source coordinates.
+ *
+ * [start] and [end] bracket the tag; [open] and [close] bracket the text inside it. One definition,
+ * because the renderer, the formatting bar and the inline model all have to agree about where a tag
+ * begins and ends — and three bracket-counting loops would be three chances to disagree.
+ */
+data class MdAttrSpan(
+    val start: Int,
+    val open: Int,
+    val close: Int,
+    val end: Int,
+    val attrs: MdAttrs,
+)
 
 /**
  * Something to be *drawn* rather than spelled out in characters.
@@ -1320,6 +1391,14 @@ object MarkdownRenderer {
                 }
             }
 
+            if (text[i] == '<') {
+                val tagged = scanHtmlEmphasis(text, i, to, edits, styles, spans)
+                if (tagged > 0) {
+                    i = tagged
+                    continue
+                }
+            }
+
             if (text.startsWith("![", i)) {
                 val consumed = scanReference(text, i, to, edits, styles, spans, image = true)
                 if (consumed > 0) {
@@ -1332,9 +1411,9 @@ object MarkdownRenderer {
                 // Before the link scan, because both start with a bracket and only the *suffix*
                 // tells them apart. The two cannot be confused once past it: `scanReference` wants
                 // `](`, this wants `]{`, and each declines what the other is looking at.
-                val sized = scanSizedSpan(text, i, to, edits, styles, spans)
-                if (sized > 0) {
-                    i = sized
+                val attributed = scanAttrSpan(text, i, to, edits, styles, spans)
+                if (attributed > 0) {
+                    i = attributed
                     continue
                 }
 
@@ -1353,6 +1432,50 @@ object MarkdownRenderer {
 
             i++
         }
+    }
+
+    /**
+     * The three emphases HTML can also say, which is how this app says them when asterisks cannot.
+     *
+     * Markdown's markers are ambiguous where two runs of the same symbol come to touch: `**` beside
+     * `*` is one run of three, and a phrase carrying one of those at each end has no reading. Two
+     * styles that *overlap* rather than nest always end that way, and there is no arrangement of
+     * asterisks that avoids it — it is the syntax, not a shortcoming of the writer.
+     *
+     * These tags are the way out, and they are not an invention: raw HTML is part of CommonMark and
+     * every reader renders them. `MarkdownWriter` reaches for them only where the markers cannot be
+     * made to say the right thing, so an ordinary note has none in it.
+     */
+    private val HTML_EMPHASIS = listOf(
+        "strong" to MdStyle.BOLD,
+        "em" to MdStyle.ITALIC,
+        "del" to MdStyle.STRIKE,
+    )
+
+    /** Handles `<em>text</em>`, returning the offset just past it, or 0 if that is not what is here. */
+    private fun scanHtmlEmphasis(
+        text: String,
+        i: Int,
+        to: Int,
+        edits: MutableList<MdEdit>,
+        styles: MutableList<MdStyleRange>,
+        spans: MutableList<MdInline>,
+    ): Int {
+        for ((tag, style) in HTML_EMPHASIS) {
+            val open = "<$tag>"
+            val close = "</$tag>"
+            if (!text.startsWith(open, i)) continue
+            val at = text.indexOf(close, i + open.length)
+            // An empty pair styles nothing and would hide the tags that say so.
+            if (at <= i + open.length || at + close.length > to) continue
+            edits += MdEdit(i, i + open.length, "")
+            spans += MdInline(i, i + open.length, at, at + close.length)
+            styles += MdStyleRange(i + open.length, at, style)
+            scanInline(text, i + open.length, at, edits, styles, spans)
+            edits += MdEdit(at, at + close.length, "")
+            return at + close.length
+        }
+        return 0
     }
 
     /** A run of emphasis markers and what wearing them means. */
@@ -1429,19 +1552,23 @@ object MarkdownRenderer {
     }
 
     /**
-     * Handles `[text]{size=18}`, returning the offset just past it, or 0 if this is not one.
+     * Handles `[text]{size=18 color=#c0392b}`, returning the offset just past it, or 0 if this is
+     * not one.
      *
      * Pandoc's bracketed-span syntax, chosen over inventing something: it is a real convention, it
      * cannot collide with a link, it nests, and a Markdown tool that does not know it shows the
-     * words with some punctuation around them rather than swallowing them. The size is in sp — the
-     * unit the platform scales with the reader's own font setting, so a note written at 24 stays
-     * proportionate to everything else when somebody turns their text size up.
+     * words with some punctuation around them rather than swallowing them.
+     *
+     * One span carries *every* attribute it was given, which is the whole reason the braces hold a
+     * list rather than a single key. Two spans wrapped round the same words — `[[a]{size=18}]{...}`
+     * — would say the same thing, and would be four more characters for every edit to step over and
+     * one more level for a later split to take apart. See [attrSuffixAt].
      *
      * Brackets are counted rather than searched for, so the closing one is the one that matches the
      * opening one. `[a [b]{size=12} c]{size=24}` is a span inside a span; taking the first `]{`
      * would end the outer span in the middle of the inner one and style half a sentence.
      */
-    private fun scanSizedSpan(
+    private fun scanAttrSpan(
         text: String,
         i: Int,
         to: Int,
@@ -1457,15 +1584,16 @@ object MarkdownRenderer {
                 ']' -> {
                     depth--
                     if (depth == 0) {
-                        val suffix = sizeSuffixAt(text, k + 1, to) ?: return 0
-                        // An empty span would style nothing and hide four characters for no reason.
+                        val suffix = attrSuffixAt(text, k + 1, to) ?: return 0
+                        // An empty span would style nothing and hide the braces for no reason.
                         if (k == i + 1) return 0
                         edits += MdEdit(i, i + 1, "")
-                        spans += MdInline(i, i + 1, k, suffix.second)
-                        styles += MdStyleRange(i + 1, k, MdStyle.SIZE, suffix.first)
+                        spans += MdInline(i, i + 1, k, suffix.end)
+                        suffix.attrs.size?.let { styles += MdStyleRange(i + 1, k, MdStyle.SIZE, it) }
+                        suffix.attrs.color?.let { styles += MdStyleRange(i + 1, k, MdStyle.COLOR, it) }
                         scanInline(text, i + 1, k, edits, styles, spans)
-                        edits += MdEdit(k, suffix.second, "")
-                        return suffix.second
+                        edits += MdEdit(k, suffix.end, "")
+                        return suffix.end
                     }
                 }
             }
@@ -1475,29 +1603,106 @@ object MarkdownRenderer {
     }
 
     /**
-     * `{size=N}` at [at]: its value and the offset just past it, or null if that is not there.
+     * The attribute braces at [at]: what they say and where they end, or null if that is not what
+     * stands there.
      *
      * Read character by character rather than with a pattern, and `internal` so that the formatting
-     * bar reads it the same way. One definition of the syntax, so the thing that *renders* a size
+     * bar reads it the same way. One definition of the syntax, so the thing that *renders* a span
      * and the thing that *sets* one cannot come to disagree about what one looks like — and no
      * second regex to get subtly wrong. (The first one was: a literal `}` unescaped, which the JVM
      * accepts and Android's ICU engine refuses, so every unit test passed and the app died on the
      * first formatting bar it drew.)
+     *
+     * Strict about the whole of the braces, not just the part it understands. An attribute list
+     * carrying anything this does not know is refused outright and stays on screen as the text it
+     * is, because hiding braces whose meaning is only half read is how a note quietly loses the
+     * half nobody parsed — and a user who mistyped `{sixe=18}` is owed the sight of their mistake.
      */
-    internal fun sizeSuffixAt(text: String, at: Int, to: Int): Pair<Int, Int>? {
-        val open = "{size="
-        if (!text.startsWith(open, at) || at + open.length >= to) return null
-        var k = at + open.length
-        var value = 0
-        while (k < to && text[k].isDigit()) {
-            value = value * 10 + (text[k] - '0')
-            // Past this it is not a size any more, and a run of digits long enough to overflow is
-            // not something to try to make sense of.
-            if (value > MAX_SIZE_SP) return null
+    /**
+     * The `[body]{…}` beginning at [at], or null if what stands there is not one.
+     *
+     * Brackets are counted rather than searched for, so the closing one is the one that matches the
+     * opening one: `[a [b]{size=12} c]{size=24}` is a span inside a span, and taking the first `]{`
+     * would end the outer span in the middle of the inner one.
+     *
+     * The opening bracket has to be the first thing at [at]. Without that the count starts at
+     * whatever is there and finds the *next* span along instead.
+     */
+    internal fun attrSpanAt(text: String, at: Int, to: Int): MdAttrSpan? {
+        if (at < 0 || at >= to || text[at] != '[') return null
+        var depth = 0
+        var k = at
+        while (k < to) {
+            when (text[k]) {
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) {
+                        val suffix = attrSuffixAt(text, k + 1, to) ?: return null
+                        return MdAttrSpan(at, at + 1, k, suffix.end, suffix.attrs)
+                    }
+                }
+            }
             k++
         }
-        if (value < MIN_SIZE_SP || k >= to || text[k] != '}') return null
-        return value to (k + 1)
+        return null
+    }
+
+    internal fun attrSuffixAt(text: String, at: Int, to: Int): MdAttrSuffix? {
+        if (at >= to || text[at] != '{') return null
+        var k = at + 1
+        var size: Int? = null
+        var color: Int? = null
+        while (k < to && text[k] != '}') {
+            if (text[k] == ' ') {
+                k++
+                continue
+            }
+            val equals = text.indexOf('=', k)
+            if (equals < 0 || equals >= to) return null
+            val key = text.substring(k, equals)
+            var end = equals + 1
+            while (end < to && text[end] != ' ' && text[end] != '}') end++
+            val value = text.substring(equals + 1, end)
+            // A key seen twice is refused along with a key never heard of: `{size=12 size=18}` has
+            // no answer, and picking one of them silently is worse than showing the braces and
+            // letting the author see what they wrote.
+            when (key) {
+                "size" -> size = if (size == null) sizeValue(value) ?: return null else return null
+                "color" -> color = if (color == null) colorValue(value) ?: return null else return null
+                else -> return null
+            }
+            k = end
+        }
+        // An empty pair says nothing, and a run of it says nothing twice.
+        if (k >= to || (size == null && color == null)) return null
+        return MdAttrSuffix(MdAttrs(size = size, color = color), k + 1)
+    }
+
+    /**
+     * A size in sp, or null where the digits are not one.
+     *
+     * Bounded at both ends because the tag is text a user can type by hand, and neither `{size=0}`
+     * nor `{size=99999}` is a document anyone meant to write — one is invisible and the other is a
+     * single letter filling the page, and both are easier to create by accident than to undo.
+     */
+    private fun sizeValue(value: String): Int? {
+        if (value.isEmpty() || value.any { !it.isDigit() }) return null
+        // Long enough to overflow is not a number to try to make sense of.
+        if (value.length > 4) return null
+        return value.toInt().takeIf { it in MIN_SIZE_SP..MAX_SIZE_SP }
+    }
+
+    /**
+     * A colour, as `#rgb`, `#rrggbb` or `#aarrggbb`.
+     *
+     * The `#` is required, unlike [ColorCodec.parse], which is lenient because it backs a field
+     * somebody is typing into. Here the string is already written down, and a bare `ff0000` in the
+     * braces is far more likely to be a word than a colour.
+     */
+    private fun colorValue(value: String): Int? {
+        if (!value.startsWith('#') || value.length !in setOf(4, 7, 9)) return null
+        return ColorCodec.parse(value)
     }
 
     /**

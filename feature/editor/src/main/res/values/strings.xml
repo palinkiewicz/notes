@@ -148,6 +148,7 @@
     <!--  FORMAT BAR  -->
     <string name="markdown_paragraph_style">Paragraph style</string>
     <string name="markdown_font_size">Font size</string>
+    <string name="markdown_text_color">Text colour</string>
     <string name="markdown_bold">Bold</string>
     <string name="markdown_italic">Italic</string>
     <string name="markdown_strikethrough">Strikethrough</string>

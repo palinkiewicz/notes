@@ -276,7 +276,7 @@ private fun EditableTextBox(
                     pending = viewModel.pendingStyles,
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = stringResource(R.string.editor_type_here),
-                    sizes = true,
+                    attributes = true,
                     // Back into the strip's own coordinates, because the thing that has to move to
                     // reveal the caret is the whole sheet.
                     onCaretBounds = { top, bottom ->

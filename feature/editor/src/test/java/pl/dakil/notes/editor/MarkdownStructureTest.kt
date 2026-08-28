@@ -524,6 +524,23 @@ class MarkdownStructureTest {
     }
 
     @Test
+    fun `a tag emptied by a deletion goes the same way a marker pair does`() {
+        // The writer falls back to `<em>` and `<strong>` where asterisks cannot express what the
+        // styles mean, so those pairs can be left standing by a deletion too — and `<em></em>` is
+        // not markup, it is nine characters of it on screen.
+        assertEquals(
+            MdEditAt(0, 9, "", 0),
+            MarkdownStructure.strandedMarkers("<em>x</em>", "<em></em>", 4),
+        )
+        assertEquals(
+            MdEditAt(0, 17, "", 0),
+            MarkdownStructure.strandedMarkers("<strong>x</strong>", "<strong></strong>", 8),
+        )
+        // And a tag with something still in it keeps both halves, like any other pair.
+        assertNull(MarkdownStructure.strandedMarkers("<em>ab</em>", "<em>a</em>", 5))
+    }
+
+    @Test
     fun `every pair a deletion emptied goes, not just the innermost`() {
         // Styles stack, so a word wearing four of them is four pairs deep and taking one off only
         // uncovers the next. Stopping after the first left `***~~~~***` on the page — a bold-italic

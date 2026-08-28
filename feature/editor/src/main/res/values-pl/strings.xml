@@ -148,6 +148,7 @@
     <!--  FORMAT BAR  -->
     <string name="markdown_paragraph_style">Styl akapitu</string>
     <string name="markdown_font_size">Rozmiar czcionki</string>
+    <string name="markdown_text_color">Kolor tekstu</string>
     <string name="markdown_bold">Pogrubienie</string>
     <string name="markdown_italic">Kursywa</string>
     <string name="markdown_strikethrough">Przekreślenie</string>

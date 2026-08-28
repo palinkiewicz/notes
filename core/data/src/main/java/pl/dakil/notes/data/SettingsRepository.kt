@@ -65,6 +65,17 @@ data class AppSettings(
     val defaultView: ViewMode = ViewMode.PAGED,
     /** How the note library draws its contents. */
     val libraryLayout: LibraryLayout = LibraryLayout.CARDS,
+    /**
+     * Whether a `.md` note obeys the sizes and colours a Pandoc bracketed span can name.
+     *
+     * Off by default, and deliberately a choice rather than a given. `[big]{size=24}` is a real
+     * Pandoc convention, but it is not something every Markdown tool renders — a note written with
+     * it opens elsewhere with the braces on show. Someone who keeps their notes to themselves, or
+     * whose other tools understand Pandoc, loses nothing by turning it on; someone syncing to an
+     * editor that does not is better off never being offered the buttons. A sheet is unaffected:
+     * it is paper, not a Markdown file, and always obeys them.
+     */
+    val pandocTextNotes: Boolean = false,
     /** The unit every paper measurement is shown and typed in. */
     val measurementUnit: MeasurementUnit = localeDefaultUnit(),
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
@@ -126,6 +137,7 @@ class SettingsRepository(context: Context) {
         libraryLayout = LibraryLayout.fromKey(
             prefs.getString(KEY_LIBRARY_LAYOUT, LibraryLayout.CARDS.key) ?: LibraryLayout.CARDS.key
         ),
+        pandocTextNotes = prefs.getBoolean(KEY_PANDOC_TEXT_NOTES, false),
         measurementUnit = prefs.getString(KEY_UNIT, null)
             ?.let(MeasurementUnit::fromKey) ?: localeDefaultUnit(),
     )
@@ -168,6 +180,9 @@ class SettingsRepository(context: Context) {
 
     fun setLibraryLayout(layout: LibraryLayout) =
         prefs.edit().putString(KEY_LIBRARY_LAYOUT, layout.key).apply()
+
+    fun setPandocTextNotes(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_PANDOC_TEXT_NOTES, enabled).apply()
 
     /**
      * Records a colour the user chose, newest first, de-duplicated.
@@ -285,6 +300,7 @@ class SettingsRepository(context: Context) {
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"
         const val KEY_LIBRARY_ROOT = "library.root"
         const val KEY_LIBRARY_LAYOUT = "ui.libraryLayout"
+        const val KEY_PANDOC_TEXT_NOTES = "ui.pandocTextNotes"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

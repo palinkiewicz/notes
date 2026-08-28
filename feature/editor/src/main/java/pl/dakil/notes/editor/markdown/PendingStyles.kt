@@ -14,6 +14,9 @@ sealed interface MdPending {
 
     /** A font size, or null for the document's own. See [MarkdownActions.setSize]. */
     data class Size(val sp: Int?) : MdPending
+
+    /** A text colour as packed ARGB, or null for the document's own. See [MarkdownActions.setColor]. */
+    data class Color(val argb: Int?) : MdPending
 }
 
 /**
@@ -70,6 +73,13 @@ class PendingStyles {
         val armed = stylesAt(offset)
         caret = offset
         styles = armed.filterNot { it is MdPending.Size } + MdPending.Size(sp)
+    }
+
+    /** Arms [argb] at [offset], replacing whatever colour was armed there. See [setSize]. */
+    fun setColor(offset: Int, argb: Int?) {
+        val armed = stylesAt(offset)
+        caret = offset
+        styles = armed.filterNot { it is MdPending.Color } + MdPending.Color(argb)
     }
 
     /**

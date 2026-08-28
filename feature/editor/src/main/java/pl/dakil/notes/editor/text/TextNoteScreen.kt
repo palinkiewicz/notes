@@ -127,7 +127,7 @@ fun TextNoteScreen(
                 val markdown = text.text.toString()
                 exporting = true
                 coroutineScope.launch(Dispatchers.Default) {
-                    val result = runCatching { exportText(context, markdown, format) }
+                    val result = runCatching { exportText(context, markdown, format, state.pandoc) }
                     exporting = false
                     exportOpen = false
                     result.getOrNull()?.let { shareExport(context, it) }
@@ -240,6 +240,9 @@ fun TextNoteScreen(
                     onPopupChange = { popup = it },
                     onInsertLink = { reference = ReferenceKind.LINK },
                     onInsertImage = { reference = ReferenceKind.IMAGE },
+                    // A `.md` file has to stay one every other editor renders sensibly, so the size
+                    // and colour controls are offered only where the user has asked for them.
+                    attributes = state.pandoc,
                 )
             }
         },
@@ -267,6 +270,7 @@ fun TextNoteScreen(
                             onPopupChange = { popup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
+                            attributes = state.pandoc,
                         )
                     }
                     MarkdownEditor(
@@ -276,6 +280,7 @@ fun TextNoteScreen(
                         modifier = Modifier.fillMaxSize(),
                         // Only a note with nothing in it opens ready to type.
                         autoFocus = text.text.isEmpty(),
+                        attributes = state.pandoc,
                     )
                 }
             }

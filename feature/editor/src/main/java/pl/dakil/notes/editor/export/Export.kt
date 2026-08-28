@@ -14,11 +14,23 @@ fun exportInk(context: Context, sheet: Sheet, preset: ExportColorPreset, format:
         ExportFormat.PNG -> InkPageExporter.exportToPngs(context, sheet, preset)
     }
 
-/** Renders a `.md` note's body in the chosen [format]. There is no colour preset: plain text has none. */
-fun exportText(context: Context, markdown: String, format: ExportFormat): List<File> =
+/**
+ * Renders a `.md` note's body in the chosen [format]. There is no colour *preset*: an ink sheet's
+ * are for its paper and its strokes, and a `.md` note has neither.
+ *
+ * [attributes] is the user's Pandoc setting, passed in rather than read here: an export is a picture
+ * of what the note looked like on screen, and a note whose sizes the editor was ignoring must not
+ * come out of the printer with them applied. See `AppSettings.pandocTextNotes`.
+ */
+fun exportText(
+    context: Context,
+    markdown: String,
+    format: ExportFormat,
+    attributes: Boolean,
+): List<File> =
     when (format) {
-        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown))
-        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown)
+        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, attributes))
+        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown, attributes)
     }
 
 /**

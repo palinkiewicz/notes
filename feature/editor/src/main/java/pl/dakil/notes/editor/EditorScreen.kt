@@ -331,8 +331,8 @@ fun EditorScreen(
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
-                            // A sheet is paper, not a Markdown file: it can set its own sizes.
-                            sizes = true,
+                            // A sheet is paper, not a Markdown file: it can set its own sizes and colours.
+                            attributes = true,
                             compact = true,
                         )
                     }
@@ -382,7 +382,7 @@ fun EditorScreen(
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
-                            sizes = true,
+                            attributes = true,
                         )
                     }
                     if (expanded) {

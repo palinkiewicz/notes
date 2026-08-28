@@ -137,8 +137,11 @@ fun MarkdownEditor(
      * it, and a box with no caret in it would be a keyboard that never arrives.
      */
     autoFocus: Boolean = true,
-    /** Whether `[text]{size=18}` sets a size here, or is merely hidden. See [MarkdownStyles]. */
-    sizes: Boolean = false,
+    /**
+     * Whether `[text]{size=18 color=#c0392b}` sets a size and a colour here, or is merely hidden.
+     * See [MarkdownStyles].
+     */
+    attributes: Boolean = false,
     /**
      * What the formatting bar has been asked for but not yet typed into. See [PendingStyles].
      *
@@ -158,7 +161,7 @@ fun MarkdownEditor(
     onCaretBounds: ((top: Float, bottom: Float) -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    val styles = rememberMarkdownStyles(sizes)
+    val styles = rememberMarkdownStyles(attributes)
     val palette = rememberMarkdownDecorationPalette()
     val transformation = remember(styles, sourceMode) { MarkdownOutputTransformation(styles, !sourceMode) }
     val applyPending = remember(pending) { ApplyPendingStyles(pending) }

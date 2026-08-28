@@ -12,54 +12,210 @@ object MarkdownActions {
     data class Result(val text: String, val selectionStart: Int, val selectionEnd: Int)
 
     /**
-     * Wraps the selection in [marker], or unwraps it when it is already wrapped.
+     * Turns the style [marker] stands for on over the selection, or off when it is already on.
      *
-     * The selection is first cut into the *prose* it covers — one span per line, each starting after
-     * whatever block markers that line carries. Inline syntax cannot cross a line break and cannot
-     * contain a bullet: dragging over two list items and pressing strikethrough used to produce
+     * Nothing here looks for a marker in the document. The lines the selection touches are read
+     * into [InlineModel] — a list of characters and the styles they wear — the styles on the
+     * selected ones are changed, and the lines are written back out from scratch. Every question
+     * that used to be delicate is answered there instead: whether the markers nest, whether one
+     * needs splitting, whether the selection reached from outside a tag to inside it, and whether
+     * two marker runs would come to touch.
+     *
+     * One line at a time, because inline syntax cannot cross a line break and cannot contain a
+     * bullet. Dragging over two list items and pressing strikethrough used to produce
      * `- ~~alpha\n- beta~~`, which is not a strikethrough at all but two literal pairs of tildes on
      * screen, and dragging over a single whole item produced `~~- alpha~~`, which silently stopped
-     * being a list item. Wrapping each line's prose on its own is what makes the button mean the
-     * same thing inside a list as it does in a paragraph.
+     * being a list item.
      */
     fun toggleWrap(text: String, start: Int, end: Int, marker: String): Result {
-        val spans = proseSpans(text, start, end)
-        if (spans.size == 1) {
-            val span = spans.single()
-            return wrapSpan(text, span.from, span.to, marker)
-        }
+        // A caret has no text to model, and what it wants is a fresh empty pair to type into. That
+        // is the one thing the model cannot express — it has no cell to hang a style on — so it
+        // stays with the marker surgery below. Everything with text in it goes through [restyle].
+        if (start == end) return wrapSpan(text, start, end, marker)
 
-        // Already on everywhere means the button is being pressed to turn it off; anything less is
-        // a press to turn it on, and the lines that already have it are left alone.
-        val on = spans.all { encloses(text, it.from, it.to, marker) }
-        var out = text
-        for (span in spans.reversed()) {
-            if (encloses(text, span.from, span.to, marker) != on) continue
-            out = wrapSpan(out, span.from, span.to, marker).text
+        val toggled = markerStyles(marker) ?: return wrapSpan(text, start, end, marker)
+        return restyle(text, start, end) { selected ->
+            // Already on everywhere means the button is being pressed to turn it off; anything less
+            // is a press to turn it on, and the parts that already have it are left alone. Decided
+            // once over everything selected, never line by line: a drag across a bold line and a
+            // plain one is one press, and answering it twice bolds one half and unbolds the other.
+            //
+            // Blanks have no say. A marker may not touch whitespace, so the space between two bold
+            // words is not always bold itself, and letting it vote made "is this bold" depend on
+            // where the selection happened to start.
+            val voters = selected.filterNot { it.visible.isBlank() }.ifEmpty { selected }
+            val on = voters.all { cell -> toggled.all { it.on(cell.style) } }
+            ({ style: InlineModel.InlineStyle -> toggled.fold(style) { worn, kind -> kind.set(worn, !on) } })
         }
-        // The selection is put back over the whole prose of every line it covered rather than over
-        // the words alone. Anything narrower would leave one end inside a pair of markers and the
-        // other outside it, and the next press would read that as "not wrapped" and wrap it again.
-        val lines = proseSpans(out, spans.first().from, spans.last().to + (out.length - text.length))
-        return Result(
-            text = out,
-            selectionStart = lines.first().from.coerceIn(0, out.length),
-            selectionEnd = lines.last().to.coerceIn(0, out.length),
-        )
+    }
+
+    /** What a marker means to the model, or null for one it does not carry — code and maths. */
+    private fun markerStyles(marker: String): List<InlineModel.Kind>? {
+        val symbol = marker.firstOrNull() ?: return null
+        if (marker.any { it != symbol }) return null
+        return when (symbol) {
+            '~' -> listOf(InlineModel.Kind.STRIKE)
+            '*', '_' -> buildList {
+                if (marker.length >= 2) add(InlineModel.Kind.BOLD)
+                if (marker.length % 2 == 1) add(InlineModel.Kind.ITALIC)
+            }
+            else -> null
+        }
     }
 
     /**
-     * The one-line case: toggle [marker] around exactly `[from, to)`.
+     * Rewrites the prose the selection covers from a model of what it looks like.
+     *
+     * The line is read into cells, [change] moves the styles on the ones the user selected, and the
+     * line is written back out from scratch. That is the whole of it: no markers are found, moved,
+     * counted or matched anywhere in this path, so none of the ways that can go wrong apply.
+     *
+     * One line at a time, because inline syntax cannot cross a break — a tag opened on one line and
+     * closed on the next is punctuation the reader can see. Lines are rewritten back to front so
+     * each one's offsets are still good when its turn comes.
+     *
+     * The selection comes back over the same *visible* text it went in over, found again by counting
+     * characters the reader can see. Source offsets mean nothing across a rewrite — the markup on
+     * either side of the words has usually changed length — and visible characters are the only
+     * coordinate the two versions of the line agree on.
+     */
+    private fun restyle(
+        text: String,
+        start: Int,
+        end: Int,
+        decide: (selected: List<InlineModel.InlineCell>) -> (InlineModel.InlineStyle) -> InlineModel.InlineStyle,
+    ): Result {
+        val from = start.coerceIn(0, text.length)
+        val to = end.coerceIn(from, text.length)
+        // Counted before anything moves, and looked up again afterwards. Source offsets mean
+        // nothing across a rewrite — the markup either side of the words changes length — and the
+        // characters the reader can see are the only coordinate the two versions agree on.
+        val firstVisible = visibleBefore(text, from)
+        val lastVisible = visibleBefore(text, to)
+
+        // Read every line first, so the press can be answered once for the whole selection, and
+        // only then rewritten — back to front, so each line's offsets are still good at its turn.
+        val lines = modelled(text, from, to)
+        val change = decide(lines.flatMap { (_, cells, range) -> cells.slice(range) })
+
+        var out = text
+        for ((line, cells, range) in lines.reversed()) {
+            val written = InlineModel.write(
+                InlineModel.changed(cells, range.first, range.last + 1, change)
+            )
+            out = out.substring(0, line.from) + written + out.substring(line.to)
+        }
+        val at = visibleOffset(out, firstVisible)
+        return Result(out, at, maxOf(at, visibleEnd(out, lastVisible)))
+    }
+
+    /**
+     * Every line `[start, end)` touches, modelled, with the cells the selection covers named.
+     *
+     * The *whole* line's prose is read, never the part the selection covers: a span's opening
+     * marker can stand outside the selection and the run it opens inside it, and a model built from
+     * the clipped text has the marker as a character and the run as unstyled.
+     */
+    private fun modelled(
+        text: String,
+        start: Int,
+        end: Int,
+    ): List<Triple<Span, List<InlineModel.InlineCell>, IntRange>> =
+        proseLines(text, start, end).mapNotNull { line ->
+            val cells = InlineModel.parse(text, line.from, line.to)
+            if (cells.isEmpty()) return@mapNotNull null
+            // An edge sitting in hidden markup belongs to the cell it was reaching for.
+            val a = cells.indexOfFirst { it.at + it.source.length > maxOf(start, line.from) }
+            val b = cells.indexOfLast { it.at < minOf(end, line.to) } + 1
+            if (a < 0 || a >= b) null else Triple(line, cells, a until b)
+        }
+
+    /** How many characters the reader can see before [at]. */
+    private fun visibleBefore(text: String, at: Int): Int =
+        (0 until at).count { !hiddenAt(text, it) }
+
+    /** The offset just past the reader's character number [count] - 1, or the end of the text. */
+    private fun visibleEnd(text: String, count: Int): Int {
+        if (count <= 0) return visibleOffset(text, 0)
+        var seen = 0
+        for (i in text.indices) {
+            if (hiddenAt(text, i)) continue
+            seen++
+            if (seen == count) return i + 1
+        }
+        return text.length
+    }
+
+
+    /**
+     * Toggles [marker] round `[from, to)` by moving the markers themselves.
+     *
+     * What is left of the old way of doing this, and it is left for the two cases the model of a
+     * styled line cannot hold: a **caret**, which has no character to hang a style on and wants an
+     * empty pair to type into, and **code and maths**, whose contents are not prose at all — what
+     * is between a pair of backticks is the characters that are there, and a model that folded them
+     * into styled letters would rewrite the code. Everything else goes through [restyle].
      *
      * Works on the **length of the marker run** around the span rather than on whether the exact
-     * marker string is there, and that is what lets styles stack. In Markdown one asterisk is
-     * italic and two are bold, so `***word***` is both — three asterisks is not "a bold marker with
-     * a stray asterisk", it is one run carrying two styles. Matching the literal string instead made
-     * the italic button read the `**` of an already-bold word as its own marker and *remove* it, so
-     * bolding then italicising gave a word that was only italic. Each button now toggles its own
-     * width in and out of the run and leaves the rest of it alone.
+     * marker string is there. In Markdown one asterisk is italic and two are bold, so `***word***`
+     * is both — three asterisks is not "a bold marker with a stray asterisk", it is one run
+     * carrying two styles.
+     *
+     * The result is checked before it is handed back: a wrap that would change what the reader
+     * sees — markers that land inside another span's syntax, most often — is refused rather than
+     * written, and the document is returned untouched. A button that does nothing is a great deal
+     * better than one that takes a note apart.
      */
     private fun wrapSpan(text: String, from: Int, to: Int, marker: String): Result {
+        val out = splitLiteral(text, from, to, marker) ?: wrapped(text, from, to, marker)
+        val was = MarkdownRenderer.render(text)
+        return if (from == to || MarkdownRenderer.render(out.text) == was) out else Result(text, from, to)
+    }
+
+    /**
+     * Ends a code or maths span over `[from, to)` alone, by cutting it into three.
+     *
+     * The press is "turn this off", and the words in the middle are inside the span rather than
+     * beside it, so there is nothing to unwrap — the run has to come apart. `` `I am blue` `` with
+     * the middle word taken out of the code is `` `I` am `blue` ``: two spans and a plain word,
+     * rather than one span with a hole nobody can write.
+     *
+     * Whitespace stays outside the backticks. A code span may hold a space, but one whose first
+     * character is a space is one whose text cannot be selected without picking up the gap beside
+     * it, and every later cut would grow another.
+     *
+     * Emphasis does not come through here — it is cut by rewriting the line from [InlineModel], and
+     * far more thoroughly. This is only for the two spans whose contents are characters rather than
+     * prose, which a model of prose has no cell for.
+     */
+    private fun splitLiteral(text: String, from: Int, to: Int, marker: String): Result? {
+        if (from >= to || marker !in LITERAL_MARKERS) return null
+        val span = MarkdownRenderer.plan(text).inline
+            .filter { from >= it.openEnd && to <= it.closeStart }
+            .lastOrNull { text.substring(it.openStart, it.openEnd) == marker } ?: return null
+
+        val before = literalMarked(text.substring(span.openEnd, from), marker)
+        val middle = text.substring(from, to)
+        val after = literalMarked(text.substring(to, span.closeStart), marker)
+        val at = span.openStart + before.length
+        return Result(
+            text = text.substring(0, span.openStart) + before + middle + after +
+                text.substring(span.closeEnd),
+            selectionStart = at,
+            selectionEnd = at + middle.length,
+        )
+    }
+
+    /** `[body]` between a pair of [marker], with any whitespace kept outside them. */
+    private fun literalMarked(body: String, marker: String): String {
+        val core = body.trim()
+        if (core.isEmpty()) return body
+        val lead = body.take(body.length - body.trimStart().length)
+        val trail = body.takeLast(body.length - body.trimEnd().length)
+        return "$lead$marker$core$marker$trail"
+    }
+
+    private fun wrapped(text: String, from: Int, to: Int, marker: String): Result {
         val width = marker.length
         val symbol = marker[0]
 
@@ -72,7 +228,7 @@ object MarkdownActions {
         // Strictly wider than the markers it is peeling off, or there is nothing between them to
         // peel: a selection of exactly `**` used to recurse onto a range that ran backwards.
         if (to - from > inside * 2 && inside >= width) {
-            return wrapSpan(text, from + inside, to - inside, marker)
+            return wrapped(text, from + inside, to - inside, marker)
                 .let { Result(it.text, it.selectionStart - inside, it.selectionEnd + inside) }
         }
 
@@ -86,6 +242,19 @@ object MarkdownActions {
         // With nothing selected the caret lands between the markers, ready to type.
         return Result(out, from + width, from + width + selected.length)
     }
+
+    /**
+     * Literal inline spans: the ones whose contents are not Markdown at all.
+     *
+     * Everything between a pair of backticks is the characters that are there, which is the whole
+     * point of a code span — and everything between a pair of dollars is preserved for the same
+     * reason. See [MarkdownRenderer]'s inline scan, where both are taken before anything else.
+     */
+    private val LITERAL_MARKERS = setOf("`", "$")
+
+
+
+
 
     /**
      * Whether `[from, to)` carries [marker], with the markers on either side of it or within it.
@@ -147,6 +316,52 @@ object MarkdownActions {
             .let { it + prefixOf(text.substring(it, lineEnd)).length }
         val at = from.coerceIn(minOf(body, lineEnd), lineEnd)
         return listOf(Span(at, at))
+    }
+
+
+
+
+    /** Whether the character at [at] is struck out of the rendering entirely. */
+    private fun hiddenAt(text: String, at: Int): Boolean =
+        MarkdownRenderer.hidesAnythingIn(text, at, at + 1)
+
+
+    // ---- Markers inside the brackets ---------------------------------------------------------
+
+    /** Where the reader's character number [count] begins, or the end of the text past the last. */
+    private fun visibleOffset(text: String, count: Int): Int {
+        var seen = 0
+        for (i in text.indices) {
+            if (hiddenAt(text, i)) continue
+            if (seen == count) return i
+            seen++
+        }
+        return text.length
+    }
+
+
+
+    /**
+     * The whole prose of every line `[start, end)` touches, each clear of that line's block markers.
+     *
+     * [proseSpans] answers the narrower question — what part of a line the selection covers — which
+     * is what an action working in markers needs. Anything working from a *model* of the line needs
+     * the line, because the marker that opens a run can stand outside the selection while the run
+     * it opens is inside it.
+     */
+    private fun proseLines(text: String, start: Int, end: Int): List<Span> {
+        val from = minOf(start, end).coerceIn(0, text.length)
+        val to = maxOf(start, end).coerceIn(0, text.length)
+        val lines = ArrayList<Span>()
+        var lineStart = lineStartAt(text, from)
+        while (lineStart <= to) {
+            val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
+            val body = lineStart + prefixOf(text.substring(lineStart, lineEnd)).length
+            if (body < lineEnd) lines += Span(body, lineEnd)
+            if (lineEnd >= text.length) break
+            lineStart = lineEnd + 1
+        }
+        return lines
     }
 
     /** Half-open `[from, to)`, because an empty one at a caret is a span this has to be able to name. */
@@ -582,10 +797,32 @@ object MarkdownActions {
         val lit = LinkedHashSet<String>()
         for (style in armed) if (style is MdPending.Wrap) lit += inlineMarkersOf(style.marker)
         if (!lit.remove(marker)) lit += marker
-        return lit.map { MdPending.Wrap(it) } + armed.filterIsInstance<MdPending.Size>()
+        return lit.map { MdPending.Wrap(it) } + armed.filterNot { it is MdPending.Wrap }
     }
 
     fun activeInlineMarkers(text: String, start: Int, end: Int): Set<String> {
+        // With something selected the answer is read off the model rather than guessed at from the
+        // marker characters around the selection. Counting asterisks was always a guess — it cannot
+        // see a `<strong>`, and it cannot tell a marker that belongs to this run from one that
+        // belongs to a neighbour — and a button that lights when the text is not bold is a button
+        // whose next press does the opposite of what it says.
+        if (start != end) {
+            val cells = modelled(text, start, end)
+                .flatMap { (_, all, range) -> all.slice(range) }
+                .filterNot { it.visible.isBlank() }
+            if (cells.isNotEmpty()) {
+                val active = InlineModel.Kind.entries
+                    .filterTo(HashSet()) { kind -> cells.all { kind.on(it.style) } }
+                    .mapTo(HashSet()) { it.marker }
+                // Code and maths are atoms rather than styles — what is inside one is characters,
+                // not prose — so they are answered by what the cells *are* rather than what they wear.
+                for (marker in LITERAL_MARKERS) {
+                    if (cells.all { it.source.startsWith(marker) }) active += marker
+                }
+                return active
+            }
+        }
+
         val spans = proseSpans(text, start, end)
         // Lit only when every line of the selection has it, matching what pressing the button would
         // then do: a selection where one item is struck through and one is not is not "struck".
@@ -691,9 +928,10 @@ object MarkdownActions {
         var from = start
         var to = end
         for (style in styles) {
-            val step = when {
-                style is MdPending.Wrap -> extend(out, from, to, style.marker) ?: toggleWrap(out, from, to, style.marker)
-                else -> setSize(out, from, to, (style as MdPending.Size).sp)
+            val step = when (style) {
+                is MdPending.Wrap -> extend(out, from, to, style.marker) ?: toggleWrap(out, from, to, style.marker)
+                is MdPending.Size -> setSize(out, from, to, style.sp)
+                is MdPending.Color -> setColor(out, from, to, style.argb)
             }
             out = step.text
             from = step.selectionStart
@@ -722,6 +960,7 @@ object MarkdownActions {
             val step = when (style) {
                 is MdPending.Wrap -> toggleWrap(out, from, to, style.marker)
                 is MdPending.Size -> setSize(out, from, to, style.sp)
+                is MdPending.Color -> setColor(out, from, to, style.argb)
             }
             out = step.text
             from = step.selectionStart
@@ -780,85 +1019,93 @@ object MarkdownActions {
     private fun cancels(conferred: MdPending, armed: MdPending): Boolean = when {
         conferred is MdPending.Wrap && armed is MdPending.Wrap -> confers(conferred.marker, armed.marker)
 
-        // A size is a choice rather than a toggle, so any size answers any other — including
-        // "body", which is the one that takes the tag off.
-        else -> conferred is MdPending.Size && armed is MdPending.Size
+        // A size or a colour is a choice rather than a toggle, so any one of them answers any other
+        // of its own kind — including the "body" and "default" entries, which take the tag off. Not
+        // each other's, though: a colour pressed inside a large word does not shrink it.
+        conferred is MdPending.Size -> armed is MdPending.Size
+        conferred is MdPending.Color -> armed is MdPending.Color
+        else -> false
     }
 
     /** What is left of [conferred] once [armed] has cancelled it, or null for nothing at all. */
     private fun leftOf(conferred: MdPending, armed: MdPending): MdPending? = when {
         armed is MdPending.Size -> armed.sp?.let { MdPending.Size(it) }
+        armed is MdPending.Color -> armed.argb?.let { MdPending.Color(it) }
         conferred is MdPending.Wrap && armed is MdPending.Wrap ->
             conferred.marker.drop(armed.marker.length).takeIf { it.isNotEmpty() }?.let { MdPending.Wrap(it) }
 
         else -> null
     }
 
-    // ---- Font size ------------------------------------------------------------------------
+    // ---- Bracketed spans: size and colour -------------------------------------------------
+
+    /** Which attribute of a bracketed span a call is about. See [MdAttrs]. */
+    private enum class AttrKey { SIZE, COLOR }
 
     /**
      * Sets, replaces or clears the size of `[start, end)`, as `[text]{size=N}`.
      *
-     * The one styling control a sheet has and a `.md` note does not — see [MdStyle.SIZE].
-     *
      * Line by line, through [proseSpans], for the reason every other block-aware action is: the
      * span is an *inline* construct and the renderer scans inline syntax one line at a time, so a
-     * tag opened on one line and closed on the next is not a tag at all — it is four characters of
-     * punctuation the reader can see. A selection across three paragraphs comes out as three spans,
-     * each clear of its own bullet or heading marker.
+     * tag opened on one line and closed on the next is not a tag at all — it is punctuation the
+     * reader can see. A selection across three paragraphs comes out as three spans, each clear of
+     * its own bullet or heading marker.
      */
-    fun setSize(text: String, start: Int, end: Int, sp: Int?): Result {
-        val spans = proseSpans(text, start, end)
-        if (spans.size == 1) return sizeSpan(text, spans.single().from, spans.single().to, sp)
+    fun setSize(text: String, start: Int, end: Int, sp: Int?): Result =
+        setAttr(text, start, end, AttrKey.SIZE, sp)
 
-        var out = text
-        for (span in spans.reversed()) out = sizeSpan(out, span.from, span.to, sp).text
-        // Reselected over the whole prose of every line covered, the same way [toggleWrap] does it:
-        // an end left inside one of the tags would be read as a different span next time round.
-        val lines = proseSpans(out, spans.first().from, spans.last().to + (out.length - text.length))
-        return Result(
-            text = out,
-            selectionStart = lines.first().from.coerceIn(0, out.length),
-            selectionEnd = lines.last().to.coerceIn(0, out.length),
-        )
+    /** The same for `[text]{color=#rrggbb}`, in packed ARGB. See [setSize]. */
+    fun setColor(text: String, start: Int, end: Int, argb: Int?): Result =
+        setAttr(text, start, end, AttrKey.COLOR, argb)
+
+    private fun setAttr(text: String, start: Int, end: Int, key: AttrKey, value: Int?): Result {
+        // A caret gets the empty pair to type into, which the model has no cell for. See [toggleWrap].
+        if (start == end) return attrSpan(text, start, end, key, value)
+        return restyle(text, start, end) { { it.copy(attrs = it.attrs.with(key, value)) } }
     }
 
     /**
-     * One line's worth of [setSize].
+     * A size or colour asked for at a bare caret.
      *
-     * Three cases. A tag the selection is *inside of* is rewritten whole, rather than nested in a
-     * second one: two sizes on one run of characters is a document with no answer, and the answer
-     * people expect from pressing a size button twice is the second size. A selection that instead
-     * *contains* tags — which is what selecting everything gives you — has them taken out of the
-     * text before the new one goes round it, for the same reason. And a bare caret gets the empty
-     * pair, so that what is typed next is the size asked for: the bargain [toggleWrap] makes for
-     * bold.
+     * The only case [setAttr] does not hand to [restyle]: there is no character selected to put an
+     * attribute on, so there is nothing for a model of the line to change. Two answers, and both
+     * are about what the user is going to type next.
      *
-     * [sp] of null is the same three cases with nothing put back, so "Body" leaves no tag behind to
-     * be puzzled over in source mode.
+     * A caret standing **inside a span that already states this attribute** restates that span —
+     * pressing a size button with the caret in the middle of a sized phrase means "make this
+     * phrase that size", and everything else the braces said is kept. A caret **anywhere else**
+     * gets the empty pair, so that what is typed next is the size or colour asked for: the same
+     * bargain [toggleWrap] makes for bold.
      */
-    private fun sizeSpan(text: String, start: Int, end: Int, sp: Int?): Result {
-        val from = minOf(start, end).coerceIn(0, text.length)
-        val to = maxOf(start, end).coerceIn(0, text.length)
+    private fun attrSpan(text: String, start: Int, end: Int, key: AttrKey, value: Int?): Result {
+        val at = start.coerceIn(0, text.length)
 
-        val existing = sizeSpanAt(text, from, to)
-        if (existing != null) {
-            val body = text.substring(existing.open, existing.close)
-            val replacement = if (sp == null) body else "[$body]{size=$sp}"
-            val out = text.substring(0, existing.start) + replacement + text.substring(existing.end)
-            val shift = existing.start + (if (sp == null) 0 else 1)
-            return Result(out, shift, shift + body.length)
+        val stated = attrSpanAt(text, at, at, key)
+        if (stated != null) {
+            val attrs = stated.attrs.with(key, value)
+            val body = text.substring(stated.open, stated.close)
+            val replacement = if (attrs.isEmpty) body else "[$body]${attrs.render()}"
+            val shift = stated.start + if (attrs.isEmpty) 0 else 1
+            return Result(
+                text = text.substring(0, stated.start) + replacement + text.substring(stated.end),
+                selectionStart = shift,
+                selectionEnd = shift + body.length,
+            )
         }
 
-        val body = stripSizes(text.substring(from, to))
-        val replacement = if (sp == null) body else "[$body]{size=$sp}"
-        val out = text.substring(0, from) + replacement + text.substring(to)
-        val shift = from + (if (sp == null) 0 else 1)
-        return Result(out, shift, shift + body.length)
+        val attrs = MdAttrs().with(key, value)
+        if (attrs.isEmpty) return Result(text, at, at)
+        val tag = "[]" + attrs.render()
+        return Result(text.substring(0, at) + tag + text.substring(at), at + 1, at + 1)
     }
 
     /** The size in force at [offset], or null where the text is at the document's own size. */
-    fun sizeAt(text: String, offset: Int): Int? = sizeSpanAt(text, offset, offset)?.size
+    fun sizeAt(text: String, offset: Int): Int? =
+        attrSpanAt(text, offset, offset, AttrKey.SIZE)?.attrs?.get(AttrKey.SIZE)
+
+    /** The colour in force at [offset], or null where the text is in the document's own. */
+    fun colorAt(text: String, offset: Int): Int? =
+        attrSpanAt(text, offset, offset, AttrKey.COLOR)?.attrs?.get(AttrKey.COLOR)
 
     /**
      * The size the *selection* is at, or null if it is at the document's own size or at several.
@@ -867,27 +1114,32 @@ object MarkdownActions {
      * sized run selects its hidden tag along with it, so the caret-in-a-span test alone would report
      * "body" for the very text it is showing at 32 — and then set a second size around the first.
      */
-    fun sizeIn(text: String, start: Int, end: Int): Int? {
+    fun sizeIn(text: String, start: Int, end: Int): Int? = attrIn(text, start, end, AttrKey.SIZE)
+
+    /** The colour the selection is in, or null for the document's own or for several. See [sizeIn]. */
+    fun colorIn(text: String, start: Int, end: Int): Int? = attrIn(text, start, end, AttrKey.COLOR)
+
+    private fun attrIn(text: String, start: Int, end: Int, key: AttrKey): Int? {
         val from = minOf(start, end).coerceIn(0, text.length)
         val to = maxOf(start, end).coerceIn(0, text.length)
-        sizeSpanAt(text, from, to)?.let { return it.size }
+        attrSpanAt(text, from, to, key)?.let { return it.attrs.get(key) }
         if (from == to) return null
 
-        // Whole tags swallowed by the selection: one size, if they agree and there is nothing but
+        // Whole tags swallowed by the selection: one answer, if they agree and there is nothing but
         // blank space between them. A selection half in and half out of a span has no one answer.
-        val spans = sizeSpansIn(text, from, to)
-        val size = spans.firstOrNull()?.size ?: return null
-        if (spans.any { it.size != size }) return null
+        val spans = attrSpansIn(text, from, to)
+        val value = spans.firstOrNull()?.attrs?.get(key) ?: return null
+        if (spans.any { it.attrs.get(key) != value }) return null
         var cursor = from
         for (span in spans) {
             if (text.substring(cursor, span.start).isNotBlank()) return null
             cursor = span.end
         }
-        return if (text.substring(cursor, to).isBlank()) size else null
+        return if (text.substring(cursor, to).isBlank()) value else null
     }
 
     /**
-     * The innermost `[…]{size=N}` that `[from, to)` sits inside.
+     * The innermost `[…]{…}` stating [key] that `[from, to)` sits inside.
      *
      * Searched from the start of the text rather than by scanning outwards from the caret, because
      * only a parse can tell a real span from a bracket somebody typed: `[a](b)` and `[a]` and an
@@ -895,17 +1147,19 @@ object MarkdownActions {
      *
      * "Inside" is generous at the edges on purpose. The tag is hidden, so a user who drags across
      * the words they can see hands back a selection that reaches over the `[` and stops before the
-     * `]{size=N}` — and selecting all of a box gives one that covers both. Every one of those means
-     * the same span, so anything that stays within the tag and touches the text inside it counts.
+     * `]{…}` — and selecting all of a box gives one that covers both. Every one of those means the
+     * same span, so anything that stays within the tag and touches the text inside it counts.
      */
-    private fun sizeSpanAt(text: String, from: Int, to: Int): SizeSpan? {
-        var best: SizeSpan? = null
-        forEachSizeSpan(text, 0, text.length) { span ->
+    private fun attrSpanAt(text: String, from: Int, to: Int, key: AttrKey): MdAttrSpan? {
+        var best: MdAttrSpan? = null
+        forEachAttrSpan(text, 0, text.length) { span ->
             val within = from >= span.start && to <= span.end
             val touches = from <= span.close && to >= span.open
             // Innermost wins: a span inside another covers a shorter run, and it is the one whose
-            // size the reader actually sees at that offset.
-            if (within && touches && (best == null || span.close - span.open < best!!.close - best!!.open)) {
+            // answer the reader actually sees at that offset.
+            if (span.attrs.get(key) != null && within && touches &&
+                (best == null || span.close - span.open < best!!.close - best!!.open)
+            ) {
                 best = span
             }
         }
@@ -913,11 +1167,11 @@ object MarkdownActions {
     }
 
     /** The outermost tags lying wholly inside `[from, to)`, in the order they appear. */
-    private fun sizeSpansIn(text: String, from: Int, to: Int): List<SizeSpan> {
-        val found = ArrayList<SizeSpan>()
+    private fun attrSpansIn(text: String, from: Int, to: Int): List<MdAttrSpan> {
+        val found = ArrayList<MdAttrSpan>()
         var i = from
         while (i < to) {
-            val span = if (text[i] == '[') sizeSpanStartingAt(text, i) else null
+            val span = if (text[i] == '[') attrSpanStartingAt(text, i) else null
             if (span != null && span.end <= to) {
                 found += span
                 i = span.end
@@ -928,63 +1182,27 @@ object MarkdownActions {
         return found
     }
 
-    /** [text] with every size tag in it removed and the words they wrapped kept. */
-    private fun stripSizes(text: String): String {
-        val out = StringBuilder(text.length)
-        var i = 0
-        while (i < text.length) {
-            val span = if (text[i] == '[') sizeSpanStartingAt(text, i) else null
-            if (span != null) {
-                // Recursive, so a nested size goes too: having selected the lot and asked for one
-                // size, being given two is not an answer to that.
-                out.append(stripSizes(text.substring(span.open, span.close)))
-                i = span.end
-            } else {
-                out.append(text[i])
-                i++
-            }
-        }
-        return out.toString()
-    }
-
-    /** Every size tag in `[from, to)`, nested ones included. */
-    private inline fun forEachSizeSpan(text: String, from: Int, to: Int, action: (SizeSpan) -> Unit) {
+    /** Every tag in `[from, to)`, nested ones included. */
+    private inline fun forEachAttrSpan(text: String, from: Int, to: Int, action: (MdAttrSpan) -> Unit) {
         var i = from
         while (i < to) {
-            if (text[i] == '[') sizeSpanStartingAt(text, i)?.let(action)
+            if (text[i] == '[') attrSpanStartingAt(text, i)?.let(action)
             i++
         }
     }
 
-    /** `[body]{size=N}` beginning at [at], with brackets counted so nesting closes correctly. */
-    private fun sizeSpanStartingAt(text: String, at: Int): SizeSpan? {
-        var depth = 0
-        var k = at
-        while (k < text.length) {
-            when (text[k]) {
-                '[' -> depth++
-                ']' -> {
-                    depth--
-                    if (depth == 0) {
-                        val (size, end) = MarkdownRenderer.sizeSuffixAt(text, k + 1, text.length)
-                            ?: return null
-                        return SizeSpan(start = at, open = at + 1, close = k, end = end, size = size)
-                    }
-                }
-            }
-            k++
-        }
-        return null
+    private fun attrSpanStartingAt(text: String, at: Int): MdAttrSpan? =
+        MarkdownRenderer.attrSpanAt(text, at, text.length)
+
+    private fun MdAttrs.get(key: AttrKey): Int? = when (key) {
+        AttrKey.SIZE -> size
+        AttrKey.COLOR -> color
     }
 
-    /** `start` and `end` bracket the whole tag; `open` and `close` bracket the text inside it. */
-    private data class SizeSpan(
-        val start: Int,
-        val open: Int,
-        val close: Int,
-        val end: Int,
-        val size: Int,
-    )
+    private fun MdAttrs.with(key: AttrKey, value: Int?): MdAttrs = when (key) {
+        AttrKey.SIZE -> copy(size = value)
+        AttrKey.COLOR -> copy(color = value)
+    }
 
     private fun countOccurrences(text: String, from: Int, to: Int, marker: String): Int {
         var count = 0

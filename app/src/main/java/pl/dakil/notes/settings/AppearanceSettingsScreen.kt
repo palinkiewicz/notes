@@ -141,6 +141,15 @@ fun AppearanceSettingsScreen(
                 onSelect = settings::setLibraryLayout,
             )
 
+            SectionHeader(stringResource(R.string.settings_text_notes))
+
+            SwitchRow(
+                title = stringResource(R.string.settings_pandoc_text_notes),
+                summary = stringResource(R.string.settings_pandoc_text_notes_description),
+                checked = current.pandocTextNotes,
+                onCheckedChange = settings::setPandocTextNotes,
+            )
+
             SectionHeader(stringResource(R.string.settings_paper))
 
             SelectRow(

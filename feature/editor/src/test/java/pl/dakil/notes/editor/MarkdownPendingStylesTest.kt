@@ -118,9 +118,10 @@ class MarkdownPendingStylesTest {
         val pending = PendingStyles()
         pending.toggleWrap(0, "**")
         pending.setSize(0, 24)
-        // Each one is applied to the run the last handed back, so they nest in the order pressed.
+        // Each one is applied to the run the last handed back. The markers end up *inside* the
+        // brackets whichever order they were pressed in — see [MarkdownActions.canonical].
         val result = MarkdownActions.applyPending("d", 0, 1, pending.stylesAt(0))
-        assertEquals("**[d]{size=24}**", result.text)
+        assertEquals("[**d**]{size=24}", result.text)
         // Inside both, or the next keystroke would be neither bold nor 24.
         assertEquals(4, result.selectionEnd)
     }
@@ -212,8 +213,14 @@ class MarkdownPendingStylesTest {
     fun `turning a style off where nothing has it on still turns it on`() {
         // The bar's lit buttons are a guess at a half-typed span and the parse is not. When they
         // disagree there is no run to close, and wrapping is the honest fallback.
+        //
+        // Half-typed is the point here: `**abcd` has no closing pair, so those two asterisks are
+        // characters on screen rather than markup. Writing `**abc**d**` would have made them
+        // markup — the reader would have seen "abc" turn bold, which nobody asked for — so the
+        // writer refuses that spelling and reaches for the one form that cannot be misread.
         val result = MarkdownActions.applyPending("**abcd", 5, 6, listOf(MdPending.Wrap("**")))
-        assertEquals("**abc**d**", result.text)
+        assertEquals("**abc<strong>d</strong>", result.text)
+        assertEquals("**abcd", MarkdownRenderer.render(result.text))
     }
 
     @Test

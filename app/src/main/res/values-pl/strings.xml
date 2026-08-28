@@ -26,6 +26,9 @@
     <string name="settings_library">Biblioteka</string>
     <string name="settings_notes_layout">Układ notatek</string>
     <string name="settings_notes_layout_description">Karty pokazują podgląd każdej notatki; lista mieści ich więcej na ekranie.</string>
+    <string name="settings_text_notes">Notatki tekstowe</string>
+    <string name="settings_pandoc_text_notes">Rozmiary i kolory Pandoc</string>
+    <string name="settings_pandoc_text_notes_description">Pozwól notatce .md ustawiać własne rozmiary czcionki i kolory tekstu, zapisywane jako spany Pandoc. Inne edytory Markdown pokażą je jako zwykły tekst. Notatki odręczne zawsze ich używają.</string>
     <string name="settings_paper">Papier</string>
     <string name="settings_measurements">Jednostki miary</string>
     <string name="settings_measurements_description">Jednostka, w której pokazywane są marginesy, odstępy linii i rozmiary papieru.</string>
