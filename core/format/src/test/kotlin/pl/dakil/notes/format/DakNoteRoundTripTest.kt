@@ -550,6 +550,76 @@ class DakNoteRoundTripTest {
         assertArrayEquals(first, second)
     }
 
+    // ---- Filled strokes ---------------------------------------------------------------------------
+
+    /** A note whose ink layer holds one plain stroke and one filled one. */
+    private fun noteWithFill(): Note {
+        val note = sampleNote()
+        val ink = note.sheet.inkLayers().single()
+        val filled = Stroke(
+            ToolId.PEN, 0xFF1B1B1F.toInt(), 2.5f, BlendId.NORMAL,
+            floatArrayOf(100f, 140f, 120f, 100f), floatArrayOf(100f, 100f, 140f, 100f),
+            filled = true,
+        )
+        return note.copy(sheet = note.sheet.copy(blocks = listOf(ink.copy(strokes = ink.strokes + filled))))
+    }
+
+    @Test
+    fun `a filled stroke survives a round trip`() {
+        val strokes = roundTrip(noteWithFill()).sheet.inkLayers().single().strokes
+        assertTrue(strokes.last().filled)
+        assertTrue("plain ink must not acquire a fill", !strokes.first().filled)
+    }
+
+    @Test
+    fun `a note with nothing filled is written exactly as it was before fills existed`() {
+        // The same rule the shapes key follows: an optional key, absent by default, so adding the
+        // feature does not rewrite every note in the library on its next save.
+        val descriptor = inkDescriptorOf(DakNoteWriter.toByteArray(sampleNote()))
+        assertFalse("fills", "fills" in descriptor)
+    }
+
+    @Test
+    fun `a note written before fills existed opens with unfilled strokes`() {
+        val entries = entriesOf(DakNoteWriter.toByteArray(noteWithFill()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        val stripped = (sheet.array("blocks")!!.items).map { (it as JsonObject).without("fills") }
+        entries["sheet.json"] = JsonWriter.write(sheet.with("blocks", JsonArray(stripped)))
+            .toByteArray(Charsets.UTF_8)
+
+        val strokes = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+            .sheet.inkLayers().single().strokes
+        assertEquals("the ink itself is unaffected", 3, strokes.size)
+        assertTrue(!strokes.last().filled)
+    }
+
+    @Test
+    fun `a fill record naming a stroke of the wrong length is discarded`() {
+        // Strokes are identified by their position in the layer, so an older build erasing one
+        // shifts every later index. The recorded point count catches that, and the stroke stays
+        // the outline it was rather than being painted in on a reader's guess.
+        val entries = entriesOf(DakNoteWriter.toByteArray(noteWithFill()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        val patched = (sheet.array("blocks")!!.items).map { item ->
+            val o = item as JsonObject
+            val fills = o.array("fills") ?: return@map o
+            o.with("fills", JsonArray(fills.items.map { (it as JsonObject).with("i", 0) }))
+        }
+        entries["sheet.json"] = JsonWriter.write(sheet.with("blocks", JsonArray(patched)))
+            .toByteArray(Charsets.UTF_8)
+
+        val strokes = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+            .sheet.inkLayers().single().strokes
+        assertTrue("stroke 0 is three points long, the record claims four", !strokes[0].filled)
+    }
+
+    @Test
+    fun `saving a note that contains a filled stroke twice produces identical bytes`() {
+        val first = DakNoteWriter.toByteArray(noteWithFill())
+        val second = DakNoteWriter.toByteArray(DakNoteReader.read(ByteArrayInputStream(first)))
+        assertArrayEquals(first, second)
+    }
+
     private fun inkDescriptorOf(bytes: ByteArray): JsonObject {
         val sheet = JsonReader.parseObject(entriesOf(bytes)["sheet.json"]!!.toString(Charsets.UTF_8))
         return sheet.array("blocks")!!.items

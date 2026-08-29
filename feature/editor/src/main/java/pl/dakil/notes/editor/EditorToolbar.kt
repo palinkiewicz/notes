@@ -122,8 +122,10 @@ fun EditorToolbar(
             )
         }
         Box(Modifier.width(8.dp))
-        // The switches, held out of the scrolling row because neither is a tool: they change what
-        // the surface does, not what the pen is, and both have to stay reachable.
+        // The switches, held out of the scrolling row: two of them change what the surface does
+        // rather than what the pen is, and all three have to stay reachable without scrolling — a
+        // toggle you have to go looking for cannot be read as the state it is showing.
+        FillToggle(state = state, onPopupChange = onPopupChange, onUpdateTool = onUpdateTool)
         FingerDrawingToggle(
             state = state,
             onPopupChange = onPopupChange,
@@ -176,6 +178,7 @@ fun EditorToolRail(
             onOpenColorPicker = onOpenColorPicker,
             onOpenOptions = { optionsFor = it },
         )
+        FillToggle(state = state, onPopupChange = onPopupChange, onUpdateTool = onUpdateTool)
         FingerDrawingToggle(
             state = state,
             onPopupChange = onPopupChange,
@@ -286,6 +289,39 @@ private fun ToolControls(
             onOpenChange = { onPopupChange(if (it) ToolPopup.SIZE else null) },
             onUpdateTool = onUpdateTool,
             onOpenOptions = { onOpenOptions(state.tool.tool) },
+        )
+    }
+}
+
+/**
+ * The fill switch: whether what the pen draws is painted in as well as drawn round.
+ *
+ * A property of the pen — each tool remembers its own answer — but shown with the switches rather
+ * than in the scrolling tool row, because a state you have to scroll to find is a state nobody can
+ * read. Present only while a pen is what is in hand: an eraser fills nothing, and the lasso's own
+ * fill button is the one on the selection.
+ *
+ * What it fills is the stroke closed back on itself, so a hand-drawn loop answers to it exactly as
+ * a snapped shape does.
+ */
+@Composable
+private fun FillToggle(
+    state: EditorUiState,
+    onPopupChange: (ToolPopup?) -> Unit,
+    onUpdateTool: (ToolSpec) -> Unit,
+) {
+    if (state.textToolActive || !state.tool.tool.isDrawing) return
+    val spec = state.tool
+    FilledIconToggleButton(
+        checked = spec.fill,
+        onCheckedChange = {
+            onPopupChange(null)
+            onUpdateTool(spec.copy(fill = it))
+        },
+    ) {
+        Icon(
+            imageVector = NotesIcons.Fill,
+            contentDescription = stringResource(R.string.editor_fill_shape),
         )
     }
 }

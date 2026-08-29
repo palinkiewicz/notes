@@ -106,6 +106,33 @@ class EraserGeometryTest {
         assertTrue(fragments[1].xs.first() > 80f)
     }
 
+    @Test
+    fun `erasing part of a filled stroke takes the fill with it`() {
+        // A fill is bounded by the centreline closed back on itself, so a surviving fragment would
+        // close straight across the gap the eraser just made and paint the hole back in — an
+        // eraser that looks like it did nothing.
+        val filled = Stroke(
+            ToolId.PEN, -1, 2f, BlendId.NORMAL,
+            FloatArray(101) { it.toFloat() }, FloatArray(101),
+            filled = true,
+        )
+        val fragments = PathSplitter.erase(filled, cx = 50f, cy = 0f, radius = 5f)
+        assertEquals(2, fragments.size)
+        for (fragment in fragments) assertTrue("the fill goes with the ink", !fragment.filled)
+    }
+
+    @Test
+    fun `an untouched filled stroke keeps its fill`() {
+        // The unhit path hands back the original instance, so nothing is lost by merely erasing
+        // somewhere else on the page.
+        val filled = Stroke(
+            ToolId.PEN, -1, 2f, BlendId.NORMAL,
+            FloatArray(101) { it.toFloat() }, FloatArray(101),
+            filled = true,
+        )
+        assertEquals(listOf(filled), PathSplitter.erase(filled, cx = 500f, cy = 500f, radius = 5f))
+    }
+
     // ---- Stroke eraser and hit testing ----------------------------------------------------------
 
     @Test
@@ -187,6 +214,22 @@ class EraserGeometryTest {
         // The ink on top is the ink being pointed at, and later in the list is later on the page.
         val strokes = listOf(line(), line())
         assertEquals(1, HitTester.strokeAt(strokes, 50f, 0f, radius = 4f))
+    }
+
+    @Test
+    fun `a tap inside a filled stroke selects it`() {
+        // The user is pointing at the shape they can see. Its outline is 60pt away from the middle
+        // of it, so without the fill test a tap in the centre of a solid disc finds bare paper.
+        val ring = Stroke(
+            ToolId.PEN, -1, 2f, BlendId.NORMAL,
+            floatArrayOf(0f, 60f, 60f, 0f), floatArrayOf(0f, 0f, 60f, 60f),
+            filled = true,
+        )
+        assertEquals(0, HitTester.strokeAt(listOf(ring), 30f, 30f, radius = 4f))
+        assertNull(
+            "an unfilled loop keeps its hole",
+            HitTester.strokeAt(listOf(ring.withFill(false)), 30f, 30f, radius = 4f),
+        )
     }
 
     @Test

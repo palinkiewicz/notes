@@ -903,6 +903,15 @@ class NoteViewModel(
     fun recolorSelection(color: Int) = mutateSelection(stroke = { it.withStyle(color = color) })
 
     /**
+     * Fills or empties every selected stroke.
+     *
+     * One decision for the whole selection rather than a flip per stroke: a button that turns a
+     * mixed selection half on and half off says nothing about what it will do next time. So the
+     * answer is "fill, unless everything already is", which is what the bar's icon shows.
+     */
+    fun setSelectionFilled(filled: Boolean) = mutateSelection(stroke = { it.withFill(filled) })
+
+    /**
      * A tap with the select tool: take hold of whatever is under it, or let go if that is bare paper.
      *
      * Searched topmost-first, so where two things overlap the one on top is the one meant. Ink is
@@ -945,7 +954,7 @@ class NoteViewModel(
         val index = entry.value.singleOrNull() ?: return
         val block = sheet.block(entry.key) as? InkBlock ?: return
         val old = block.strokes.getOrNull(index) ?: return
-        val replacement = spec.toStroke(old.tool, old.color, old.width, old.blend)
+        val replacement = spec.toStroke(old.tool, old.color, old.width, old.blend, filled = old.filled)
 
         commitEdit(
             Edit.ReplaceBlock(

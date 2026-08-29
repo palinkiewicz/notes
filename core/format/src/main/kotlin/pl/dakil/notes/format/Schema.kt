@@ -198,7 +198,8 @@ internal object Schema {
     // ---- Blocks ------------------------------------------------------------------------------
 
     private val COMMON_BLOCK_KEYS = setOf("id", "type", "z", "rect", "transform", "src")
-    private val INK_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("name", "visible", "locked", ShapeJson.KEY)
+    private val INK_BLOCK_KEYS =
+        COMMON_BLOCK_KEYS + setOf("name", "visible", "locked", ShapeJson.KEY, FillJson.KEY)
     private val TEXT_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("flow")
 
     /** v1 stored the document text on blocks carrying `flow: "document"`. */
@@ -222,9 +223,12 @@ internal object Schema {
             TYPE_INK -> InkBlock(
                 id = id, z = z, rect = rect, transform = transform,
                 unknown = remainderOf(json, INK_BLOCK_KEYS),
-                strokes = ShapeJson.attach(
-                    src?.let { resolve(it) }?.let { StrokeCodec.readLenient(it) } ?: emptyList(),
-                    json.array(ShapeJson.KEY),
+                strokes = FillJson.attach(
+                    ShapeJson.attach(
+                        src?.let { resolve(it) }?.let { StrokeCodec.readLenient(it) } ?: emptyList(),
+                        json.array(ShapeJson.KEY),
+                    ),
+                    json.array(FillJson.KEY),
                 ),
                 name = json.string("name", "Layer"),
                 visible = json.bool("visible", true),
@@ -266,9 +270,10 @@ internal object Schema {
                 .with("name", block.name)
                 .with("visible", block.visible)
                 .with("locked", block.locked)
-                // Absent unless something in the layer was snapped to a shape, so a note that has
-                // never used the feature is byte-identical to one written before it existed.
+                // Both absent unless something in the layer uses them, so a note that has never
+                // touched either feature is byte-identical to one written before it existed.
                 .let { o -> ShapeJson.write(block.strokes)?.let { o.with(ShapeJson.KEY, it) } ?: o }
+                .let { o -> FillJson.write(block.strokes)?.let { o.with(FillJson.KEY, it) } ?: o }
                 .withDefaults(block.unknown)
 
             is TextBlock -> withSrc.withDefaults(block.unknown)

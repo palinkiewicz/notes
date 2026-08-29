@@ -51,6 +51,10 @@ class ShapeController {
     var previewBlend: BlendId = BlendId.NORMAL
         private set
 
+    /** Whether the tool that drew the stroke fills what it encloses. See `Stroke.filled`. */
+    var previewFilled: Boolean = false
+        private set
+
     /** The live shape, or null while the user is still drawing an ordinary stroke. */
     var spec: ShapeSpec? = null
         private set
@@ -100,6 +104,7 @@ class ShapeController {
         tool = toolSpec.tool
         previewColor = toolSpec.effectiveColor
         previewBlend = toolSpec.blend
+        previewFilled = toolSpec.fill
         found.outlineInto(outline)
         return true
     }
@@ -119,7 +124,8 @@ class ShapeController {
     }
 
     /** The stroke to commit at pen-up, or null when no shape was recognised. */
-    fun commit(): Stroke? = spec?.toStroke(tool, previewColor, previewWidth, previewBlend, outline)
+    fun commit(): Stroke? =
+        spec?.toStroke(tool, previewColor, previewWidth, previewBlend, outline, previewFilled)
 
     fun reset() {
         spec = null

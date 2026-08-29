@@ -162,6 +162,7 @@ class StrokeBuilder : WidthedPath {
             widthFactors = if (anyPressure) factors.copyOf(count) else null,
             tilts = if (anyTilt) tilts.copyOf(count) else null,
             times = times.copyOf(count),
+            filled = spec.fill,
         )
     }
 

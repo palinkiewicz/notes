@@ -76,6 +76,21 @@ class Stroke(
      * moment it is committed.
      */
     val shape: ShapeSpec? = null,
+    /**
+     * Whether the region this stroke encloses is painted in as well as drawn round.
+     *
+     * The region is the **centreline closed back to its start**, taken by the even-odd rule — the
+     * same figure, and the same rule, that `HitTester.pointInPolygon` uses to decide what a lasso
+     * caught. A closed shape therefore fills the area it obviously bounds, and an open one fills
+     * what it would enclose if the two ends were joined, which is the only answer that does not
+     * need the user to have closed the loop exactly.
+     *
+     * A flag rather than a colour of its own: the fill is the stroke's own [color], so recolouring
+     * a filled shape moves the outline and the interior together and there is only ever one ink to
+     * choose. Where the two overlap they composite twice, which is what a translucent pen doing
+     * this in the physical world looks like.
+     */
+    val filled: Boolean = false,
 ) : WidthedPath {
     init {
         require(xs.size == ys.size) { "Stroke coordinate arrays must be the same length" }
@@ -146,11 +161,15 @@ class Stroke(
 
     /** Returns a copy sharing the point arrays, used by recolour and tool-change edits. */
     fun withStyle(color: Int = this.color, width: Float = this.width, blend: BlendId = this.blend): Stroke =
-        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape)
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
 
     /** Returns a copy carrying [shape], sharing the point arrays. Used when loading a note. */
     fun withShape(shape: ShapeSpec?): Stroke =
-        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape)
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
+
+    /** Returns a copy filled or unfilled, sharing the point arrays. Used by the selection bar. */
+    fun withFill(filled: Boolean): Stroke =
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
 
     /** Returns a copy with every point mapped through [m]. Used by lasso move/scale/rotate. */
     fun transformed(m: Affine): Stroke {
@@ -166,7 +185,10 @@ class Stroke(
         val scale = kotlin.math.sqrt(kotlin.math.abs(m.a * m.d - m.b * m.c))
         // A sheared square is a parallelogram, which no ShapeSpec can describe; transformedBy says
         // so by returning null, and the result is honest ink rather than a shape that lies.
-        return Stroke(tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times, shape?.transformedBy(m))
+        return Stroke(
+            tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times,
+            shape?.transformedBy(m), filled,
+        )
     }
 
     /**
@@ -275,6 +297,10 @@ class Stroke(
             // Half a square is not a square. Note that clippedToBand returns the original instance
             // when the band contains the whole stroke, so an uncut shape keeps its spec.
             shape = null,
+            // The fill does survive, unlike the spec. A cut is presentation catching up with the
+            // document — the piece is what that page was already showing, and each half of a filled
+            // circle closed by the cut is exactly the half-disc that was painted there.
+            filled = source.filled,
         )
 
         /** Longest side of the piece's bounding box, in points. */

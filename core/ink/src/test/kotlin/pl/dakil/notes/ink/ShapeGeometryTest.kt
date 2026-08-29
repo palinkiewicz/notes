@@ -79,6 +79,15 @@ class ShapeGeometryTest {
         assertNull(stroke.widthFactors)
         assertEquals(spec, stroke.shape)
         assertTrue(!Tessellator.needsTessellation(stroke))
+        assertTrue("unfilled unless asked", !stroke.filled)
+    }
+
+    @Test
+    fun `a snapped shape drawn with a filling pen commits filled`() {
+        val spec = ShapeSpec.Ellipse(100f, 100f, 40f, 25f, 0f, equilateral = false)
+        val stroke = spec.toStroke(ToolId.PEN, -1, 2f, BlendId.NORMAL, filled = true)
+        assertTrue(stroke.filled)
+        assertEquals("the fill is metadata, not geometry", spec, stroke.shape)
     }
 
     // ---- Handles -------------------------------------------------------------------------------

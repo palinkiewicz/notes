@@ -266,6 +266,22 @@ object NotesIcons {
         )
     }
 
+    /**
+     * A shape with its interior hatched: draw this filled in, not merely outlined.
+     *
+     * Hatching rather than a solid silhouette because the whole icon set is stroked — and because a
+     * solid 24dp square tinted with the content colour reads as a swatch, which is the button next
+     * to this one.
+     */
+    val Fill: ImageVector by lazy {
+        strokedIcon("Fill", FILL_PATH)
+    }
+
+    /** The same glyph struck through: take the fill back out and leave the outline. */
+    val FillOff: ImageVector by lazy {
+        strokedIcon("FillOff", "$FILL_PATH M3.5 3.5 L20.5 20.5")
+    }
+
     val Sort: ImageVector by lazy {
         strokedIcon("Sort", "M4 6.5 h16 M4 12 h11 M4 17.5 h6")
     }
@@ -460,6 +476,11 @@ object NotesIcons {
      * `PathParser` is part of `ui-graphics`, so this needs no extra dependency and no generated
      * XML resources.
      */
+    /** Shared by [Fill] and [FillOff], which differ only by the stroke through them. */
+    private const val FILL_PATH =
+        "M4.5 5.5 h15 v13 h-15 Z " +
+            "M4.5 11.5 L10.5 5.5 M4.5 17.5 L16.5 5.5 M9.5 18.5 L19.5 8.5 M15.5 18.5 L19.5 14.5"
+
     /** Shared by [Folder] and [NewFolder], so the two can never drift apart. */
     private const val FOLDER_PATH =
         "M3 6.5 a1.5 1.5 0 0 1 1.5 -1.5 h4.5 l2 2.5 h8 a1.5 1.5 0 0 1 1.5 1.5 " +

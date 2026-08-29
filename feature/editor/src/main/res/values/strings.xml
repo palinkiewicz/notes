@@ -38,6 +38,7 @@
     <string name="editor_tool">Tool</string>
     <string name="editor_finger_drawing">Draw with finger</string>
     <string name="editor_ruler">Ruler</string>
+    <string name="editor_fill_shape">Fill shape</string>
     <string name="editor_more_options">More options</string>
     <string name="editor_tool_pen">Pen</string>
     <string name="editor_tool_fountain">Fountain</string>
@@ -131,6 +132,8 @@
     <string name="editor_selection_apex">Move shape corner</string>
     <string name="editor_selection_duplicate">Duplicate selection</string>
     <string name="editor_selection_colour">Selection colour</string>
+    <string name="editor_selection_fill">Fill selection</string>
+    <string name="editor_selection_unfill">Remove fill</string>
     <string name="editor_selection_delete">Delete selection</string>
 
     <!--  MARKDOWN EDITOR  -->

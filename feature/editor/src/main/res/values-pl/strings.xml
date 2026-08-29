@@ -37,6 +37,7 @@
     <string name="editor_tool">Narzędzie</string>
     <string name="editor_finger_drawing">Rysowanie palcem</string>
     <string name="editor_ruler">Linijka</string>
+    <string name="editor_fill_shape">Wypełnienie kształtu</string>
     <string name="editor_more_options">Więcej opcji</string>
     <string name="editor_tool_pen">Pióro</string>
     <string name="editor_tool_fountain">Wieczne</string>
@@ -131,6 +132,8 @@
     <string name="editor_selection_apex">Przesuń wierzchołek kształtu</string>
     <string name="editor_selection_duplicate">Duplikuj zaznaczenie</string>
     <string name="editor_selection_colour">Kolor zaznaczenia</string>
+    <string name="editor_selection_fill">Wypełnij zaznaczenie</string>
+    <string name="editor_selection_unfill">Usuń wypełnienie</string>
     <string name="editor_selection_delete">Usuń zaznaczenie</string>
 
     <!--  MARKDOWN EDITOR  -->

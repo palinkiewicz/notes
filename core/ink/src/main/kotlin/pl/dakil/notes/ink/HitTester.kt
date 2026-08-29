@@ -123,6 +123,13 @@ object HitTester {
             val stroke = strokes[i]
             if (!stroke.bounds.inflate(radius).contains(x, y)) continue
             if (strokeIntersectsSegment(stroke, x, y, x, y, radius)) return i
+            // A filled stroke is its interior as much as its outline: what the user is pointing at
+            // is the painted shape they can see, and asking them to hit the line round the edge of
+            // a solid disc would be asking them to point at something invisible. The same even-odd
+            // test the fill is drawn by, so the two can never disagree about where the inside is.
+            if (stroke.filled && pointInPolygon(x, y, stroke.xs, stroke.ys, stroke.pointCount)) {
+                return i
+            }
         }
         return null
     }

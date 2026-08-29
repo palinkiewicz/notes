@@ -110,6 +110,11 @@ object PathSplitter {
             // A rubbed-out circle is an arc, not a circle. Note that both entry points hand back
             // the original instance when nothing was hit, so an untouched shape keeps its spec.
             shape = null,
+            // The fill goes with it, for a reason the user can see: a fill is bounded by the
+            // centreline closed back on itself, so each surviving fragment would close across the
+            // gap the eraser just made and paint the hole straight back in. An eraser that appears
+            // to do nothing is worse than one that takes the fill with the outline.
+            filled = false,
         )
     }
 

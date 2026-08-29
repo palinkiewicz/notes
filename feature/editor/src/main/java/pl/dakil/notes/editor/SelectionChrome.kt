@@ -83,6 +83,10 @@ fun SelectionChrome(
     // edit rather than per frame: the answer can only change when the document does.
     val shape = remember(sheet, state.documentVersion, selection) { loneShape(sheet, selection) }
 
+    // Whether the fill button empties the selection or fills it. Everything-or-nothing, because a
+    // button that flips each stroke separately cannot say in advance what it is about to do.
+    val allFilled = remember(sheet, state.documentVersion, selection) { allFilled(sheet, selection) }
+
     fun screenX(x: Float): Float = transform.contentToScreenX(x * ptToPx)
 
     fun screenY(y: Float): Float =
@@ -208,6 +212,21 @@ fun SelectionChrome(
                         elevation = 0.dp,
                         onClick = { pickingColor = true },
                     )
+                    // Offered only where it means something: a text box has no interior to paint,
+                    // and a selection of nothing but boxes would get a button that does nothing.
+                    if (selection.strokeCount > 0) {
+                        HandleButton(
+                            icon = if (allFilled) NotesIcons.FillOff else NotesIcons.Fill,
+                            description = stringResource(
+                                if (allFilled) R.string.editor_selection_unfill
+                                else R.string.editor_selection_fill
+                            ),
+                            container = MaterialTheme.colorScheme.secondaryContainer,
+                            content = MaterialTheme.colorScheme.onSecondaryContainer,
+                            elevation = 0.dp,
+                            onClick = { viewModel.setSelectionFilled(!allFilled) },
+                        )
+                    }
                     HandleButton(
                         icon = NotesIcons.Delete,
                         description = stringResource(R.string.editor_selection_delete),
@@ -302,6 +321,25 @@ private fun loneShape(sheet: Sheet, selection: Selection): ShapeSpec? {
     val index = entry.value.singleOrNull() ?: return null
     val block = sheet.block(entry.key) as? InkBlock ?: return null
     return block.strokes.getOrNull(index)?.shape
+}
+
+/**
+ * Whether every selected stroke is already filled.
+ *
+ * False for an empty stroke selection, so the button on a selection of text boxes alone — which is
+ * not offered at all — could only ever read "fill", never "remove fill".
+ */
+private fun allFilled(sheet: Sheet, selection: Selection): Boolean {
+    var any = false
+    for ((blockId, indices) in selection.strokesByBlock) {
+        val block = sheet.block(blockId) as? InkBlock ?: continue
+        for (i in indices) {
+            val stroke = block.strokes.getOrNull(i) ?: continue
+            if (!stroke.filled) return false
+            any = true
+        }
+    }
+    return any
 }
 
 /** What to open the colour picker on: the first selected stroke's colour. */

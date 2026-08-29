@@ -295,12 +295,14 @@ fun ShapeSpec.outlineInto(into: StrokeOutline) {
 }
 
 /** Builds the committed stroke for this shape, at a single constant [width]. */
+@Suppress("LongParameterList")
 fun ShapeSpec.toStroke(
     tool: ToolId,
     color: Int,
     width: Float,
     blend: BlendId,
     into: StrokeOutline = StrokeOutline(),
+    filled: Boolean = false,
 ): Stroke {
     outlineInto(into)
     val n = into.count
@@ -312,7 +314,7 @@ fun ShapeSpec.toStroke(
     }
     // No width factors: a snapped shape is drawn at one weight, which also means the renderer skips
     // tessellation and hands it straight to the platform stroker.
-    return Stroke(tool, color, width, blend, xs, ys, shape = this)
+    return Stroke(tool, color, width, blend, xs, ys, shape = this, filled = filled)
 }
 
 /**
