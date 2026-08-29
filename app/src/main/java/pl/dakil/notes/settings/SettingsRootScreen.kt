@@ -27,7 +27,7 @@ import pl.dakil.notes.ui.icons.NotesIcons
 /**
  * The settings index.
  *
- * Three rows and nothing else. Everything a casual note-taker never has to look at is one level
+ * Six rows and nothing else. Everything a casual note-taker never has to look at is one level
  * down, which is not the same as hiding it behind an "advanced mode": both subscreens are named on
  * the first screen, and neither is a mode you can be stuck in.
  */
@@ -36,6 +36,9 @@ import pl.dakil.notes.ui.icons.NotesIcons
 fun SettingsRootScreen(
     onNavigateToAppearance: () -> Unit,
     onNavigateToInput: () -> Unit,
+    onNavigateToStorage: () -> Unit,
+    onNavigateToBackup: () -> Unit,
+    onNavigateToSync: () -> Unit,
 ) {
     var showAbout by remember { mutableStateOf(false) }
 
@@ -69,6 +72,24 @@ fun SettingsRootScreen(
                 summary = stringResource(R.string.settings_input_summary),
                 icon = NotesIcons.Pen,
                 onClick = onNavigateToInput,
+            )
+            NavigationRow(
+                title = stringResource(R.string.settings_storage),
+                summary = stringResource(R.string.settings_storage_summary),
+                icon = NotesIcons.Folder,
+                onClick = onNavigateToStorage,
+            )
+            NavigationRow(
+                title = stringResource(R.string.settings_backup),
+                summary = stringResource(R.string.settings_backup_summary),
+                icon = NotesIcons.Export,
+                onClick = onNavigateToBackup,
+            )
+            NavigationRow(
+                title = stringResource(R.string.settings_sync),
+                summary = stringResource(R.string.settings_sync_summary),
+                icon = NotesIcons.Layers,
+                onClick = onNavigateToSync,
             )
             // A dialog rather than a screen, and so no chevron: there is nothing here to navigate
             // into, only something to read and close.

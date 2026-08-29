@@ -34,9 +34,23 @@ class FileNoteStore(
 
     private fun fileOf(ref: StoreRef) = File(ref.value)
 
-    override suspend fun list(dir: StoreRef): List<StoreEntry> = withContext(io) {
-        val children = fileOf(dir).listFiles() ?: return@withContext emptyList()
-        children.map { it.toEntry() }
+    override suspend fun list(dir: StoreRef): List<StoreEntry> =
+        (listChecked(dir) as? StoreListing.Ok)?.entries ?: emptyList()
+
+    /**
+     * `listFiles` returns null for a directory it could not read *and* for a path that is not a
+     * directory at all, and neither is an empty folder. An unreadable library must not be reported
+     * as an empty one — see [StoreListing].
+     */
+    override suspend fun listChecked(dir: StoreRef): StoreListing = withContext(io) {
+        val file = fileOf(dir)
+        val children = file.listFiles()
+            ?: return@withContext StoreListing.Unavailable(
+                if (!file.exists()) "${dir.value} does not exist"
+                else if (!file.isDirectory) "${dir.value} is not a folder"
+                else "Could not read ${dir.value}"
+            )
+        StoreListing.Ok(children.map { it.toEntry() })
     }
 
     override suspend fun exists(ref: StoreRef): Boolean = withContext(io) { fileOf(ref).exists() }
@@ -145,6 +159,11 @@ class FileNoteStore(
     // The filesystem has no place to record a MIME type; the extension in `name` carries it.
     override suspend fun newChild(parent: StoreRef, name: String, mimeType: String): StoreRef = withContext(io) {
         StoreRef(File(fileOf(parent), uniqueName(fileOf(parent), name.sanitizeFileName())).absolutePath)
+    }
+
+    override suspend fun siblingOf(sibling: StoreRef, name: String): StoreRef? = withContext(io) {
+        val parent = fileOf(sibling).parentFile ?: return@withContext null
+        StoreRef(File(parent, uniqueName(parent, name.sanitizeFileName())).absolutePath)
     }
 
     /**

@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.withContext
+import pl.dakil.notes.format.NoteKind
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -51,9 +52,22 @@ class SafNoteStore(
         return DocumentsContract.buildChildDocumentsUriUsingTree(uri, DocumentsContract.getDocumentId(uri))
     }
 
-    override suspend fun list(dir: StoreRef): List<StoreEntry> = withContext(io) {
+    override suspend fun list(dir: StoreRef): List<StoreEntry> =
+        (listChecked(dir) as? StoreListing.Ok)?.entries ?: emptyList()
+
+    /**
+     * The distinction [list] cannot make: a provider that refused is not a folder with nothing in
+     * it. A lapsed tree grant is the common case, and reporting it as an empty library would let
+     * the index purge — and one day a sync — delete everything the user owns. See [StoreListing].
+     */
+    override suspend fun listChecked(dir: StoreRef): StoreListing = withContext(io) {
         val out = ArrayList<StoreEntry>()
-        queryChildren(dir)?.use { cursor ->
+        val cursor = try {
+            queryChildren(dir)
+        } catch (e: Exception) {
+            return@withContext StoreListing.Unavailable(e.message ?: "Could not list ${dir.value}")
+        } ?: return@withContext StoreListing.Unavailable("No access to ${dir.value}")
+        cursor.use { cursor ->
             val idCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val mimeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
@@ -73,7 +87,7 @@ class SafNoteStore(
                 )
             }
         }
-        out
+        StoreListing.Ok(out)
     }
 
     private fun queryChildren(dir: StoreRef): Cursor? = try {
@@ -88,10 +102,12 @@ class SafNoteStore(
             ),
             null, null, null,
         )
-    } catch (_: Exception) {
-        // Providers throw a variety of things when a tree permission has been revoked; treating
-        // that as "empty folder" lets the library show an actionable empty state instead of dying.
-        null
+    } catch (e: Exception) {
+        // Providers throw a variety of things when a tree permission has been revoked. The throw
+        // is *not* swallowed here any more: `listChecked` turns it into `Unavailable`, and `list`
+        // flattens that back to an empty list for the screens that only want to show an empty
+        // state. Swallowing it at this depth is what made the two indistinguishable.
+        throw StoreException("Could not list ${'$'}{dir.value}", e)
     }
 
     override suspend fun exists(ref: StoreRef): Boolean = metadata(ref) != null
@@ -236,6 +252,41 @@ class SafNoteStore(
             ?: throw StoreException("Could not create '$displayName' in ${parent.value}")
         return StoreRef(created.toString())
     }
+
+    /**
+     * Finds the containing folder by trimming the document id, then **checks the answer**.
+     *
+     * SAF offers no parent lookup at all, so this leans on the shape the common providers give a
+     * document id — `primary:Notes/Work/Standup.md` — and takes everything before the last
+     * separator. That is a guess, and it is wrong for a provider that hands out opaque ids.
+     *
+     * So it is verified rather than trusted: the derived parent has to resolve, and it has to be a
+     * directory, before anything is created in it. A provider this cannot work out gets null, and
+     * the caller declines to write — which is the safe direction, because the only caller is
+     * preserving a version of a note that is about to be overwritten.
+     */
+    override suspend fun siblingOf(sibling: StoreRef, name: String): StoreRef? = withContext(io) {
+        val tree = treeUri ?: return@withContext null
+        val documentId = try {
+            DocumentsContract.getDocumentId(uriOf(sibling))
+        } catch (_: Exception) {
+            return@withContext null
+        }
+        val cut = documentId.lastIndexOf('/')
+        if (cut <= 0) return@withContext null
+        val parent = StoreRef(
+            DocumentsContract.buildDocumentUriUsingTree(tree, documentId.substring(0, cut)).toString()
+        )
+        if (metadata(parent)?.isDirectory != true) return@withContext null
+        try {
+            newChild(parent, name, guessMimeType(name))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun guessMimeType(name: String): String =
+        NoteKind.of(name)?.mimeType ?: "application/octet-stream"
 
     /** SAF has no usable change stream; the library refreshes when it regains the foreground. */
     override fun watch(dir: StoreRef): Flow<StoreChange> = emptyFlow()

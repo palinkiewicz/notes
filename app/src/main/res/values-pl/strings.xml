@@ -86,4 +86,124 @@
     <string name="about_author">Autor</string>
     <string name="about_credit">Pomysł i kochająca dziewczyna</string>
 
+    <!--  USTAWIENIA PRZECHOWYWANIA  -->
+    <string name="settings_storage">Przechowywanie</string>
+    <string name="settings_storage_summary">Gdzie trzymane s\u0105 notatki</string>
+    <string name="settings_storage_location">Folder biblioteki</string>
+    <string name="settings_storage_folder">Bie\u017c\u0105cy folder</string>
+    <string name="settings_storage_internal_summary">Wewn\u0105trz aplikacji, gdzie nic innego ich nie si\u0119gnie</string>
+    <string name="settings_storage_choose">Wybierz folder\u2026</string>
+    <string name="settings_storage_choose_description">Trzymaj notatki jako zwyk\u0142e pliki, aby Syncthing, aplikacja chmury lub kabel USB mog\u0142y je zarchiwizowa\u0107</string>
+    <string name="settings_storage_revert">U\u017cyj pami\u0119ci wewn\u0119trznej</string>
+    <string name="settings_storage_revert_description">Przestaje u\u017cywa\u0107 folderu. Nic w nim nie zostanie usuni\u0119te.</string>
+    <string name="settings_storage_failed">Nie uda\u0142o si\u0119 u\u017cy\u0107 folderu: %1$s</string>
+    <!--  KOPIA ZAPASOWA I SYNCHRONIZACJA  -->
+    <string name="settings_backup">Kopia zapasowa</string>
+    <string name="settings_backup_summary">Zaplanowane kopie wszystkiego</string>
+    <string name="settings_backup_auto">Twórz kopie automatycznie</string>
+    <string name="settings_backup_auto_description">Zapisuje datowany plik .zip z całą biblioteką</string>
+    <string name="settings_backup_destination">Folder kopii</string>
+    <string name="settings_backup_destination_none">Jeszcze nie wybrano</string>
+    <string name="settings_backup_destination_description">Dowolny folder, także udostępniony przez aplikację chmury — Nextcloud, Proton Drive, kartę SD lub pendrive</string>
+    <string name="settings_backup_frequency">Jak często</string>
+    <string name="settings_backup_keep">Ile kopii zachować</string>
+    <string name="settings_backup_keep_value">%1$d</string>
+    <string name="settings_backup_keep_all">Zachowaj wszystkie</string>
+    <string name="settings_backup_charging">Tylko podczas ładowania</string>
+    <string name="settings_backup_wifi">Tylko przez Wi-Fi</string>
+    <string name="settings_backup_now">Utwórz kopię teraz</string>
+    <string name="settings_backup_restore">Przywróć z kopii…</string>
+    <string name="settings_backup_restore_description">Dodaje pliki z powrotem. Nic z obecnych notatek nie zostanie zastąpione.</string>
+    <string name="settings_backup_never">Nigdy</string>
+    <string name="settings_backup_last">Ostatnia kopia: %1$s</string>
+    <string name="settings_backup_pruned">Zapisano %1$s z %2$d plikami i usunięto %3$d starszych kopii.</string>
+    <string name="settings_backup_failed">Kopia nie powiodła się: %1$s</string>
+    <string name="settings_restore_failed">Przywracanie nie powiodło się: %1$s</string>
+
+    <string name="settings_sync">Synchronizacja</string>
+    <string name="settings_sync_summary">Kopiuj notatki na wybrany serwer</string>
+    <string name="settings_sync_provider">Konto</string>
+    <string name="settings_sync_none">Nie skonfigurowano</string>
+    <string name="settings_sync_connect_drive">Połącz z Google Drive…</string>
+    <string name="settings_sync_connect_drive_description">Notatki pozostają zwykłymi plikami .md i .daknote, które otworzysz na drive.google.com. Działa bez Usług Google Play.</string>
+    <string name="settings_sync_connect_webdav">Połącz z WebDAV…</string>
+    <string name="settings_sync_connect_webdav_description">Nextcloud, ownCloud, Synology lub własny serwer</string>
+    <string name="settings_sync_disconnect">Rozłącz</string>
+    <string name="settings_sync_disconnect_description">Zatrzymuje synchronizację. Nic na serwerze nie zostanie usunięte.</string>
+    <string name="settings_sync_now">Synchronizuj teraz</string>
+    <string name="settings_sync_frequency">Jak często</string>
+    <string name="settings_sync_wifi">Tylko przez Wi-Fi</string>
+    <string name="settings_sync_two_way">Dwukierunkowa</string>
+    <string name="settings_sync_two_way_description">Wyłączona — to urządzenie tylko wysyła. Zmiany z innych miejsc nie wrócą.</string>
+    <string name="settings_sync_last">Ostatnia synchronizacja: %1$s</string>
+    <string name="settings_sync_result">Wysłano %1$d, odebrano %2$d, usunięto %3$d.</string>
+    <string name="settings_sync_failed">Synchronizacja nie powiodła się: %1$s</string>
+    <string name="settings_sync_refused_incomplete">Nie udało się odczytać części folderów, więc nic nie usunięto.</string>
+    <string name="settings_sync_refused_guard">To usunęłoby %1$d z %2$d notatek, więc zostało zatrzymane. Uruchom ponownie, aby potwierdzić.</string>
+    <string name="settings_sync_confirm_deletes">Synchronizuj i pozwól na usunięcia</string>
+
+    <string name="settings_webdav_title">WebDAV</string>
+    <string name="settings_webdav_url">Adres serwera</string>
+    <string name="settings_webdav_url_hint">https://cloud.example.com/remote.php/dav/files/ty/Notatki</string>
+    <string name="settings_webdav_user">Nazwa użytkownika</string>
+    <string name="settings_webdav_password">Hasło</string>
+    <string name="settings_webdav_insecure">Ten adres nie jest szyfrowany. Każdy w sieci może odczytać Twoje notatki i hasło.</string>
+    <string name="settings_webdav_connect">Połącz</string>
+
+    <string name="settings_drive_title">Google Drive</string>
+    <string name="settings_drive_intro_title">Potrzebujesz własnego klucza Google API</string>
+    <string name="settings_drive_intro_body">Ta aplikacja nie ma wbudowanego konta Google i jest to celowe. Google ogranicza niezweryfikowane aplikacje do 100 użytkowników dożywotnio, więc wspólny klucz przestałby działać po setnej osobie. Twój własny klucz nie ma limitu, nic nie kosztuje i nikt Ci go nie odbierze.\n\nZajmuje to około pięciu minut, jednorazowo.</string>
+    <string name="settings_drive_step_1">1. Otwórz console.cloud.google.com i utwórz projekt.</string>
+    <string name="settings_drive_step_2">2. W sekcji APIs &amp; Services włącz Google Drive API.</string>
+    <string name="settings_drive_step_3">3. Skonfiguruj ekran zgody OAuth. Wybierz External, dodaj siebie jako użytkownika testowego i dodaj zakres .../auth/drive.file</string>
+    <string name="settings_drive_step_4">4. W sekcji Credentials utwórz identyfikator klienta OAuth typu <b>Desktop app</b>. Musi być Desktop — klienty Android nie obsługują tego logowania.</string>
+    <string name="settings_drive_step_5">5. Skopiuj tutaj identyfikator i klucz tajny klienta.</string>
+    <string name="settings_drive_open_console">Otwórz konsolę Google Cloud</string>
+    <string name="settings_drive_client_id">Identyfikator klienta</string>
+    <string name="settings_drive_client_secret">Klucz tajny klienta</string>
+    <string name="settings_drive_folder">Folder na Dysku</string>
+    <string name="settings_drive_continue">Dalej</string>
+    <string name="settings_drive_authorize">Zaloguj się przez Google</string>
+    <string name="settings_drive_authorizing">Czekam na przeglądarkę…</string>
+    <string name="settings_drive_authorizing_body">Dokończ logowanie i wróć tutaj. Jeśli przeglądarka się nie otworzyła, dotknij Zaloguj ponownie.</string>
+    <string name="settings_drive_connected">Połączono. Notatki pojawią się na Dysku jako zwykłe pliki.</string>
+    <string name="settings_drive_cancel">Anuluj</string>
+    <string name="frequency_manual">Ręcznie</string>
+    <string name="frequency_quarter_hour">Co 15 minut</string>
+    <string name="frequency_hourly">Co godzinę</string>
+    <string name="frequency_six_hourly">Co 6 godzin</string>
+    <string name="frequency_daily">Codziennie</string>
+    <string name="frequency_weekly">Co tydzień</string>
+
+    <!--  Liczebniki. Polski ma trzy formy mnogie. -->
+    <plurals name="settings_storage_migrated_files">
+        <item quantity="one">Skopiowano %1$d plik. Oryginał pozostaje w aplikacji, dopóki go nie usuniesz.</item>
+        <item quantity="few">Skopiowano %1$d pliki. Oryginały pozostają w aplikacji, dopóki ich nie usuniesz.</item>
+        <item quantity="many">Skopiowano %1$d plików. Oryginały pozostają w aplikacji, dopóki ich nie usuniesz.</item>
+        <item quantity="other">Skopiowano %1$d pliku. Oryginały pozostają w aplikacji, dopóki ich nie usuniesz.</item>
+    </plurals>
+    <plurals name="settings_storage_joined_notes">
+        <item quantity="one">Używam wybranego folderu. Zawierał już %1$d notatkę.</item>
+        <item quantity="few">Używam wybranego folderu. Zawierał już %1$d notatki.</item>
+        <item quantity="many">Używam wybranego folderu. Zawierał już %1$d notatek.</item>
+        <item quantity="other">Używam wybranego folderu. Zawierał już %1$d notatki.</item>
+    </plurals>
+    <plurals name="settings_backup_done_files">
+        <item quantity="one">Zapisano %2$s z %1$d plikiem.</item>
+        <item quantity="few">Zapisano %2$s z %1$d plikami.</item>
+        <item quantity="many">Zapisano %2$s z %1$d plikami.</item>
+        <item quantity="other">Zapisano %2$s z %1$d pliku.</item>
+    </plurals>
+    <plurals name="settings_restore_done_files">
+        <item quantity="one">Przywrócono %1$d plik.</item>
+        <item quantity="few">Przywrócono %1$d pliki.</item>
+        <item quantity="many">Przywrócono %1$d plików.</item>
+        <item quantity="other">Przywrócono %1$d pliku.</item>
+    </plurals>
+    <plurals name="settings_sync_conflicts_notes">
+        <item quantity="one">%1$d notatkę zmieniono w dwóch miejscach. Zachowano obie wersje.</item>
+        <item quantity="few">%1$d notatki zmieniono w dwóch miejscach. Zachowano obie wersje.</item>
+        <item quantity="many">%1$d notatek zmieniono w dwóch miejscach. Zachowano obie wersje.</item>
+        <item quantity="other">%1$d notatki zmieniono w dwóch miejscach. Zachowano obie wersje.</item>
+    </plurals>
 </resources>

@@ -57,6 +57,26 @@ sealed interface StoreChange {
 class StoreException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
+ * The outcome of listing a directory, with "empty" and "could not tell" kept apart.
+ *
+ * [NoteStore.list] cannot express the difference — it returns a list, and a backend that failed has
+ * nothing to put in it but nothing. That is safe for a screen, which shows an empty folder either
+ * way, and unsafe for anything that *deletes what it did not see*: the index purge in
+ * `NoteRepository.scan`, and any future sync that would read the same silence as "the user deleted
+ * everything". A revoked SAF tree permission produces exactly that silence.
+ *
+ * So callers that destroy on absence must ask through [NoteStore.listChecked] and treat
+ * [Unavailable] as "do not touch anything", never as "nothing is there".
+ */
+sealed interface StoreListing {
+
+    data class Ok(val entries: List<StoreEntry>) : StoreListing
+
+    /** The backend could not answer: a revoked grant, a detached volume, an I/O error. */
+    data class Unavailable(val reason: String) : StoreListing
+}
+
+/**
  * Byte-level storage, decoupled from what the bytes mean.
  *
  * This is the seam that makes sync a later feature rather than a rewrite. Nothing above this
@@ -75,6 +95,14 @@ interface NoteStore {
     suspend fun root(): StoreRef?
 
     suspend fun list(dir: StoreRef): List<StoreEntry>
+
+    /**
+     * [list], but able to say that it failed.
+     *
+     * The default is the lenient answer, which is correct for a backend that cannot fail to
+     * enumerate. Any backend that can must override it — see [StoreListing].
+     */
+    suspend fun listChecked(dir: StoreRef): StoreListing = StoreListing.Ok(list(dir))
 
     suspend fun exists(ref: StoreRef): Boolean
 
@@ -128,6 +156,20 @@ interface NoteStore {
      * opens in the wrong app from the system file browser.
      */
     suspend fun newChild(parent: StoreRef, name: String, mimeType: String): StoreRef
+
+    /**
+     * Allocates a ref for a new file beside [sibling], called [name].
+     *
+     * Separate from [newChild] because a caller holding a note often has no way to name its folder:
+     * the editor is restored from a bare ref across process death, and a SAF document URI is opaque
+     * and cannot be walked upwards. "Put a file next to this one" is the operation such a caller
+     * actually has the information to ask for.
+     *
+     * Returns null when the backend cannot work the parent out. Callers must read that as **do not
+     * write**, never as "write it somewhere else" — the one caller today is the conflict copy that
+     * runs before a note is overwritten, and guessing at its location would defeat the point.
+     */
+    suspend fun siblingOf(sibling: StoreRef, name: String): StoreRef?
 
     /**
      * Change notifications for [dir]. Backends without watch support return an empty flow, which

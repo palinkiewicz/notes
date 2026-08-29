@@ -92,4 +92,116 @@
     <string name="about_author">Author</string>
     <string name="about_credit">Idea, and a loving girlfriend</string>
 
+    <!--  STORAGE SETTINGS  -->
+    <string name="settings_storage">Storage</string>
+    <string name="settings_storage_summary">Where your notes are kept</string>
+    <string name="settings_storage_location">Library folder</string>
+    <string name="settings_storage_folder">Current folder</string>
+    <string name="settings_storage_internal_summary">Inside the app, where nothing else can reach them</string>
+    <string name="settings_storage_choose">Choose a folder\u2026</string>
+    <string name="settings_storage_choose_description">Keep your notes as ordinary files, so Syncthing, a cloud app or a USB cable can back them up</string>
+    <string name="settings_storage_revert">Use internal storage</string>
+    <string name="settings_storage_revert_description">Stops using the folder. Nothing in it is deleted.</string>
+    <string name="settings_storage_failed">The folder could not be used: %1$s</string>
+    <!--  BACKUP AND SYNC  -->
+    <string name="settings_backup">Backup</string>
+    <string name="settings_backup_summary">Scheduled copies of everything</string>
+    <string name="settings_backup_auto">Back up automatically</string>
+    <string name="settings_backup_auto_description">Writes a dated .zip of your whole library</string>
+    <string name="settings_backup_destination">Backup folder</string>
+    <string name="settings_backup_destination_none">Not chosen yet</string>
+    <string name="settings_backup_destination_description">Any folder, including one a cloud app provides — Nextcloud, Proton Drive, an SD card or a USB stick</string>
+    <string name="settings_backup_frequency">How often</string>
+    <string name="settings_backup_keep">Copies to keep</string>
+    <string name="settings_backup_keep_value">%1$d</string>
+    <string name="settings_backup_keep_all">Keep all</string>
+    <string name="settings_backup_charging">Only while charging</string>
+    <string name="settings_backup_wifi">Only on Wi-Fi</string>
+    <string name="settings_backup_now">Back up now</string>
+    <string name="settings_backup_restore">Restore from a backup…</string>
+    <string name="settings_backup_restore_description">Adds the files back. Nothing you have now is replaced.</string>
+    <string name="settings_backup_never">Never</string>
+    <string name="settings_backup_last">Last backup: %1$s</string>
+    <string name="settings_backup_pruned">Saved %1$s with %2$d files, and removed %3$d older copies.</string>
+    <string name="settings_backup_failed">Backup failed: %1$s</string>
+    <string name="settings_restore_failed">Restore failed: %1$s</string>
+
+    <string name="settings_sync">Sync</string>
+    <string name="settings_sync_summary">Mirror your notes to a server you choose</string>
+    <string name="settings_sync_provider">Account</string>
+    <string name="settings_sync_none">Not set up</string>
+    <string name="settings_sync_connect_drive">Connect Google Drive…</string>
+    <string name="settings_sync_connect_drive_description">Your notes stay real .md and .daknote files you can open from drive.google.com. Works without Google Play Services.</string>
+    <string name="settings_sync_connect_webdav">Connect WebDAV…</string>
+    <string name="settings_sync_connect_webdav_description">Nextcloud, ownCloud, Synology or any server you run yourself</string>
+    <string name="settings_sync_disconnect">Disconnect</string>
+    <string name="settings_sync_disconnect_description">Stops syncing. Nothing on the server is deleted.</string>
+    <string name="settings_sync_now">Sync now</string>
+    <string name="settings_sync_frequency">How often</string>
+    <string name="settings_sync_wifi">Only on Wi-Fi</string>
+    <string name="settings_sync_two_way">Two-way</string>
+    <string name="settings_sync_two_way_description">Off, this device only ever uploads. Changes made elsewhere are not brought back.</string>
+    <string name="settings_sync_last">Last sync: %1$s</string>
+    <string name="settings_sync_result">Sent %1$d, received %2$d, removed %3$d.</string>
+    <string name="settings_sync_failed">Sync failed: %1$s</string>
+    <string name="settings_sync_refused_incomplete">Some folders could not be read, so nothing was deleted.</string>
+    <string name="settings_sync_refused_guard">This would have deleted %1$d of %2$d notes, so it was stopped. Run it again to confirm.</string>
+    <string name="settings_sync_confirm_deletes">Sync and allow the deletions</string>
+
+    <string name="settings_webdav_title">WebDAV</string>
+    <string name="settings_webdav_url">Server address</string>
+    <string name="settings_webdav_url_hint">https://cloud.example.com/remote.php/dav/files/you/Notes</string>
+    <string name="settings_webdav_user">Username</string>
+    <string name="settings_webdav_password">Password</string>
+    <string name="settings_webdav_insecure">This address is not encrypted. Anyone on the network can read your notes and your password.</string>
+    <string name="settings_webdav_connect">Connect</string>
+
+    <string name="settings_drive_title">Google Drive</string>
+    <string name="settings_drive_intro_title">You will need your own Google API key</string>
+    <string name="settings_drive_intro_body">This app has no built-in Google account, and that is on purpose. Google caps unverified apps at 100 users for life, so a shared key would stop working for everyone after the hundredth person. Your own key has no cap, costs nothing, and nobody can take it away.
+
+It takes about five minutes, once.</string>
+    <string name="settings_drive_step_1">1. Open console.cloud.google.com and create a project.</string>
+    <string name="settings_drive_step_2">2. Under APIs &amp; Services, enable the Google Drive API.</string>
+    <string name="settings_drive_step_3">3. Configure the OAuth consent screen. Choose External, add yourself as a test user, and add the scope .../auth/drive.file</string>
+    <string name="settings_drive_step_4">4. Under Credentials, create an OAuth client ID of type <b>Desktop app</b>. It must be Desktop — Android clients cannot use this sign-in.</string>
+    <string name="settings_drive_step_5">5. Copy the client ID and client secret here.</string>
+    <string name="settings_drive_open_console">Open Google Cloud console</string>
+    <string name="settings_drive_client_id">Client ID</string>
+    <string name="settings_drive_client_secret">Client secret</string>
+    <string name="settings_drive_folder">Folder in Drive</string>
+    <string name="settings_drive_continue">Continue</string>
+    <string name="settings_drive_authorize">Sign in with Google</string>
+    <string name="settings_drive_authorizing">Waiting for the browser…</string>
+    <string name="settings_drive_authorizing_body">Finish signing in, then come back. If the browser did not open, tap Sign in again.</string>
+    <string name="settings_drive_connected">Connected. Your notes will appear in Drive as ordinary files.</string>
+    <string name="settings_drive_cancel">Cancel</string>
+    <string name="frequency_manual">Manually</string>
+    <string name="frequency_quarter_hour">Every 15 minutes</string>
+    <string name="frequency_hourly">Every hour</string>
+    <string name="frequency_six_hourly">Every 6 hours</string>
+    <string name="frequency_daily">Every day</string>
+    <string name="frequency_weekly">Every week</string>
+
+    <!--  Counts. Polish has three plural forms, so these cannot be a bare %d with a fixed noun. -->
+    <plurals name="settings_storage_migrated_files">
+        <item quantity="one">Copied %1$d file. The original is still inside the app until you remove it.</item>
+        <item quantity="other">Copied %1$d files. The originals are still inside the app until you remove them.</item>
+    </plurals>
+    <plurals name="settings_storage_joined_notes">
+        <item quantity="one">Using the folder you chose. It already held %1$d note.</item>
+        <item quantity="other">Using the folder you chose. It already held %1$d notes.</item>
+    </plurals>
+    <plurals name="settings_backup_done_files">
+        <item quantity="one">Saved %2$s with %1$d file.</item>
+        <item quantity="other">Saved %2$s with %1$d files.</item>
+    </plurals>
+    <plurals name="settings_restore_done_files">
+        <item quantity="one">Restored %1$d file.</item>
+        <item quantity="other">Restored %1$d files.</item>
+    </plurals>
+    <plurals name="settings_sync_conflicts_notes">
+        <item quantity="one">%1$d note changed in two places. Both versions were kept.</item>
+        <item quantity="other">%1$d notes changed in two places. Both versions were kept.</item>
+    </plurals>
 </resources>

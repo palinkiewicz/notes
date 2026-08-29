@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import pl.dakil.notes.R
 import pl.dakil.notes.data.LibraryLayout
+import pl.dakil.notes.data.SyncFrequency
 import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.DarkThemeOption
 import pl.dakil.notes.model.MeasurementUnit
@@ -74,4 +75,22 @@ fun PressureCurve.label(): String = stringResource(
         // curve a future editor lets someone draw by hand.
         else -> R.string.pressure_curve_linear
     },
+)
+
+/**
+ * How often a background job runs.
+ *
+ * Here rather than on the enum, like every other label in this file: `SyncFrequency` lives in
+ * `:core:data`, which has no resources and no `Context` to resolve them with.
+ */
+@Composable
+fun SyncFrequency.label(): String = stringResource(
+    when (this) {
+        SyncFrequency.MANUAL -> R.string.frequency_manual
+        SyncFrequency.QUARTER_HOUR -> R.string.frequency_quarter_hour
+        SyncFrequency.HOURLY -> R.string.frequency_hourly
+        SyncFrequency.SIX_HOURLY -> R.string.frequency_six_hourly
+        SyncFrequency.DAILY -> R.string.frequency_daily
+        SyncFrequency.WEEKLY -> R.string.frequency_weekly
+    }
 )

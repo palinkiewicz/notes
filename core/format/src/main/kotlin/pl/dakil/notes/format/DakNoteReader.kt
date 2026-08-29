@@ -4,6 +4,7 @@ import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Note
+import pl.dakil.notes.model.NoteMeta
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.Rect
@@ -30,6 +31,34 @@ object DakNoteReader {
 
     /** Refuses absurd inputs before allocating. 256 MB is far beyond any real note. */
     private const val MAX_TOTAL_BYTES = 256L * 1024 * 1024
+
+    /**
+     * Reads only the manifest, and stops.
+     *
+     * The writer emits `mimetype` first and `manifest.json` second, so this touches two ZIP entries
+     * rather than inflating every stroke on the sheet. That difference is what makes it affordable
+     * for sync to ask "which note is this?" about every file in the library on every pass — the
+     * `id` is how a `.daknote` is recognised after the user renames or moves it.
+     *
+     * Returns null for anything that is not a readable `.daknote`; a caller asking this question
+     * has a file it is not sure about, and an exception is not the answer it needs.
+     */
+    fun readMeta(input: InputStream): NoteMeta? = try {
+        var manifest: ByteArray? = null
+        ZipInputStream(input).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (entry.name == DakNote.ENTRY_MANIFEST) {
+                    manifest = zip.readBytes()
+                    break
+                }
+                zip.closeEntry()
+            }
+        }
+        manifest?.let { Schema.readManifest(JsonReader.parseObject(it.toString(Charsets.UTF_8))).meta }
+    } catch (_: Exception) {
+        null
+    }
 
     fun read(input: InputStream): Note {
         val entries = readEntries(input)

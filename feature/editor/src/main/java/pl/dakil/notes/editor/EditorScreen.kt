@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import pl.dakil.notes.data.SaveState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -244,11 +248,22 @@ fun EditorScreen(
         )
     }
 
+    // A conflict is not a failure: the note saved, and the version that was on disk was kept
+    // beside it. `error` is the wrong channel — it replaces the whole editor — so this gets the
+    // stock transient surface instead, which is also the one place the copy's name can be read.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val conflict = state.saveState as? SaveState.Conflicted
+    val conflictMessage = conflict?.let { stringResource(R.string.editor_conflict_saved, it.copyName) }
+    LaunchedEffect(conflictMessage) {
+        conflictMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
+
     Scaffold(
         // On the whole scaffold rather than on the sheet: the formatting bar is the one control the
         // user needs *while* the keyboard is up, so the bar has to rise with it. The sheet loses the
         // height, which is what lets the transform scroll a box clear of the keyboard.
         modifier = modifier.fillMaxSize().imePadding(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 modifier = Modifier.dismissToolPopupOnPress { toolPopup = null },

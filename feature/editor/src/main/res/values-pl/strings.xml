@@ -182,4 +182,5 @@
     <string name="markdown_block_task">Zadania</string>
     <string name="markdown_block_ordered">Numery</string>
 
+    <string name="editor_conflict_saved">Na dysku była nowsza wersja. Zachowano ją jako \"%1$s\".</string>
 </resources>
