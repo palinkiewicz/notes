@@ -91,6 +91,7 @@ fun EditorScreen(
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
     var formatPopup by remember { mutableStateOf<FormatPopup?>(null) }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
+    var imageTapPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -203,6 +204,47 @@ fun EditorScreen(
                     replace(0, length, result.text)
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
+            },
+            onConfirmDeviceImage = if (kind == ReferenceKind.IMAGE) { label, mimeType, base64 ->
+                reference = null
+                val before = field.text.toString()
+                val result = MarkdownActions.insertBase64Image(
+                    text = before,
+                    start = field.selection.start,
+                    end = field.selection.end,
+                    alt = label,
+                    mimeType = mimeType,
+                    base64Data = base64,
+                )
+                field.edit {
+                    replace(0, length, result.text)
+                    selection = TextRange(result.selectionStart, result.selectionEnd)
+                }
+            } else null,
+        )
+    }
+
+    imageTapPosition?.let { (tapX, tapY) ->
+        ReferenceDialog(
+            kind = ReferenceKind.IMAGE,
+            initialLabel = "",
+            onDismiss = { imageTapPosition = null },
+            onConfirm = { label, url ->
+                imageTapPosition = null
+                val markdown = MarkdownActions.insertImage("", 0, 0, label, url).text
+                viewModel.insertTextBlockWithContent(tapX, tapY, markdown)
+            },
+            onConfirmDeviceImage = { label, mimeType, base64 ->
+                imageTapPosition = null
+                val markdown = MarkdownActions.insertBase64Image(
+                    text = "",
+                    start = 0,
+                    end = 0,
+                    alt = label,
+                    mimeType = mimeType,
+                    base64Data = base64,
+                ).text
+                viewModel.insertTextBlockWithContent(tapX, tapY, markdown)
             },
         )
     }

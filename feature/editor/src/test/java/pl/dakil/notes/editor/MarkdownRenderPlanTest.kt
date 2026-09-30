@@ -13,6 +13,7 @@ import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdStyle
 import pl.dakil.notes.editor.markdown.MdTable
 import pl.dakil.notes.editor.markdown.MdTask
+import pl.dakil.notes.editor.markdown.MdImage
 
 /**
  * What the WYSIWYG editor actually shows.
@@ -719,17 +720,14 @@ class MarkdownRenderPlanTest {
         fun offsetsOf(decoration: MdDecoration): List<Int> = when (decoration) {
             is MdCodeBlock ->
                 listOf(decoration.start, decoration.end, decoration.headerStart, decoration.headerEnd)
-
             is MdTable ->
                 listOf(decoration.start, decoration.end, decoration.headerEnd) +
                     decoration.columnStops +
                     decoration.rows.flatMap { listOf(it.first, it.last) }
-
             is MdRule -> listOf(decoration.offset)
             is MdQuote -> listOf(decoration.start, decoration.end)
-            // `sourceMark` is left out on purpose: it is an offset into the source, and holding it
-            // to the rendered length is exactly the mistake this test would be there to catch.
             is MdTask -> listOf(decoration.offset)
+            is MdImage -> listOf(decoration.offset)
         }
     }
 
