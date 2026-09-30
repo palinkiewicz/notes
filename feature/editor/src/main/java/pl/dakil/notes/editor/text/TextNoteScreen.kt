@@ -163,6 +163,22 @@ fun TextNoteScreen(
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },
+            onConfirmDeviceImage = { label, mimeType, base64 ->
+                reference = null
+                val before = text.text.toString()
+                val result = MarkdownActions.insertBase64Image(
+                    text = before,
+                    start = text.selection.start,
+                    end = text.selection.end,
+                    alt = label,
+                    mimeType = mimeType,
+                    base64Data = base64,
+                )
+                text.edit {
+                    replace(0, length, result.text)
+                    selection = TextRange(result.selectionStart, result.selectionEnd)
+                }
+            },
         )
     }
 

@@ -6,9 +6,11 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -21,6 +23,16 @@ import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.then
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Base64
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -60,6 +72,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
@@ -354,6 +367,7 @@ fun MarkdownEditor(
                                     )
                                 }
                             }
+                            is MdImage -> EditorImageBlock(decoration, result, scroll.value)
                             // The rest are shapes rather than controls, and are drawn behind the
                             // text instead of placed over it.
                             is MdRule, is MdQuote -> Unit
@@ -525,6 +539,30 @@ private fun BoxScope.TaskCheckbox(
 /** What a Material checkbox measures with its own padding, and how much of that padding is its. */
 private val CheckboxTarget = 24.dp
 private val CheckboxPadding = 2.dp
+
+@Composable
+private fun BoxScope.EditorImageBlock(
+    image: MdImage,
+    layout: TextLayoutResult,
+    scroll: Int,
+) {
+    val bitmap = remember(image.url) { ImageLoader.load(image.url) } ?: return
+    val at = image.offset.coerceIn(0, layout.layoutInput.text.length)
+    val line = layout.getLineForOffset(at)
+
+    androidx.compose.foundation.Image(
+        bitmap = bitmap,
+        contentDescription = image.alt,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .offset {
+                val top = layout.getLineTop(line)
+                IntOffset(0, (top - scroll).roundToInt())
+            },
+        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+    )
+}
 
 /**
  * Flips the one character between a task's brackets.
@@ -709,9 +747,30 @@ internal fun ReferenceDialog(
     initialLabel: String,
     onDismiss: () -> Unit,
     onConfirm: (label: String, url: String) -> Unit,
+    onConfirmDeviceImage: ((label: String, mimeType: String, base64: String) -> Unit)? = null,
 ) {
     var label by remember { mutableStateOf(initialLabel) }
     var url by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val rawType = context.contentResolver.getType(uri)
+                    val mimeType = if (rawType != null && rawType.startsWith("image/")) rawType else "image/png"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    if (bytes != null) {
+                        val base64 = Base64.getEncoder().encodeToString(bytes)
+                        withContext(Dispatchers.Main) {
+                            onConfirmDeviceImage?.invoke(label, mimeType, base64)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -760,7 +819,27 @@ internal fun ReferenceDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (kind == ReferenceKind.IMAGE && onConfirmDeviceImage != null) {
+                    OutlinedButton(
+                        onClick = {
+                            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                    ) {
+                        Icon(
+                            imageVector = NotesIcons.Image,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.markdown_from_device))
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            }
         },
     )
 }

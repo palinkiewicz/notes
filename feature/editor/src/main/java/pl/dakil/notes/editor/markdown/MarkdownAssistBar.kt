@@ -682,6 +682,49 @@ object MarkdownActions {
     fun insertImage(text: String, start: Int, end: Int, alt: String, url: String): Result =
         insertReference(text, start, end, alt, url, prefix = "![")
 
+    /**
+     * An image reference with base64 payload placed at the foot of the document:
+     * `![label][img-id]` at caret/selection and `[img-id]: data:mime;base64,data` at end.
+     */
+    fun insertBase64Image(
+        text: String,
+        start: Int,
+        end: Int,
+        alt: String,
+        mimeType: String,
+        base64Data: String,
+        refId: String? = null,
+    ): Result {
+        val from = minOf(start, end).coerceIn(0, text.length)
+        val to = maxOf(start, end).coerceIn(0, text.length)
+        val label = alt.ifBlank { nextDefaultImageLabel(text) }
+        val id = refId ?: generateImageRefId(text)
+        val tag = "![$label][$id]"
+        val withTag = text.replaceRange(from, to, tag)
+        val caret = from + tag.length
+        val refDef = "[$id]: data:$mimeType;base64,$base64Data"
+        val out = when {
+            withTag.isEmpty() -> "$tag\n\n$refDef"
+            withTag.endsWith("\n\n") -> "$withTag$refDef"
+            withTag.endsWith("\n") -> "$withTag\n$refDef"
+            else -> "$withTag\n\n$refDef"
+        }
+        return Result(out, caret, caret)
+    }
+
+    internal fun generateImageRefId(existingText: String): String {
+        while (true) {
+            val id = "img-${kotlin.random.Random.nextInt(10_000_000, 100_000_000)}"
+            if (!existingText.contains(id)) return id
+        }
+    }
+
+    internal fun nextDefaultImageLabel(existingText: String): String {
+        val matches = Regex("""!\[Image (\d+)\]""").findAll(existingText)
+        val maxIndex = matches.mapNotNull { it.groupValues[1].toIntOrNull() }.maxOrNull() ?: 0
+        return "Image ${maxIndex + 1}"
+    }
+
     private fun insertReference(
         text: String,
         start: Int,

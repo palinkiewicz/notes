@@ -47,6 +47,7 @@
     <string name="editor_tool_erase_area">Wymaż obszar</string>
     <string name="editor_tool_select">Zaznacz</string>
     <string name="editor_tool_text">Tekst</string>
+    <string name="editor_tool_image">Obraz</string>
     <string name="editor_width">Szerokość</string>
     <string name="editor_opacity">Krycie</string>
     <string name="editor_smoothing">Wygładzanie</string>
@@ -155,6 +156,7 @@
     <string name="markdown_link_text">Tekst</string>
     <string name="markdown_image_description">Opis</string>
     <string name="markdown_address">Adres</string>
+    <string name="markdown_from_device">Z urządzenia</string>
     <string name="markdown_insert">Wstaw</string>
 
     <!--  FORMAT BAR  -->

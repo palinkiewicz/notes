@@ -357,6 +357,7 @@ fun EditorScreen(
                         onPopupChange = { toolPopup = it },
                         onSelectTool = viewModel::selectTool,
                         onSelectTextTool = viewModel::selectTextTool,
+                        onSelectImageTool = viewModel::selectImageTool,
                         onUpdateTool = viewModel::updateTool,
                         onToggleFingerDrawing = viewModel::setFingerDrawing,
                         onToggleRuler = viewModel::setRuler,
@@ -407,6 +408,7 @@ fun EditorScreen(
                             onPopupChange = { toolPopup = it },
                             onSelectTool = viewModel::selectTool,
                             onSelectTextTool = viewModel::selectTextTool,
+                            onSelectImageTool = viewModel::selectImageTool,
                             onUpdateTool = viewModel::updateTool,
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
                             onToggleRuler = viewModel::setRuler,
@@ -418,6 +420,7 @@ fun EditorScreen(
                         viewModel = viewModel,
                         darkTheme = darkTheme,
                         modifier = Modifier.fillMaxSize(),
+                        onImageToolTap = { x, y -> imageTapPosition = x to y },
                     )
                 }
             }

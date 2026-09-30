@@ -104,6 +104,7 @@ data class EditorUiState(
      * that does nothing on the devices this app is for. Picking a pen again goes back to drawing.
      */
     val textToolActive: Boolean = false,
+    val imageToolActive: Boolean = false,
     /**
      * Whether the straightedge is out.
      *
@@ -344,6 +345,7 @@ class NoteViewModel(
             current.copy(
                 tool = spec,
                 textToolActive = false,
+                imageToolActive = false,
                 lastDrawingTool = if (tool.isDrawing) tool else current.lastDrawingTool,
                 lastEraser = if (tool.isEraser) tool else current.lastEraser,
                 // Leaving the lasso must drop the selection, or its handles linger over the sheet.
@@ -360,7 +362,15 @@ class NoteViewModel(
      * something nobody asked for.
      */
     fun selectTextTool() {
-        _state.update { it.copy(textToolActive = true, selection = null) }
+        _state.update { it.copy(textToolActive = true, imageToolActive = false, selection = null) }
+    }
+
+    /**
+     * The image tool: a tap anywhere on the canvas prompts to insert an image (URL or device).
+     */
+    fun selectImageTool() {
+        clearTextSelection()
+        _state.update { it.copy(imageToolActive = true, textToolActive = false, selection = null) }
     }
 
     fun updateTool(spec: ToolSpec) {
@@ -528,6 +538,31 @@ class NoteViewModel(
                 documentVersion = it.documentVersion + 1,
             )
         }
+        beginTextEditing(box.id)
+    }
+
+    /**
+     * Inserts a new text block with prefilled markdown content (e.g. an image) at [x], [y]
+     * and puts it into edit history.
+     */
+    fun insertTextBlockWithContent(x: Float, y: Float, markdown: String) {
+        val current = _state.value
+        val note = current.note ?: return
+        val sheet = note.sheet
+        if (current.isReadOnly) return
+
+        val format = sheet.format
+        val left = x.coerceIn(0f, (format.contentRight - MIN_TEXT_WIDTH).coerceAtLeast(0f))
+        val top = y.coerceAtLeast(0f)
+        val box = TextBlock(
+            id = sheet.nextBlockId(),
+            z = (sheet.blocks.maxOfOrNull { it.z } ?: 0) + 1,
+            rect = Rect(left, top, maxOf(format.contentRight, left + MIN_TEXT_WIDTH), top + NEW_TEXT_HEIGHT),
+            markdown = markdown,
+        )
+
+        commitEdit(Edit.AddBlock(box))
+        _state.update { it.copy(imageToolActive = false, textToolActive = true) }
         beginTextEditing(box.id)
     }
 

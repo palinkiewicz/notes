@@ -232,6 +232,9 @@ data class MdQuote(val start: Int, val end: Int) : MdDecoration
  */
 data class MdTask(val offset: Int, val checked: Boolean, val sourceMark: Int) : MdDecoration
 
+/** An image decoration with resolved destination URL or base64 data. */
+data class MdImage(val offset: Int, val alt: String, val url: String) : MdDecoration
+
 /**
  * One inline span — `**bold**`, `` `code` ``, `[text]{size=18}` — in **source** coordinates.
  *
@@ -365,6 +368,13 @@ object MarkdownRenderer {
         val lines = Lines(markdown)
         val units = units(lines)
 
+        val references = HashMap<String, String>()
+        for (lineIndex in 0 until lines.count) {
+            MarkdownParser.REFERENCE_DEF.matchEntire(lines.text(lineIndex))?.let { match ->
+                references[match.groupValues[1].lowercase()] = match.groupValues[2].trim()
+            }
+        }
+
         var k = 0
         while (k < lines.count) {
             gapBefore(lines, units, k, edits, gaps)
@@ -377,7 +387,7 @@ object MarkdownRenderer {
                 lines.startsTable(k) -> planTable(markdown, lines, k, edits, styles, decorations)
 
                 else -> {
-                    scanLine(lines, k, edits, styles, decorations, spans)
+                    scanLine(lines, k, edits, styles, decorations, spans, references)
                     k + 1
                 }
             }
@@ -851,6 +861,8 @@ object MarkdownRenderer {
         // `sourceMark` is deliberately left alone: it names a character in the document, not on the
         // screen, and mapping it would point the toggle at whatever the renderer put there instead.
         is MdTask -> copy(offset = closes(edits, offset))
+
+        is MdImage -> copy(offset = closes(edits, offset))
     }
 
     // ---- Lines -------------------------------------------------------------------------------
@@ -1201,6 +1213,7 @@ object MarkdownRenderer {
         styles: MutableList<MdStyleRange>,
         decorations: MutableList<MdDecoration>,
         spans: MutableList<MdInline>,
+        references: Map<String, String>,
     ) {
         val text = lines.source
         val start = lines.start(k)
@@ -1216,11 +1229,16 @@ object MarkdownRenderer {
             return
         }
 
+        MarkdownParser.REFERENCE_DEF.matchEntire(line)?.let {
+            edits += MdEdit(start, lines.endInclusive(k), "")
+            return
+        }
+
         MarkdownParser.HEADING.matchEntire(line)?.let { match ->
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, headingStyle(match.groupValues[1].length))
-            scanInline(text, textStart, end, edits, styles, spans)
+            scanInline(text, textStart, end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1236,7 +1254,7 @@ object MarkdownRenderer {
             decorations += MdTask(markerStart, done, start + match.groups[2]!!.range.first)
             val body = planHeading(text, textStart, end, edits, styles)
             if (done) styles += MdStyleRange(body, end, MdStyle.STRIKE)
-            scanInline(text, body, end, edits, styles, spans)
+            scanInline(text, body, end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1245,7 +1263,7 @@ object MarkdownRenderer {
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(markerStart, textStart, BULLET_GLYPH)
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1255,7 +1273,7 @@ object MarkdownRenderer {
             val markerStart = indentTo(lines, k, match.groupValues[1], edits, styles)
             val textStart = end - match.groupValues[3].length
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1268,11 +1286,11 @@ object MarkdownRenderer {
             edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, MdStyle.QUOTE)
             openQuote(lines, k, decorations)
-            scanInline(text, textStart, end, edits, styles, spans)
+            scanInline(text, textStart, end, edits, styles, spans, decorations, references)
             return
         }
 
-        scanInline(text, start, end, edits, styles, spans)
+        scanInline(text, start, end, edits, styles, spans, decorations, references)
     }
 
     /**
@@ -1363,6 +1381,8 @@ object MarkdownRenderer {
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
         spans: MutableList<MdInline>,
+        decorations: MutableList<MdDecoration> = ArrayList(),
+        references: Map<String, String> = emptyMap(),
     ) {
         var i = from
         while (i < to) {
@@ -1400,7 +1420,7 @@ object MarkdownRenderer {
             }
 
             if (text.startsWith("![", i)) {
-                val consumed = scanReference(text, i, to, edits, styles, spans, image = true)
+                val consumed = scanReference(text, i, to, edits, styles, decorations, spans, image = true, references = references)
                 if (consumed > 0) {
                     i = consumed
                     continue
@@ -1417,7 +1437,7 @@ object MarkdownRenderer {
                     continue
                 }
 
-                val consumed = scanReference(text, i, to, edits, styles, spans, image = false)
+                val consumed = scanReference(text, i, to, edits, styles, decorations, spans, image = false, references = references)
                 if (consumed > 0) {
                     i = consumed
                     continue
@@ -1715,21 +1735,44 @@ object MarkdownRenderer {
         to: Int,
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
+        decorations: MutableList<MdDecoration>,
         spans: MutableList<MdInline>,
         image: Boolean,
+        references: Map<String, String>,
     ): Int {
         val openLength = if (image) 2 else 1
         val close = text.indexOf(']', i + openLength)
         if (close < 0 || close >= to) return 0
-        if (close + 1 >= to || text[close + 1] != '(') return 0
-        val end = text.indexOf(')', close + 1)
+        if (close + 1 >= to) return 0
+        val isInline = text[close + 1] == '('
+        val isRef = text[close + 1] == '['
+        if (!isInline && !isRef) return 0
+
+        val end = if (isInline) {
+            text.indexOf(')', close + 1)
+        } else {
+            text.indexOf(']', close + 2)
+        }
         if (end < 0 || end >= to) return 0
+
+        if (image) {
+            val alt = text.substring(i + openLength, close)
+            val url = if (isInline) {
+                text.substring(close + 2, end).trim()
+            } else {
+                val refId = text.substring(close + 2, end).trim().lowercase()
+                references[refId] ?: ""
+            }
+            if (url.isNotEmpty()) {
+                decorations += MdImage(offset = i, alt = alt, url = url)
+            }
+        }
 
         // The URL is hidden with the brackets: it is the destination, not the prose. An image keeps
         // a glyph in its place so an empty alt text does not vanish without trace.
         edits += MdEdit(i, i + openLength, if (image) IMAGE_GLYPH else "")
         styles += MdStyleRange(i, close, if (image) MdStyle.IMAGE else MdStyle.LINK)
-        if (!image) scanInline(text, i + 1, close, edits, styles, spans)
+        if (!image) scanInline(text, i + 1, close, edits, styles, spans, decorations, references)
         edits += MdEdit(close, end + 1, "")
         return end + 1
     }

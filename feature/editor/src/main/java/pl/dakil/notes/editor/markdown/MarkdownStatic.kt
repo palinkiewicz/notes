@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
@@ -80,10 +82,73 @@ fun MarkdownStaticText(
             onTextLayout = { layout = it },
         )
         val result = layout
-        if (result != null && onToggleTask != null) {
+        if (result != null) {
             for (decoration in plan.decorations) {
-                if (decoration is MdTask) StaticTaskCheckbox(decoration, result, onToggleTask)
+                if (decoration is MdTask && onToggleTask != null) {
+                    StaticTaskCheckbox(decoration, result, onToggleTask)
+                }
+                if (decoration is MdImage) {
+                    StaticImageBlock(decoration, result)
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.StaticImageBlock(
+    image: MdImage,
+    layout: TextLayoutResult,
+) {
+    val bitmap = remember(image.url) { ImageLoader.load(image.url) } ?: return
+    val at = image.offset.coerceIn(0, layout.layoutInput.text.length)
+    val line = layout.getLineForOffset(at)
+
+    androidx.compose.foundation.Image(
+        bitmap = bitmap,
+        contentDescription = image.alt,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .offset {
+                val top = layout.getLineTop(line)
+                IntOffset(0, top.roundToInt())
+            },
+        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+    )
+}
+
+internal object ImageLoader {
+    private val cache = android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(20 * 1024 * 1024)
+
+    fun load(urlOrBase64: String): androidx.compose.ui.graphics.ImageBitmap? {
+        val trimmed = urlOrBase64.trim()
+        if (trimmed.isEmpty()) return null
+        val key = trimmed.hashCode().toString()
+        cache.get(key)?.let { return it }
+
+        val bitmap = decode(trimmed) ?: return null
+        cache.put(key, bitmap)
+        return bitmap
+    }
+
+    private fun decode(src: String): androidx.compose.ui.graphics.ImageBitmap? {
+        return try {
+            val bytes = if (src.contains(";base64,")) {
+                val b64 = src.substringAfter(";base64,").trim()
+                java.util.Base64.getDecoder().decode(b64)
+            } else if (src.startsWith("data:")) {
+                val b64 = src.substringAfter(",").trim()
+                java.util.Base64.getDecoder().decode(b64)
+            } else if (src.startsWith("file://") || src.startsWith("/")) {
+                val path = src.removePrefix("file://")
+                return android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap()
+            } else {
+                return null
+            }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } catch (e: Exception) {
+            null
         }
     }
 }

@@ -66,6 +66,8 @@ fun SheetEditor(
     viewModel: NoteViewModel,
     darkTheme: Boolean,
     modifier: Modifier = Modifier,
+    /** Called when the image tool is active and the user taps the canvas, with document coordinates. */
+    onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
 ) {
     val sheet = state.sheet ?: return
     val density = LocalDensity.current
@@ -161,6 +163,7 @@ fun SheetEditor(
                     transform = transform,
                     ruler = ruler,
                     selectionController = selectionController,
+                    onImageToolTap = onImageToolTap,
                 )
             },
         ) { measurables, constraints ->
@@ -298,6 +301,7 @@ private fun SheetLayers(
     transform: SheetTransform,
     ruler: RulerState,
     selectionController: SelectionController,
+    onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
 ) {
     val sheet = state.sheet ?: return
     val density = LocalDensity.current
@@ -361,6 +365,7 @@ private fun SheetLayers(
             // size on the screen, and reading the zoom at the tap keeps it one.
             zoom = transform::zoom,
             controller = selectionController,
+            onImageToolTap = onImageToolTap,
             modifier = Modifier.matchParentSize(),
         )
 
@@ -374,6 +379,7 @@ private fun SheetLayers(
             documentVersion = state.documentVersion,
             callbacks = viewModel.inkCallbacks,
             textToolActive = state.textToolActive,
+            imageToolActive = state.imageToolActive,
             selection = state.selection,
             controller = selectionController,
             darkTheme = darkTheme,

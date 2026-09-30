@@ -87,6 +87,7 @@ fun EditorToolbar(
     onPopupChange: (ToolPopup?) -> Unit,
     onSelectTool: (ToolId) -> Unit,
     onSelectTextTool: () -> Unit,
+    onSelectImageTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
@@ -116,6 +117,7 @@ fun EditorToolbar(
                 onPopupChange = onPopupChange,
                 onSelectTool = onSelectTool,
                 onSelectTextTool = onSelectTextTool,
+                onSelectImageTool = onSelectImageTool,
                 onUpdateTool = onUpdateTool,
                 onOpenColorPicker = onOpenColorPicker,
                 onOpenOptions = { optionsFor = it },
@@ -159,6 +161,7 @@ fun EditorToolRail(
     onPopupChange: (ToolPopup?) -> Unit,
     onSelectTool: (ToolId) -> Unit,
     onSelectTextTool: () -> Unit,
+    onSelectImageTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
@@ -174,6 +177,7 @@ fun EditorToolRail(
             onPopupChange = onPopupChange,
             onSelectTool = onSelectTool,
             onSelectTextTool = onSelectTextTool,
+            onSelectImageTool = onSelectImageTool,
             onUpdateTool = onUpdateTool,
             onOpenColorPicker = onOpenColorPicker,
             onOpenOptions = { optionsFor = it },
@@ -216,18 +220,19 @@ private fun ToolControls(
     onPopupChange: (ToolPopup?) -> Unit,
     onSelectTool: (ToolId) -> Unit,
     onSelectTextTool: () -> Unit,
+    onSelectImageTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
     onOpenOptions: (ToolId) -> Unit,
 ) {
     val active = state.tool.tool
-    val drawing = !state.textToolActive && active.isDrawing
-    val erasing = !state.textToolActive && active.isEraser
+    val drawing = !state.textToolActive && !state.imageToolActive && active.isDrawing
+    val erasing = !state.textToolActive && !state.imageToolActive && active.isEraser
 
     ToolBarButton(
         icon = NotesIcons.Lasso,
         label = stringResource(R.string.editor_tool_select),
-        selected = !state.textToolActive && active == ToolId.LASSO,
+        selected = !state.textToolActive && !state.imageToolActive && active == ToolId.LASSO,
         onClick = {
             onPopupChange(null)
             onSelectTool(ToolId.LASSO)
@@ -241,6 +246,16 @@ private fun ToolControls(
         onClick = {
             onPopupChange(null)
             onSelectTextTool()
+        },
+    )
+
+    ToolBarButton(
+        icon = NotesIcons.Image,
+        label = stringResource(R.string.editor_tool_image),
+        selected = state.imageToolActive,
+        onClick = {
+            onPopupChange(null)
+            onSelectImageTool()
         },
     )
 
@@ -310,7 +325,7 @@ private fun FillToggle(
     onPopupChange: (ToolPopup?) -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
 ) {
-    if (state.textToolActive || !state.tool.tool.isDrawing) return
+    if (state.textToolActive || state.imageToolActive || !state.tool.tool.isDrawing) return
     val spec = state.tool
     FilledIconToggleButton(
         checked = spec.fill,

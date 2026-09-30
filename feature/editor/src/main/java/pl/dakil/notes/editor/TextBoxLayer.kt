@@ -68,6 +68,8 @@ fun TextBoxLayer(
      * height is whatever the words need — so nothing has to be measured again as it travels.
      */
     controller: SelectionController,
+    /** Called when the image tool is active and the user taps bare paper, with document coordinates. */
+    onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // The one being edited is left out: it is drawn out in the window with its handles, and a
@@ -82,7 +84,7 @@ fun TextBoxLayer(
     val moving = state.selection?.textBlocks.orEmpty()
 
     Layout(
-        modifier = modifier.textBoxTaps(sheet, state, viewModel, ptToPx, paged, zoom),
+        modifier = modifier.textBoxTaps(sheet, state, viewModel, ptToPx, paged, zoom, onImageToolTap),
         content = {
             for (box in boxes) {
                 TextBoxContent(
@@ -204,10 +206,11 @@ private fun Modifier.textBoxTaps(
     ptToPx: Float,
     paged: Boolean,
     zoom: () -> Float,
-): Modifier = if (!state.textToolActive || state.isReadOnly) {
+    onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
+): Modifier = if ((!state.textToolActive && !state.imageToolActive) || state.isReadOnly) {
     this
 } else {
-    pointerInput(sheet, state.editingTextBlock, state.activeTextBlock, ptToPx, paged) {
+    pointerInput(sheet, state.editingTextBlock, state.activeTextBlock, state.textToolActive, state.imageToolActive, ptToPx, paged) {
         val slop = viewConfiguration.touchSlop
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
@@ -226,6 +229,11 @@ private fun Modifier.textBoxTaps(
             val y = SheetPainter.stripPxToDocumentY(down.position.y, sheet.format, ptToPx, paged)
             val hit = boxNear(sheet, x, y, pad = TapPadDp.toPx() / zoom() / ptToPx)
             when {
+                // Image tool: on a tap notify the caller regardless of whether a box was hit.
+                // If the tap hit an existing box, still open the dialog at that position — the
+                // image will be inserted into a new block at the tapped coordinates.
+                state.imageToolActive -> onImageToolTap?.invoke(x, y)
+
                 hit != null -> viewModel.beginTextEditing(hit.id)
                 // One tap on bare paper puts the caret away, and the next makes a box. Making one
                 // straight away would scatter boxes across the page every time somebody tapped

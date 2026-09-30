@@ -152,6 +152,7 @@ fun InkOverlay(
      * would be to put the pen down and use a finger. The tool the user picked is the tool they get.
      */
     textToolActive: Boolean = false,
+    imageToolActive: Boolean = false,
     /** What the select tool currently has hold of, or null. Its outline and handles come from it. */
     selection: Selection? = null,
     /**
@@ -196,6 +197,7 @@ fun InkOverlay(
     val currentTool by rememberUpdatedState(tool)
     val currentRulerEdgeFor by rememberUpdatedState(rulerEdgeFor)
     val currentTextToolActive by rememberUpdatedState(textToolActive)
+    val currentImageToolActive by rememberUpdatedState(imageToolActive)
     val currentSelection by rememberUpdatedState(selection)
     val touchReachPx = with(LocalDensity.current) { SELECTION_REACH.toPx() }
     val format = sheet.format
@@ -274,7 +276,7 @@ fun InkOverlay(
                 paged = { currentPaged },
                 cursor = eraserCursor,
                 erasing = {
-                    !currentTextToolActive &&
+                    !currentTextToolActive && !currentImageToolActive &&
                         (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
                 },
                 invalidate = { inkVersion.intValue++ },
@@ -282,11 +284,11 @@ fun InkOverlay(
             .pointerInteropFilter(
                 requestDisallowInterceptTouchEvent = disallowIntercept,
             ) { event ->
-                // Declining outright while the text tool is out. The router is still cleared on
+                // Declining outright while the text or image tool is out. The router is still cleared on
                 // the way past: a pointer it has already accepted — the tool can be switched
                 // mid-stroke — would otherwise stay live for ever, because a declined gesture
                 // never delivers its UP.
-                if (textToolActive) {
+                if (textToolActive || imageToolActive) {
                     if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                         router.cancel()
                         shape.reset()
