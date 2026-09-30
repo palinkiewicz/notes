@@ -42,6 +42,14 @@ data class ToolSpec(
     val maxWidthFactor: Float = 1f,
     /** Radius in points for the eraser tools. */
     val eraserRadius: Float = 8f,
+    /**
+     * Whether what this tool draws is filled in as well as outlined — see [Stroke.filled].
+     *
+     * A property of the tool rather than a switch beside it, so each pen remembers whether it fills
+     * and picking one back up brings its answer with it. Baked into every stroke at commit time
+     * like the rest of the tool's state: turning it off later must not empty shapes already drawn.
+     */
+    val fill: Boolean = false,
 ) {
     val effectiveColor: Int
         get() {

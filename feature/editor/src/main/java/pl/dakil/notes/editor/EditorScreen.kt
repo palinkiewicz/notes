@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import pl.dakil.notes.data.SaveState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -87,6 +91,7 @@ fun EditorScreen(
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
     var formatPopup by remember { mutableStateOf<FormatPopup?>(null) }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
+    var imageTapPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -200,6 +205,47 @@ fun EditorScreen(
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },
+            onConfirmDeviceImage = if (kind == ReferenceKind.IMAGE) { label, mimeType, base64 ->
+                reference = null
+                val before = field.text.toString()
+                val result = MarkdownActions.insertBase64Image(
+                    text = before,
+                    start = field.selection.start,
+                    end = field.selection.end,
+                    alt = label,
+                    mimeType = mimeType,
+                    base64Data = base64,
+                )
+                field.edit {
+                    replace(0, length, result.text)
+                    selection = TextRange(result.selectionStart, result.selectionEnd)
+                }
+            } else null,
+        )
+    }
+
+    imageTapPosition?.let { (tapX, tapY) ->
+        ReferenceDialog(
+            kind = ReferenceKind.IMAGE,
+            initialLabel = "",
+            onDismiss = { imageTapPosition = null },
+            onConfirm = { label, url ->
+                imageTapPosition = null
+                val markdown = MarkdownActions.insertImage("", 0, 0, label, url).text
+                viewModel.insertTextBlockWithContent(tapX, tapY, markdown)
+            },
+            onConfirmDeviceImage = { label, mimeType, base64 ->
+                imageTapPosition = null
+                val markdown = MarkdownActions.insertBase64Image(
+                    text = "",
+                    start = 0,
+                    end = 0,
+                    alt = label,
+                    mimeType = mimeType,
+                    base64Data = base64,
+                ).text
+                viewModel.insertTextBlockWithContent(tapX, tapY, markdown)
+            },
         )
     }
 
@@ -244,11 +290,22 @@ fun EditorScreen(
         )
     }
 
+    // A conflict is not a failure: the note saved, and the version that was on disk was kept
+    // beside it. `error` is the wrong channel — it replaces the whole editor — so this gets the
+    // stock transient surface instead, which is also the one place the copy's name can be read.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val conflict = state.saveState as? SaveState.Conflicted
+    val conflictMessage = conflict?.let { stringResource(R.string.editor_conflict_saved, it.copyName) }
+    LaunchedEffect(conflictMessage) {
+        conflictMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
+
     Scaffold(
         // On the whole scaffold rather than on the sheet: the formatting bar is the one control the
         // user needs *while* the keyboard is up, so the bar has to rise with it. The sheet loses the
         // height, which is what lets the transform scroll a box clear of the keyboard.
         modifier = modifier.fillMaxSize().imePadding(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 modifier = Modifier.dismissToolPopupOnPress { toolPopup = null },
@@ -331,8 +388,8 @@ fun EditorScreen(
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
-                            // A sheet is paper, not a Markdown file: it can set its own sizes.
-                            sizes = true,
+                            // A sheet is paper, not a Markdown file: it can set its own sizes and colours.
+                            attributes = true,
                             compact = true,
                         )
                     }
@@ -342,6 +399,7 @@ fun EditorScreen(
                         onPopupChange = { toolPopup = it },
                         onSelectTool = viewModel::selectTool,
                         onSelectTextTool = viewModel::selectTextTool,
+                        onSelectImageTool = viewModel::selectImageTool,
                         onUpdateTool = viewModel::updateTool,
                         onToggleFingerDrawing = viewModel::setFingerDrawing,
                         onToggleRuler = viewModel::setRuler,
@@ -382,7 +440,7 @@ fun EditorScreen(
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
-                            sizes = true,
+                            attributes = true,
                         )
                     }
                     if (expanded) {
@@ -392,6 +450,7 @@ fun EditorScreen(
                             onPopupChange = { toolPopup = it },
                             onSelectTool = viewModel::selectTool,
                             onSelectTextTool = viewModel::selectTextTool,
+                            onSelectImageTool = viewModel::selectImageTool,
                             onUpdateTool = viewModel::updateTool,
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
                             onToggleRuler = viewModel::setRuler,
@@ -403,6 +462,7 @@ fun EditorScreen(
                         viewModel = viewModel,
                         darkTheme = darkTheme,
                         modifier = Modifier.fillMaxSize(),
+                        onImageToolTap = { x, y -> imageTapPosition = x to y },
                     )
                 }
             }

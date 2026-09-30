@@ -25,6 +25,9 @@ class MarkdownRobustnessTest {
         "```", "```kt", "$$", "| a | b |", "| --- | --- |", "---", "# h", "## h",
         "- a", "- ", "1. a", "- [ ] a", "- [x] a", "> q", "text", "", "  - b", "~~s~~",
         "**b**", "`c`", "![a](u)", "[a](u)", "|", "- # a", "    1. # a", "> - # a",
+        // Nested emphasis of unequal widths, which is where the closer is chosen by arithmetic
+        // rather than by the next run that matches: `*a**b***`, `**a ** b**` and their relatives.
+        "*a**b***", "**a*b***", "*a **b** c*", "***both***", "**a ** b**", "*a **b** *",
     )
 
     private fun documents(): Sequence<String> = sequence {
@@ -75,6 +78,20 @@ class MarkdownRobustnessTest {
             MarkdownStructure.removeColumn(document, cell.table, cell.column)
             MarkdownStructure.removeTable(document, cell.table)
         }
+        MarkdownStructure.breaksLineOnly(document.substring(at))
+        MarkdownStructure.stylesOpenAt(document, at)
+        MarkdownStructure.splitOpenRuns(document, at, at, "x", 1)
+        MarkdownStructure.keepMarkers(document, at, document.length, "x")
+        MarkdownStructure.spaceOutsideRun(document, at, " ")
+        MarkdownStructure.spaceOutsideRunAfterDeletion(document, at, (at + 1).coerceAtMost(document.length))
+        MarkdownStructure.openerOutsideRunAfterDeletion(document, at, (at + 1).coerceAtMost(document.length))
+        MarkdownRenderer.takesMoreThanOneVisibleCharacter(document, at, document.length)
+        MarkdownRenderer.visibleSpan(document, at, document.length)
+        for (marker in listOf("**", "*", "~~", "`", "***")) {
+            MarkdownActions.toggleArmedMarker(MarkdownStructure.stylesOpenAt(document, at), marker)
+        }
+        MarkdownStructure.extendableRun(document, at, "**")
+        MarkdownStructure.runCaret(document, at)
         MarkdownActions.blockStyleAt(document, at)
         MarkdownActions.paragraphStyleAt(document, at)
         MarkdownActions.listStyleAt(document, at)

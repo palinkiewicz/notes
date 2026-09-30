@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        container = AppContainer(applicationContext)
+        container = AppGraph.get(this)
 
         enableEdgeToEdge()
         setContent {

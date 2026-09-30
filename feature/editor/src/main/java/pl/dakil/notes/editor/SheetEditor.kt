@@ -31,6 +31,7 @@ import pl.dakil.notes.editor.canvas.RULER_SNAP_BAND
 import pl.dakil.notes.editor.canvas.RULER_THICKNESS
 import pl.dakil.notes.editor.canvas.RulerOverlay
 import pl.dakil.notes.editor.canvas.RulerState
+import pl.dakil.notes.editor.canvas.SelectionController
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.rulerEdgeAt
 import pl.dakil.notes.ui.sheet.SheetPainter.drawSheet
@@ -65,6 +66,8 @@ fun SheetEditor(
     viewModel: NoteViewModel,
     darkTheme: Boolean,
     modifier: Modifier = Modifier,
+    /** Called when the image tool is active and the user taps the canvas, with document coordinates. */
+    onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
 ) {
     val sheet = state.sheet ?: return
     val density = LocalDensity.current
@@ -81,6 +84,11 @@ fun SheetEditor(
     // turning the tool off to see the page underneath and back on again does not lose the angle
     // that was just lined up.
     val ruler = rememberSaveable(saver = RulerState.Saver) { RulerState() }
+
+    // A selection being dragged, scaled or reshaped. Hoisted here because two different subtrees
+    // drive it — the ink overlay routes the grab-and-move so a pen can do it, and the chrome owns
+    // the grips that have to stay a fixed size on the glass. The same arrangement the ruler has.
+    val selectionController = remember { SelectionController() }
     ruler.configure(
         ptToPx = ptToPx,
         thicknessOnGlassPx = with(density) { RULER_THICKNESS.toPx() },
@@ -154,6 +162,8 @@ fun SheetEditor(
                     darkTheme = darkTheme,
                     transform = transform,
                     ruler = ruler,
+                    selectionController = selectionController,
+                    onImageToolTap = onImageToolTap,
                 )
             },
         ) { measurables, constraints ->
@@ -214,6 +224,20 @@ fun SheetEditor(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+
+        // The selection's grips, out here for the same reason the box's are: a grip scaled with
+        // the paper is unhittable at the zoom a note opens at. After the text chrome, so that on
+        // the rare occasion both are up the selection's controls are the ones on top.
+        SelectionChrome(
+            sheet = sheet,
+            state = state,
+            viewModel = viewModel,
+            controller = selectionController,
+            transform = transform,
+            ptToPx = ptToPx,
+            paged = paged,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         // Above the sheet and outside its transform, so it stays legible and tappable at any zoom.
         PageChrome(
@@ -276,6 +300,8 @@ private fun SheetLayers(
     darkTheme: Boolean,
     transform: SheetTransform,
     ruler: RulerState,
+    selectionController: SelectionController,
+    onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
 ) {
     val sheet = state.sheet ?: return
     val density = LocalDensity.current
@@ -332,12 +358,14 @@ private fun SheetLayers(
             sheet = sheet,
             state = state,
             viewModel = viewModel,
-            styles = rememberMarkdownStyles(sizes = true),
+            styles = rememberMarkdownStyles(attributes = true),
             ptToPx = ptToPx,
             paged = paged,
             // A lambda for the same reason the lasso outline takes one: the reach around a box is a
             // size on the screen, and reading the zoom at the tap keeps it one.
             zoom = transform::zoom,
+            controller = selectionController,
+            onImageToolTap = onImageToolTap,
             modifier = Modifier.matchParentSize(),
         )
 
@@ -351,6 +379,9 @@ private fun SheetLayers(
             documentVersion = state.documentVersion,
             callbacks = viewModel.inkCallbacks,
             textToolActive = state.textToolActive,
+            imageToolActive = state.imageToolActive,
+            selection = state.selection,
+            controller = selectionController,
             darkTheme = darkTheme,
             // A lambda, not a value: the lasso outline needs the scale to stay a constant width on
             // screen, and reading it here instead of at the call site keeps a pinch off the

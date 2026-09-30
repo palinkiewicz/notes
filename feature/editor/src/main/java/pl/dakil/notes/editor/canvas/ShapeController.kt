@@ -9,7 +9,7 @@ import pl.dakil.notes.ink.DwellTracker
 import pl.dakil.notes.ink.ShapeRecognizer
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.ink.StrokeOutline
-import pl.dakil.notes.ink.moveHandle
+import pl.dakil.notes.ink.dragHandle
 import pl.dakil.notes.ink.nearestHandle
 import pl.dakil.notes.ink.outlineInto
 import pl.dakil.notes.ink.toStroke
@@ -49,6 +49,10 @@ class ShapeController {
     var previewWidth: Float = 1f
         private set
     var previewBlend: BlendId = BlendId.NORMAL
+        private set
+
+    /** Whether the tool that drew the stroke fills what it encloses. See `Stroke.filled`. */
+    var previewFilled: Boolean = false
         private set
 
     /** The live shape, or null while the user is still drawing an ordinary stroke. */
@@ -100,6 +104,7 @@ class ShapeController {
         tool = toolSpec.tool
         previewColor = toolSpec.effectiveColor
         previewBlend = toolSpec.blend
+        previewFilled = toolSpec.fill
         found.outlineInto(outline)
         return true
     }
@@ -107,7 +112,11 @@ class ShapeController {
     /** Drags the live shape by the apex the pen is resting on. True when something changed. */
     fun drag(x: Float, y: Float): Boolean {
         val current = spec ?: return false
-        val next = current.moveHandle(handle, x, y)
+        // Take the handle back from the drag as well as the shape: pulled past the corner it pins,
+        // a shape mirrors, and the apex under the pen becomes a different one. Holding the old
+        // index would pin the wrong corner on the very next sample.
+        val (next, movedHandle) = current.dragHandle(handle, x, y)
+        handle = movedHandle
         if (next == current) return false
         spec = next
         next.outlineInto(outline)
@@ -115,7 +124,8 @@ class ShapeController {
     }
 
     /** The stroke to commit at pen-up, or null when no shape was recognised. */
-    fun commit(): Stroke? = spec?.toStroke(tool, previewColor, previewWidth, previewBlend, outline)
+    fun commit(): Stroke? =
+        spec?.toStroke(tool, previewColor, previewWidth, previewBlend, outline, previewFilled)
 
     fun reset() {
         spec = null

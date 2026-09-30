@@ -5,6 +5,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
@@ -21,6 +22,8 @@ import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageSize
+import pl.dakil.notes.sync.ConflictNaming
+import java.util.concurrent.ConcurrentHashMap
 
 /** What the UI needs to know about the save state, so it can be honest rather than reassuring. */
 sealed interface SaveState {
@@ -31,7 +34,26 @@ sealed interface SaveState {
     data class Failed(val message: String) : SaveState
     /** The note declares a `minReaderVersion` this build does not implement. */
     data object ReadOnly : SaveState
+
+    /**
+     * The file changed underneath the editor, and the version found there was kept aside under
+     * [copyName] before this save went over it.
+     *
+     * Reported rather than silently resolved: once the library lives in a folder Syncthing or a
+     * cloud client also writes to, this stops being a theoretical race, and a user who is not told
+     * has no way to know a copy is waiting for them.
+     */
+    data class Conflicted(val copyName: String) : SaveState
 }
+
+/**
+ * What the repository last saw on disk for a note, so it can tell whether anyone else has been
+ * there since.
+ *
+ * Size and timestamp rather than a hash: this runs immediately before every save, and re-reading
+ * the whole note to hash it would put a file read on the path of every keystroke's debounce.
+ */
+data class FileStamp(val modifiedAt: Long, val sizeBytes: Long)
 
 /**
  * Loads, saves and lists notes of both kinds, on top of whichever [NoteStore] is configured.
@@ -49,9 +71,21 @@ class NoteRepository(
     private val index: NoteIndex,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Names the conflict copies this device makes; see [ConflictNaming]. */
+    private val deviceId: () -> String = { "LOCAL" },
 ) {
 
     private val writeLock = Mutex()
+
+    /**
+     * The stamp each open note had when this repository last read or wrote it.
+     *
+     * Not guarded by [writeLock], because [load] runs outside it — the editor opens a note without
+     * taking the save lock, and making it wait behind an unrelated in-flight write would stall the
+     * screen for no reason. A concurrent map is enough: entries are independent and the only
+     * comparison that matters happens inside the lock.
+     */
+    private val lastKnown = ConcurrentHashMap<String, FileStamp>()
 
     /**
      * Where the note being saved has moved to since its write was queued, as `from to to`.
@@ -65,6 +99,20 @@ class NoteRepository(
 
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: Flow<SaveState> = _saveState.asStateFlow()
+
+    private val _openRef = MutableStateFlow<StoreRef?>(null)
+
+    /**
+     * The note an editor currently has open, or null.
+     *
+     * Sync pushes it and never pulls it: writing under an open document either loses the edits in
+     * flight or is clobbered by the autosave a second and a half later.
+     */
+    val openRef: StateFlow<StoreRef?> = _openRef.asStateFlow()
+
+    fun noteOpened(ref: StoreRef) { _openRef.value = ref }
+
+    fun noteClosed(ref: StoreRef) { _openRef.compareAndSet(ref, null) }
 
     /** What is waiting to be written. One document, either kind. */
     private sealed interface PendingSave {
@@ -96,6 +144,7 @@ class NoteRepository(
     suspend fun load(ref: StoreRef): Result<Note> = runCatching {
         store.read(ref) { DakNoteReader.read(it) }
     }.onSuccess { note ->
+        remember(ref)
         _saveState.value = if (note.readOnly) SaveState.ReadOnly else SaveState.Idle
     }.recoverCatching { cause ->
         throw when (cause) {
@@ -108,6 +157,7 @@ class NoteRepository(
     suspend fun loadMarkdown(ref: StoreRef): Result<String> = runCatching {
         store.read(ref) { it.readBytes().toString(Charsets.UTF_8) }
     }.onSuccess {
+        remember(ref)
         _saveState.value = SaveState.Idle
     }.recoverCatching { cause ->
         throw if (cause is StoreException) cause else StoreException("Could not open the note", cause)
@@ -175,16 +225,53 @@ class NoteRepository(
         // Applied or superseded either way: nothing older than this write is still queued behind
         // it, so keeping the redirect could only misdirect a save of some future note.
         pendingMove = null
+        var preserved: String? = null
         runCatching {
+            preserved = preserveIfChangedUnderUs(ref)
             when (pending) {
                 is PendingSave.Ink -> writeInk(ref, pending.note)
                 is PendingSave.Text -> writeText(ref, pending.markdown)
             }
         }.onSuccess {
-            _saveState.value = SaveState.Saved(clock())
+            val copy = preserved
+            _saveState.value = if (copy != null) SaveState.Conflicted(copy) else SaveState.Saved(clock())
         }.onFailure { cause ->
             _saveState.value = SaveState.Failed(cause.message ?: "Could not save")
         }
+    }
+
+    /**
+     * Copies the version on disk aside if it is not the one this repository last saw.
+     *
+     * Before this existed a save wrote unconditionally, so anything that touched the file between
+     * opening the note and the debounce firing was overwritten without a word. That was survivable
+     * while notes lived in app-private storage, where nothing else could reach them. It is not
+     * survivable in a folder the user chose — which is the whole point of letting them choose one.
+     *
+     * Returns the name of the copy that was made, or null when nothing had changed.
+     *
+     * A save is **not** abandoned when the copy cannot be placed: the note the user is typing in
+     * has to be able to reach the disk. The external version is left where it is instead, and the
+     * failure is reported, which loses nothing that was not already only on disk.
+     */
+    private suspend fun preserveIfChangedUnderUs(ref: StoreRef): String? {
+        val known = lastKnown[ref.value] ?: return null
+        val current = store.metadata(ref) ?: return null
+        if (current.modifiedAt == known.modifiedAt && current.sizeBytes == known.sizeBytes) return null
+
+        val name = ConflictNaming.nameFor(current.name, clock(), deviceId())
+        val target = store.siblingOf(ref, name) ?: return null
+        return runCatching {
+            val bytes = store.read(ref) { it.readBytes() }
+            store.write(target) { out -> out.write(bytes) }
+            store.metadata(target)?.name ?: name
+        }.getOrNull()
+    }
+
+    /** Records what is on disk now, so the next save can tell whether anyone else has been there. */
+    private suspend fun remember(ref: StoreRef) {
+        val entry = store.metadata(ref) ?: return
+        lastKnown[ref.value] = FileStamp(entry.modifiedAt, entry.sizeBytes)
     }
 
     private suspend fun writeInk(ref: StoreRef, note: Note, path: String? = null) {
@@ -192,6 +279,7 @@ class NoteRepository(
             meta = note.meta.copy(modified = clock(), revision = note.meta.revision + 1),
         )
         store.write(ref) { out -> DakNoteWriter.write(stamped, out) }
+        remember(ref)
         index.put(ref, stamped, path ?: index.pathOf(ref))
     }
 
@@ -204,6 +292,7 @@ class NoteRepository(
      */
     private suspend fun writeText(ref: StoreRef, markdown: String, path: String? = null) {
         store.write(ref) { out -> out.write(markdown.toByteArray(Charsets.UTF_8)) }
+        remember(ref)
         indexText(ref, markdown, store.metadata(ref), path ?: index.pathOf(ref))
     }
 
@@ -231,6 +320,95 @@ class NoteRepository(
         )
     }
 
+    // ---- Applying a sync ------------------------------------------------------------------------
+
+    /**
+     * Runs [body] under the same write lock every save takes.
+     *
+     * Per file operation, never for a whole pass: holding it across a network round trip would put
+     * autosave — and every rename, move and tag edit, which share the lock — behind the Wi-Fi.
+     */
+    private suspend fun <T> underWriteLock(body: suspend () -> T): T = writeLock.withLock { body() }
+
+    /**
+     * Waits for any debounced save to land.
+     *
+     * Called once at the start of a sync so a note the user edited seconds before the job fired is
+     * uploaded as they left it, rather than a version and a half.
+     */
+    suspend fun awaitIdle(timeoutMs: Long = 5_000L) {
+        val deadline = clock() + timeoutMs
+        while (_saveState.value is SaveState.Pending && clock() < deadline) {
+            kotlinx.coroutines.delay(50)
+        }
+        // Taking the lock is the actual wait: whatever the debounce started is holding it.
+        writeLock.withLock { }
+    }
+
+    /** Overwrites an existing note with bytes pulled from a remote. */
+    suspend fun applyRemoteWrite(ref: StoreRef, body: (java.io.OutputStream) -> Unit): Boolean =
+        underWriteLock {
+            runCatching {
+                store.write(ref, body)
+                remember(ref)
+            }.isSuccess
+        }
+
+    /**
+     * Creates a note at an **exact** name.
+     *
+     * Not [NoteStore.newChild], which steps aside to `Foo (2).md` when the name is taken — right for
+     * a note the user is making, catastrophic for a pull, where it would silently fork one note into
+     * two that then sync against each other forever.
+     */
+    suspend fun applyRemoteCreate(
+        parent: StoreRef,
+        name: String,
+        body: (java.io.OutputStream) -> Unit,
+    ): StoreRef? = underWriteLock {
+        runCatching {
+            val existing = store.child(parent, name)
+            val ref = existing ?: store.newChild(parent, name, mimeTypeOf(name))
+            // `createDocument` is allowed to alter the display name, so it is read back rather than
+            // assumed: a note that landed somewhere else is not the note that was pulled.
+            store.write(ref, body)
+            val landed = store.metadata(ref)
+            if (landed != null && landed.name != name) return@runCatching null
+            remember(ref)
+            ref
+        }.getOrNull()
+    }
+
+    suspend fun applyRemoteDelete(ref: StoreRef): Boolean = underWriteLock {
+        runCatching {
+            store.delete(ref)
+            lastKnown.remove(ref.value)
+            index.remove(ref)
+        }.isSuccess
+    }
+
+    suspend fun applyRemoteMove(
+        ref: StoreRef,
+        fromParent: StoreRef,
+        toParent: StoreRef,
+        newName: String,
+    ): StoreRef? = underWriteLock {
+        runCatching {
+            val moved = if (fromParent == toParent) ref else store.moveTo(ref, fromParent, toParent)
+            val renamed = if (store.metadata(moved)?.name != newName) {
+                store.move(moved, StoreRef(newName))
+            } else {
+                moved
+            }
+            index.move(ref, renamed, index.pathOf(renamed))
+            remember(renamed)
+            renamed
+        }.getOrNull()
+    }
+
+    private fun mimeTypeOf(name: String): String =
+        NoteKind.of(name)?.mimeType ?: "application/octet-stream"
+
     // ---- Library -------------------------------------------------------------------------------
 
     /**
@@ -255,24 +433,46 @@ class NoteRepository(
         recursive: Boolean = false,
     ): Result<Int> = runCatching {
         val visited = HashSet<String>()
-        val count = scan(dir, path, recursive, visited)
+        val result = scan(dir, path, recursive, visited)
         // A folder that has gone since the last pass leaves its rows behind, and nothing in a
         // per-folder retainOnly would ever reach them.
-        if (recursive) index.retainPaths(path, visited)
-        count
+        //
+        // Only when the whole walk could be read, though: a subtree the backend refused is missing
+        // from `visited` for a reason that has nothing to do with the user deleting it, and purging
+        // on that evidence empties the library's index over a lapsed permission.
+        if (recursive && result.complete) index.retainPaths(path, visited)
+        result.count
     }
+
+    /**
+     * What a walk found, and whether it could see all of it.
+     *
+     * [complete] is false as soon as any directory in the subtree could not be listed. It is
+     * deliberately sticky: a purge is only safe when *everything* was enumerated, so one refusal
+     * anywhere disarms the purge for the whole pass rather than for one folder.
+     */
+    private data class ScanResult(val count: Int, val complete: Boolean)
 
     private suspend fun scan(
         dir: StoreRef,
         path: String,
         recursive: Boolean,
         visited: MutableSet<String>,
-    ): Int {
+    ): ScanResult {
         visited += path
+        // "Could not read this folder" and "this folder is empty" are the same value from `list`,
+        // and the two call for opposite responses: the second means purge, the first means do not
+        // touch a thing. Asking through `listChecked` is what keeps a revoked SAF grant from
+        // emptying the index.
+        val entries = when (val listing = store.listChecked(dir)) {
+            is StoreListing.Ok -> listing.entries
+            is StoreListing.Unavailable -> return ScanResult(count = 0, complete = false)
+        }
         var count = 0
+        var complete = true
         val seen = HashSet<String>()
         val folders = ArrayList<StoreEntry>()
-        for (entry in store.list(dir)) {
+        for (entry in entries) {
             if (entry.isDirectory) {
                 if (recursive) folders += entry
                 continue
@@ -300,9 +500,11 @@ class NoteRepository(
         }
         index.retainOnly(path, seen)
         for (folder in folders) {
-            count += scan(folder.ref, childPath(path, folder.name), recursive, visited)
+            val child = scan(folder.ref, childPath(path, folder.name), recursive, visited)
+            count += child.count
+            if (!child.complete) complete = false
         }
-        return count
+        return ScanResult(count, complete)
     }
 
     /**

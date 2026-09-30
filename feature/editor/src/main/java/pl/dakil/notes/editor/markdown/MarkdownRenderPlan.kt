@@ -3,6 +3,8 @@ package pl.dakil.notes.editor.markdown
 import pl.dakil.notes.editor.markdown.code.CodeHighlighter
 import pl.dakil.notes.editor.markdown.code.CodeLanguages
 import pl.dakil.notes.editor.markdown.code.CodeToken
+import pl.dakil.notes.model.ColorCodec
+import java.util.Locale
 
 /**
  * What a run of characters should look like once the syntax around it is gone.
@@ -59,13 +61,15 @@ enum class MdStyle {
     /**
      * Text set at a size the author picked, in sp, carried in [MdStyleRange.arg].
      *
-     * The one thing a sheet's text can do that a `.md` note's cannot. A note is a Markdown *file*
-     * and has to stay one — a size baked into it would render as literal punctuation in every other
-     * editor the user opens it in — whereas a sheet is a page of paper, where a heading three times
-     * the size of the body is the most ordinary thing in the world. Both understand the syntax and
-     * both hide it; only one of them acts on it. See `rememberMarkdownStyles`.
+     * One of the two things Pandoc's bracketed-span syntax says here — see [MdAttrs]. Understood
+     * and hidden in both kinds of note; whether it is *obeyed* is a document's own affair, because
+     * a `.md` file has to stay a Markdown file that other editors render sensibly. A sheet always
+     * obeys it, and a note does when the user has asked for it. See `rememberMarkdownStyles`.
      */
     SIZE,
+
+    /** Text in a colour the author picked, as packed ARGB in [MdStyleRange.arg]. See [SIZE]. */
+    COLOR,
 
     /** A blank line standing between one paragraph and the next. */
     PARAGRAPH_GAP,
@@ -94,11 +98,78 @@ data class MdEdit(
 /**
  * A run of characters wearing one [MdStyle].
  *
- * [arg] is the style's parameter where it has one, and zero where it does not. Only [MdStyle.SIZE]
- * uses it. A whole parallel list of sized ranges would have been the alternative, and would have
- * meant every consumer of a plan learning that styles come in two kinds.
+ * [arg] is the style's parameter where it has one, and zero where it does not — a size in sp for
+ * [MdStyle.SIZE], packed ARGB for [MdStyle.COLOR], and nothing for every other style. A whole
+ * parallel list of parameterised ranges would have been the alternative, and would have meant every
+ * consumer of a plan learning that styles come in two kinds.
  */
 data class MdStyleRange(val start: Int, val end: Int, val style: MdStyle, val arg: Int = 0)
+
+/**
+ * What a bracketed span's braces say: `{size=18 color=#c0392b}`.
+ *
+ * Both fields are optional and null means "not stated" rather than "set to the default" — a span
+ * that names only a colour leaves the size alone, which is what lets one word inside a large
+ * heading be recoloured without also being pinned to a size the user never chose.
+ *
+ * One type for the pair of them, rather than two independent tags, because they share a span: the
+ * renderer reads them out of one set of braces and the formatting bar writes them back into one.
+ */
+data class MdAttrs(val size: Int? = null, val color: Int? = null) {
+
+    val isEmpty: Boolean get() = size == null && color == null
+
+    /**
+     * [other]'s stated attributes laid over this one's.
+     *
+     * How setting a colour on already-sized text keeps the size: the bar names the one attribute
+     * the button is about, and everything the span already carried comes through underneath.
+     */
+    fun mergedWith(other: MdAttrs): MdAttrs =
+        MdAttrs(size = other.size ?: size, color = other.color ?: color)
+
+    /** The braces, as written into the document. Empty when there is nothing left to say. */
+    fun render(): String {
+        if (isEmpty) return ""
+        val out = StringBuilder("{")
+        size?.let { out.append("size=").append(it) }
+        color?.let {
+            if (out.length > 1) out.append(' ')
+            out.append("color=").append(hexOf(it))
+        }
+        return out.append('}').toString()
+    }
+
+    private companion object {
+        /**
+         * `#rrggbb`, or `#aarrggbb` where the colour is not opaque.
+         *
+         * Lower case, and folded with [Locale.ROOT] rather than the device's: a Turkish phone folds
+         * `I` to a dotless `ı`, and a colour written that way is one no other device can read back.
+         */
+        fun hexOf(argb: Int): String =
+            ColorCodec.toHex(argb, includeAlpha = ColorCodec.alpha(argb) != 0xFF)
+                .lowercase(Locale.ROOT)
+    }
+}
+
+/** [MdAttrs] plus where the braces holding them end. See [MarkdownRenderer.attrSuffixAt]. */
+data class MdAttrSuffix(val attrs: MdAttrs, val end: Int)
+
+/**
+ * A whole `[body]{…}` in source coordinates.
+ *
+ * [start] and [end] bracket the tag; [open] and [close] bracket the text inside it. One definition,
+ * because the renderer, the formatting bar and the inline model all have to agree about where a tag
+ * begins and ends — and three bracket-counting loops would be three chances to disagree.
+ */
+data class MdAttrSpan(
+    val start: Int,
+    val open: Int,
+    val close: Int,
+    val end: Int,
+    val attrs: MdAttrs,
+)
 
 /**
  * Something to be *drawn* rather than spelled out in characters.
@@ -161,6 +232,9 @@ data class MdQuote(val start: Int, val end: Int) : MdDecoration
  */
 data class MdTask(val offset: Int, val checked: Boolean, val sourceMark: Int) : MdDecoration
 
+/** An image decoration with resolved destination URL or base64 data. */
+data class MdImage(val offset: Int, val alt: String, val url: String) : MdDecoration
+
 /**
  * One inline span — `**bold**`, `` `code` ``, `[text]{size=18}` — in **source** coordinates.
  *
@@ -187,6 +261,18 @@ data class MarkdownRenderPlan(
     val edits: List<MdEdit>,
     val styles: List<MdStyleRange>,
     val decorations: List<MdDecoration>,
+    /**
+     * Ranges that need a hanging indent — the one thing a `SpanStyle` cannot say.
+     *
+     * A quotation is held clear of the bar drawn beside it, and an indent written into the line as
+     * spaces only ever indents the visual line those spaces are on: a quoted sentence long enough
+     * to wrap had a first line at the indent and every line after it hard against the bar. So the
+     * indent is stated once for the whole block and applied by the layout, which is what makes it
+     * survive a wrap. Whole blocks rather than lines, and ending short of the newline that ends the
+     * last of them, because a `ParagraphStyle` range is laid out as its own block of text and one
+     * ending on a newline gets an empty line under it.
+     */
+    val indents: List<MdStyleRange> = emptyList(),
     /**
      * The inline spans, outermost first, and the one part of a plan still in source coordinates.
      *
@@ -229,8 +315,6 @@ object MarkdownRenderer {
     /** One level of list nesting, in the monospace face [MdStyle.INDENT] sets. */
     private const val INDENT_BLANK = "   "
 
-    /** What clears the bar drawn beside a quotation, in a proportional face. */
-    private const val QUOTE_INDENT = "   "
 
     /**
      * What holds a fenced block's code off the box drawn round it.
@@ -284,6 +368,13 @@ object MarkdownRenderer {
         val lines = Lines(markdown)
         val units = units(lines)
 
+        val references = HashMap<String, String>()
+        for (lineIndex in 0 until lines.count) {
+            MarkdownParser.REFERENCE_DEF.matchEntire(lines.text(lineIndex))?.let { match ->
+                references[match.groupValues[1].lowercase()] = match.groupValues[2].trim()
+            }
+        }
+
         var k = 0
         while (k < lines.count) {
             gapBefore(lines, units, k, edits, gaps)
@@ -296,7 +387,7 @@ object MarkdownRenderer {
                 lines.startsTable(k) -> planTable(markdown, lines, k, edits, styles, decorations)
 
                 else -> {
-                    scanLine(lines, k, edits, styles, decorations, spans)
+                    scanLine(lines, k, edits, styles, decorations, spans, references)
                     k + 1
                 }
             }
@@ -310,6 +401,10 @@ object MarkdownRenderer {
             // in transformed coordinates — see [gap] for why they cannot be mapped like the rest.
             styles = styles.map { it.mapped(edits) } + gaps,
             decorations = decorations.map { it.mapped(edits) },
+            // Read off the bars rather than counted again: a bar spans exactly the block of quoted
+            // lines that has to be held clear of it, and is already merged and already mapped.
+            indents = decorations.map { it.mapped(edits) }.filterIsInstance<MdQuote>()
+                .map { MdStyleRange(it.start, it.end, MdStyle.QUOTE) },
             inline = spans,
         )
         lastSource = markdown
@@ -347,6 +442,60 @@ object MarkdownRenderer {
         val from = minOf(start, end).coerceAtLeast(0)
         val to = maxOf(start, end).coerceAtMost(markdown.length)
         return (from until to).any { !isHidden(edits, it) }
+    }
+
+    /**
+     * Whether `[start, end)` takes away more than one character the reader can see.
+     *
+     * What separates a keystroke from a request. A backspace removes one thing on screen, and the
+     * range a field produces for one is wider than that only in syntax nobody can see: pressed at
+     * the end of the bold word in `Apple **is red** now`, the field asks to delete `d**` — the
+     * letter the user pointed at and the two markers behind it, because a caret against a hidden run
+     * maps back to the whole of it. Every such range holds exactly one visible character.
+     *
+     * A range holding several is nobody's near miss. It is a selection somebody asked to have
+     * deleted — and it arrives looking like a bare caret's keystroke, because an AOSP-derived
+     * keyboard answers backspace-with-a-selection by *collapsing* the selection first and then
+     * asking for as many characters back as it had covered. By the time the deletion is seen the
+     * selection is already gone, so the field can only be judged by what it is taking, and what it
+     * is taking is half a note.
+     */
+    fun takesMoreThanOneVisibleCharacter(markdown: String, start: Int, end: Int): Boolean {
+        val edits = plan(markdown).edits
+        val from = start.coerceAtLeast(0)
+        val to = end.coerceAtMost(markdown.length)
+        var seen = 0
+        for (i in from until to) {
+            if (isHidden(edits, i)) continue
+            // Counted no further than it takes to answer: a deletion of half a note would otherwise
+            // walk every character of it to say what its second one already said.
+            if (++seen > 1) return true
+        }
+        return false
+    }
+
+    /**
+     * `[start, end)` pulled in to the span its visible characters occupy, or null if it holds none.
+     *
+     * What a range means once it is granted that the reader aimed it: everything they can see in it,
+     * and whatever invisible syntax stands *between* the first and the last of that — but nothing
+     * hanging off either end. A selection dragged to just past a bold word comes back in source
+     * coordinates with the closing `**` on it, because a caret against a hidden run maps to the whole
+     * run; deleting the range as given takes markers the user never saw and unstyles the words left
+     * behind. Syntax inside the span is theirs to lose — they selected across it.
+     */
+    fun visibleSpan(markdown: String, start: Int, end: Int): Pair<Int, Int>? {
+        val edits = plan(markdown).edits
+        val from = start.coerceAtLeast(0)
+        val to = end.coerceAtMost(markdown.length)
+        var first = -1
+        var last = -1
+        for (i in from until to) {
+            if (isHidden(edits, i)) continue
+            if (first < 0) first = i
+            last = i
+        }
+        return if (first < 0) null else first to (last + 1)
     }
 
     /**
@@ -712,6 +861,8 @@ object MarkdownRenderer {
         // `sourceMark` is deliberately left alone: it names a character in the document, not on the
         // screen, and mapping it would point the toggle at whatever the renderer put there instead.
         is MdTask -> copy(offset = closes(edits, offset))
+
+        is MdImage -> copy(offset = closes(edits, offset))
     }
 
     // ---- Lines -------------------------------------------------------------------------------
@@ -1062,6 +1213,7 @@ object MarkdownRenderer {
         styles: MutableList<MdStyleRange>,
         decorations: MutableList<MdDecoration>,
         spans: MutableList<MdInline>,
+        references: Map<String, String>,
     ) {
         val text = lines.source
         val start = lines.start(k)
@@ -1077,11 +1229,16 @@ object MarkdownRenderer {
             return
         }
 
+        MarkdownParser.REFERENCE_DEF.matchEntire(line)?.let {
+            edits += MdEdit(start, lines.endInclusive(k), "")
+            return
+        }
+
         MarkdownParser.HEADING.matchEntire(line)?.let { match ->
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, headingStyle(match.groupValues[1].length))
-            scanInline(text, textStart, end, edits, styles, spans)
+            scanInline(text, textStart, end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1097,7 +1254,7 @@ object MarkdownRenderer {
             decorations += MdTask(markerStart, done, start + match.groups[2]!!.range.first)
             val body = planHeading(text, textStart, end, edits, styles)
             if (done) styles += MdStyleRange(body, end, MdStyle.STRIKE)
-            scanInline(text, body, end, edits, styles, spans)
+            scanInline(text, body, end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1106,7 +1263,7 @@ object MarkdownRenderer {
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(markerStart, textStart, BULLET_GLYPH)
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, decorations, references)
             return
         }
 
@@ -1116,24 +1273,24 @@ object MarkdownRenderer {
             val markerStart = indentTo(lines, k, match.groupValues[1], edits, styles)
             val textStart = end - match.groupValues[3].length
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, decorations, references)
             return
         }
 
         MarkdownParser.QUOTE.matchEntire(line)?.let { match ->
             val textStart = end - match.groupValues[1].length
-            // The marker becomes the indent that clears the bar drawn beside it. A `ParagraphStyle`
-            // would be the tidier way to say this and cannot be used: Compose lays a paragraph out
-            // as its own block of text, and one whose range ends on a newline gets an extra empty
-            // line at the bottom of it. See [INDENT].
-            edits += MdEdit(start, textStart, QUOTE_INDENT)
+            // The marker goes without leaving anything in its place: the indent that clears the
+            // bar is [MarkdownRenderPlan.indents]' to state, once for the whole quotation, so that
+            // the lines it wraps onto are held clear of the bar as well as the lines it is typed
+            // on. Three spaces written here in its place indented neither.
+            edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, MdStyle.QUOTE)
             openQuote(lines, k, decorations)
-            scanInline(text, textStart, end, edits, styles, spans)
+            scanInline(text, textStart, end, edits, styles, spans, decorations, references)
             return
         }
 
-        scanInline(text, start, end, edits, styles, spans)
+        scanInline(text, start, end, edits, styles, spans, decorations, references)
     }
 
     /**
@@ -1224,6 +1381,8 @@ object MarkdownRenderer {
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
         spans: MutableList<MdInline>,
+        decorations: MutableList<MdDecoration> = ArrayList(),
+        references: Map<String, String> = emptyMap(),
     ) {
         var i = from
         while (i < to) {
@@ -1252,8 +1411,16 @@ object MarkdownRenderer {
                 }
             }
 
+            if (text[i] == '<') {
+                val tagged = scanHtmlEmphasis(text, i, to, edits, styles, spans)
+                if (tagged > 0) {
+                    i = tagged
+                    continue
+                }
+            }
+
             if (text.startsWith("![", i)) {
-                val consumed = scanReference(text, i, to, edits, styles, spans, image = true)
+                val consumed = scanReference(text, i, to, edits, styles, decorations, spans, image = true, references = references)
                 if (consumed > 0) {
                     i = consumed
                     continue
@@ -1264,13 +1431,13 @@ object MarkdownRenderer {
                 // Before the link scan, because both start with a bracket and only the *suffix*
                 // tells them apart. The two cannot be confused once past it: `scanReference` wants
                 // `](`, this wants `]{`, and each declines what the other is looking at.
-                val sized = scanSizedSpan(text, i, to, edits, styles, spans)
-                if (sized > 0) {
-                    i = sized
+                val attributed = scanAttrSpan(text, i, to, edits, styles, spans)
+                if (attributed > 0) {
+                    i = attributed
                     continue
                 }
 
-                val consumed = scanReference(text, i, to, edits, styles, spans, image = false)
+                val consumed = scanReference(text, i, to, edits, styles, decorations, spans, image = false, references = references)
                 if (consumed > 0) {
                     i = consumed
                     continue
@@ -1285,6 +1452,50 @@ object MarkdownRenderer {
 
             i++
         }
+    }
+
+    /**
+     * The three emphases HTML can also say, which is how this app says them when asterisks cannot.
+     *
+     * Markdown's markers are ambiguous where two runs of the same symbol come to touch: `**` beside
+     * `*` is one run of three, and a phrase carrying one of those at each end has no reading. Two
+     * styles that *overlap* rather than nest always end that way, and there is no arrangement of
+     * asterisks that avoids it — it is the syntax, not a shortcoming of the writer.
+     *
+     * These tags are the way out, and they are not an invention: raw HTML is part of CommonMark and
+     * every reader renders them. `MarkdownWriter` reaches for them only where the markers cannot be
+     * made to say the right thing, so an ordinary note has none in it.
+     */
+    private val HTML_EMPHASIS = listOf(
+        "strong" to MdStyle.BOLD,
+        "em" to MdStyle.ITALIC,
+        "del" to MdStyle.STRIKE,
+    )
+
+    /** Handles `<em>text</em>`, returning the offset just past it, or 0 if that is not what is here. */
+    private fun scanHtmlEmphasis(
+        text: String,
+        i: Int,
+        to: Int,
+        edits: MutableList<MdEdit>,
+        styles: MutableList<MdStyleRange>,
+        spans: MutableList<MdInline>,
+    ): Int {
+        for ((tag, style) in HTML_EMPHASIS) {
+            val open = "<$tag>"
+            val close = "</$tag>"
+            if (!text.startsWith(open, i)) continue
+            val at = text.indexOf(close, i + open.length)
+            // An empty pair styles nothing and would hide the tags that say so.
+            if (at <= i + open.length || at + close.length > to) continue
+            edits += MdEdit(i, i + open.length, "")
+            spans += MdInline(i, i + open.length, at, at + close.length)
+            styles += MdStyleRange(i + open.length, at, style)
+            scanInline(text, i + open.length, at, edits, styles, spans)
+            edits += MdEdit(at, at + close.length, "")
+            return at + close.length
+        }
+        return 0
     }
 
     /** A run of emphasis markers and what wearing them means. */
@@ -1323,13 +1534,16 @@ object MarkdownRenderer {
             // reads `test*2*` as an italic 2, and so does every other renderer this app's files
             // will be opened in, so a note that hid the difference would render two ways.
             if (symbol == '_' && isWordChar(text.getOrNull(i - 1))) continue
-            // What keeps `2 * 3 * 4` arithmetic instead of italics, now that being inside a word no
-            // longer disqualifies a single marker: CommonMark opens emphasis only on a marker up
-            // against the text it styles, and closes it only on one up against the end of it.
-            if (length == 1 && isBlank(text.getOrNull(i + length))) continue
+            // CommonMark's flanking rule, and the whole of it: emphasis opens only on a marker up
+            // against the text it styles and closes only on one up against the end of it. It is
+            // what keeps `2 * 3 * 4` arithmetic instead of italics — and it applies to every width
+            // of marker, not just one. `** bold**` is bold in no other Markdown reader, so a note
+            // written here that leant on it would open somewhere else with the asterisks on show;
+            // showing them here too is what makes the file mean one thing.
+            if (isBlank(text.getOrNull(runEndAt(text, i, symbol)))) continue
 
             var close = text.indexOf(rule.marker, i + length)
-            while (length == 1 && close > i && isBlank(text.getOrNull(close - 1))) {
+            while (close > i && !closesSpan(text, i, i + length, close, symbol, length)) {
                 close = text.indexOf(rule.marker, close + 1)
             }
             // An empty span is left alone so a shorter marker gets its turn at the same characters.
@@ -1358,19 +1572,23 @@ object MarkdownRenderer {
     }
 
     /**
-     * Handles `[text]{size=18}`, returning the offset just past it, or 0 if this is not one.
+     * Handles `[text]{size=18 color=#c0392b}`, returning the offset just past it, or 0 if this is
+     * not one.
      *
      * Pandoc's bracketed-span syntax, chosen over inventing something: it is a real convention, it
      * cannot collide with a link, it nests, and a Markdown tool that does not know it shows the
-     * words with some punctuation around them rather than swallowing them. The size is in sp — the
-     * unit the platform scales with the reader's own font setting, so a note written at 24 stays
-     * proportionate to everything else when somebody turns their text size up.
+     * words with some punctuation around them rather than swallowing them.
+     *
+     * One span carries *every* attribute it was given, which is the whole reason the braces hold a
+     * list rather than a single key. Two spans wrapped round the same words — `[[a]{size=18}]{...}`
+     * — would say the same thing, and would be four more characters for every edit to step over and
+     * one more level for a later split to take apart. See [attrSuffixAt].
      *
      * Brackets are counted rather than searched for, so the closing one is the one that matches the
      * opening one. `[a [b]{size=12} c]{size=24}` is a span inside a span; taking the first `]{`
      * would end the outer span in the middle of the inner one and style half a sentence.
      */
-    private fun scanSizedSpan(
+    private fun scanAttrSpan(
         text: String,
         i: Int,
         to: Int,
@@ -1386,15 +1604,16 @@ object MarkdownRenderer {
                 ']' -> {
                     depth--
                     if (depth == 0) {
-                        val suffix = sizeSuffixAt(text, k + 1, to) ?: return 0
-                        // An empty span would style nothing and hide four characters for no reason.
+                        val suffix = attrSuffixAt(text, k + 1, to) ?: return 0
+                        // An empty span would style nothing and hide the braces for no reason.
                         if (k == i + 1) return 0
                         edits += MdEdit(i, i + 1, "")
-                        spans += MdInline(i, i + 1, k, suffix.second)
-                        styles += MdStyleRange(i + 1, k, MdStyle.SIZE, suffix.first)
+                        spans += MdInline(i, i + 1, k, suffix.end)
+                        suffix.attrs.size?.let { styles += MdStyleRange(i + 1, k, MdStyle.SIZE, it) }
+                        suffix.attrs.color?.let { styles += MdStyleRange(i + 1, k, MdStyle.COLOR, it) }
                         scanInline(text, i + 1, k, edits, styles, spans)
-                        edits += MdEdit(k, suffix.second, "")
-                        return suffix.second
+                        edits += MdEdit(k, suffix.end, "")
+                        return suffix.end
                     }
                 }
             }
@@ -1404,29 +1623,106 @@ object MarkdownRenderer {
     }
 
     /**
-     * `{size=N}` at [at]: its value and the offset just past it, or null if that is not there.
+     * The attribute braces at [at]: what they say and where they end, or null if that is not what
+     * stands there.
      *
      * Read character by character rather than with a pattern, and `internal` so that the formatting
-     * bar reads it the same way. One definition of the syntax, so the thing that *renders* a size
+     * bar reads it the same way. One definition of the syntax, so the thing that *renders* a span
      * and the thing that *sets* one cannot come to disagree about what one looks like — and no
      * second regex to get subtly wrong. (The first one was: a literal `}` unescaped, which the JVM
      * accepts and Android's ICU engine refuses, so every unit test passed and the app died on the
      * first formatting bar it drew.)
+     *
+     * Strict about the whole of the braces, not just the part it understands. An attribute list
+     * carrying anything this does not know is refused outright and stays on screen as the text it
+     * is, because hiding braces whose meaning is only half read is how a note quietly loses the
+     * half nobody parsed — and a user who mistyped `{sixe=18}` is owed the sight of their mistake.
      */
-    internal fun sizeSuffixAt(text: String, at: Int, to: Int): Pair<Int, Int>? {
-        val open = "{size="
-        if (!text.startsWith(open, at) || at + open.length >= to) return null
-        var k = at + open.length
-        var value = 0
-        while (k < to && text[k].isDigit()) {
-            value = value * 10 + (text[k] - '0')
-            // Past this it is not a size any more, and a run of digits long enough to overflow is
-            // not something to try to make sense of.
-            if (value > MAX_SIZE_SP) return null
+    /**
+     * The `[body]{…}` beginning at [at], or null if what stands there is not one.
+     *
+     * Brackets are counted rather than searched for, so the closing one is the one that matches the
+     * opening one: `[a [b]{size=12} c]{size=24}` is a span inside a span, and taking the first `]{`
+     * would end the outer span in the middle of the inner one.
+     *
+     * The opening bracket has to be the first thing at [at]. Without that the count starts at
+     * whatever is there and finds the *next* span along instead.
+     */
+    internal fun attrSpanAt(text: String, at: Int, to: Int): MdAttrSpan? {
+        if (at < 0 || at >= to || text[at] != '[') return null
+        var depth = 0
+        var k = at
+        while (k < to) {
+            when (text[k]) {
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) {
+                        val suffix = attrSuffixAt(text, k + 1, to) ?: return null
+                        return MdAttrSpan(at, at + 1, k, suffix.end, suffix.attrs)
+                    }
+                }
+            }
             k++
         }
-        if (value < MIN_SIZE_SP || k >= to || text[k] != '}') return null
-        return value to (k + 1)
+        return null
+    }
+
+    internal fun attrSuffixAt(text: String, at: Int, to: Int): MdAttrSuffix? {
+        if (at >= to || text[at] != '{') return null
+        var k = at + 1
+        var size: Int? = null
+        var color: Int? = null
+        while (k < to && text[k] != '}') {
+            if (text[k] == ' ') {
+                k++
+                continue
+            }
+            val equals = text.indexOf('=', k)
+            if (equals < 0 || equals >= to) return null
+            val key = text.substring(k, equals)
+            var end = equals + 1
+            while (end < to && text[end] != ' ' && text[end] != '}') end++
+            val value = text.substring(equals + 1, end)
+            // A key seen twice is refused along with a key never heard of: `{size=12 size=18}` has
+            // no answer, and picking one of them silently is worse than showing the braces and
+            // letting the author see what they wrote.
+            when (key) {
+                "size" -> size = if (size == null) sizeValue(value) ?: return null else return null
+                "color" -> color = if (color == null) colorValue(value) ?: return null else return null
+                else -> return null
+            }
+            k = end
+        }
+        // An empty pair says nothing, and a run of it says nothing twice.
+        if (k >= to || (size == null && color == null)) return null
+        return MdAttrSuffix(MdAttrs(size = size, color = color), k + 1)
+    }
+
+    /**
+     * A size in sp, or null where the digits are not one.
+     *
+     * Bounded at both ends because the tag is text a user can type by hand, and neither `{size=0}`
+     * nor `{size=99999}` is a document anyone meant to write — one is invisible and the other is a
+     * single letter filling the page, and both are easier to create by accident than to undo.
+     */
+    private fun sizeValue(value: String): Int? {
+        if (value.isEmpty() || value.any { !it.isDigit() }) return null
+        // Long enough to overflow is not a number to try to make sense of.
+        if (value.length > 4) return null
+        return value.toInt().takeIf { it in MIN_SIZE_SP..MAX_SIZE_SP }
+    }
+
+    /**
+     * A colour, as `#rgb`, `#rrggbb` or `#aarrggbb`.
+     *
+     * The `#` is required, unlike [ColorCodec.parse], which is lenient because it backs a field
+     * somebody is typing into. Here the string is already written down, and a bare `ff0000` in the
+     * braces is far more likely to be a word than a colour.
+     */
+    private fun colorValue(value: String): Int? {
+        if (!value.startsWith('#') || value.length !in setOf(4, 7, 9)) return null
+        return ColorCodec.parse(value)
     }
 
     /**
@@ -1439,21 +1735,44 @@ object MarkdownRenderer {
         to: Int,
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
+        decorations: MutableList<MdDecoration>,
         spans: MutableList<MdInline>,
         image: Boolean,
+        references: Map<String, String>,
     ): Int {
         val openLength = if (image) 2 else 1
         val close = text.indexOf(']', i + openLength)
         if (close < 0 || close >= to) return 0
-        if (close + 1 >= to || text[close + 1] != '(') return 0
-        val end = text.indexOf(')', close + 1)
+        if (close + 1 >= to) return 0
+        val isInline = text[close + 1] == '('
+        val isRef = text[close + 1] == '['
+        if (!isInline && !isRef) return 0
+
+        val end = if (isInline) {
+            text.indexOf(')', close + 1)
+        } else {
+            text.indexOf(']', close + 2)
+        }
         if (end < 0 || end >= to) return 0
+
+        if (image) {
+            val alt = text.substring(i + openLength, close)
+            val url = if (isInline) {
+                text.substring(close + 2, end).trim()
+            } else {
+                val refId = text.substring(close + 2, end).trim().lowercase()
+                references[refId] ?: ""
+            }
+            if (url.isNotEmpty()) {
+                decorations += MdImage(offset = i, alt = alt, url = url)
+            }
+        }
 
         // The URL is hidden with the brackets: it is the destination, not the prose. An image keeps
         // a glyph in its place so an empty alt text does not vanish without trace.
         edits += MdEdit(i, i + openLength, if (image) IMAGE_GLYPH else "")
         styles += MdStyleRange(i, close, if (image) MdStyle.IMAGE else MdStyle.LINK)
-        if (!image) scanInline(text, i + 1, close, edits, styles, spans)
+        if (!image) scanInline(text, i + 1, close, edits, styles, spans, decorations, references)
         edits += MdEdit(close, end + 1, "")
         return end + 1
     }
@@ -1462,6 +1781,71 @@ object MarkdownRenderer {
 
     /** The end of the text counts as blank: there is nothing there for a marker to be against. */
     private fun isBlank(c: Char?): Boolean = c == null || c.isWhitespace()
+
+    /**
+     * Where the run of [symbol] through [at] ends, and where it starts.
+     *
+     * Flanking is a property of the whole delimiter run, not of the one character next to the
+     * marker being tried. Judging it a character at a time let the second `*` of `**bold **` close
+     * the first, because what stood next to it was the *other* asterisk of its own run rather than
+     * the space in front of both — so a pair that closes nothing rendered as an italic anyway.
+     */
+    private fun runEndAt(text: String, at: Int, symbol: Char): Int {
+        var i = at
+        while (i < text.length && text[i] == symbol) i++
+        return i
+    }
+
+    private fun runStartAt(text: String, at: Int, symbol: Char): Int {
+        var i = at
+        while (i > 0 && text[i - 1] == symbol) i--
+        return i
+    }
+
+    /**
+     * Whether the run of [symbol] through [close] is the one that ends a span opened at
+     * [openStart], whose body starts at [bodyStart] and whose marker is [length] wide.
+     *
+     * Three ways a run of the right characters is still not this span's closer, and every one of
+     * them used to leave markers standing in the formatted view:
+     *
+     * 1. **It is not against the text it would close.** CommonMark's flanking rule, read over the
+     *    whole delimiter run rather than the one character beside the marker being tried — `**bold
+     *    **` closes nothing, and judging it a character at a time let the second asterisk of the
+     *    pair close the first.
+     * 2. **The body left more open than this run can close.** Markers pair off innermost first, so
+     *    what the body opened comes off the front of this run and only what is left over can end
+     *    this span. `*a **b** c*` closes the bold on the run after "b" and the italic on the last
+     *    asterisk of the line; reading the bold's closer as the italic's cut the span in half and
+     *    put the rest of it on screen.
+     * 3. **CommonMark's rule of three.** Where either run could go both ways — text on both sides
+     *    of it — a pairing whose two widths add to a multiple of three is refused, unless both are
+     *    multiples of three themselves. It is the rule that decides which side of `*a**b***` the
+     *    middle pair belongs to: 1 + 2 is three, so the `**` opens the bold rather than closing the
+     *    italic, and the run at the end is read as the three closers it is. Taking it the other way
+     *    stranded the last two asterisks in plain view, which is what an italic word with something
+     *    bold at the end of it used to look like.
+     */
+    private fun closesSpan(
+        text: String,
+        openStart: Int,
+        bodyStart: Int,
+        close: Int,
+        symbol: Char,
+        length: Int,
+    ): Boolean {
+        val runStart = runStartAt(text, close, symbol)
+        val runEnd = runEndAt(text, close, symbol)
+        if (isBlank(text.getOrNull(runStart - 1))) return false
+
+        val width = runEnd - runStart
+        if (width < openedWithin(text, bodyStart, runStart, symbol) + length) return false
+
+        val opener = runEndAt(text, openStart, symbol) - openStart
+        val eitherWay = !isBlank(text.getOrNull(openStart - 1)) || !isBlank(text.getOrNull(runEnd))
+        if (!eitherWay) return true
+        return (opener + width) % 3 != 0 || (opener % 3 == 0 && width % 3 == 0)
+    }
 
     /**
      * How wide a run of [symbol] `[from, to)` has left open — what a run after it has to close.
@@ -1479,7 +1863,15 @@ object MarkdownRenderer {
             }
             var end = k
             while (end < to && text[end] == symbol) end++
-            open = if (open == 0) end - k else 0
+            // Only a run that could actually be one counts, by the same flanking rule the scan
+            // itself goes by. A run with a space on both sides of it — the middle pair of
+            // `**a ** b**` — opens nothing and closes nothing, and counting it as an open left the
+            // run at the end of the line looking too narrow to close anything either.
+            open = when {
+                open != 0 && !isBlank(text.getOrNull(k - 1)) -> 0
+                open == 0 && !isBlank(text.getOrNull(end)) -> end - k
+                else -> open
+            }
             k = end
         }
         return open

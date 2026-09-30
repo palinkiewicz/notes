@@ -8,11 +8,13 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import pl.dakil.notes.editor.markdown.code.CodeColors
@@ -22,14 +24,15 @@ import pl.dakil.notes.editor.markdown.code.CodeColors
 data class MarkdownStyles(
     private val byStyle: Map<MdStyle, SpanStyle>,
     /**
-     * Whether [MdStyle.SIZE] means anything here.
+     * Whether [MdStyle.SIZE] and [MdStyle.COLOR] mean anything here.
      *
-     * False for a `.md` note, where the tag is hidden but not obeyed. That is not an omission: the
-     * file has to stay a Markdown file that other editors render sensibly, and a size is not
-     * something Markdown can say. So text pasted from a sheet arrives at the note's own body size,
-     * carries its tag along invisibly, and is that size again the moment it is pasted back.
+     * Always true on a sheet, which is paper. Off by default in a `.md` note, and on there only if
+     * the user asks for it in settings: the file has to stay a Markdown file that other editors
+     * render sensibly, and neither a size nor a colour is something Markdown can say. With it off
+     * the tag is still hidden and still carried, so text pasted from a sheet arrives at the note's
+     * own size and colour and is itself again the moment it is pasted back.
      */
-    private val sizesApply: Boolean = true,
+    private val attributesApply: Boolean = true,
     /**
      * The blank line kept past the end of the document.
      *
@@ -39,14 +42,28 @@ data class MarkdownStyles(
      * all times, so a note that fits on one screen would be shown in less room than it has.
      */
     val trailingSpace: SpanStyle,
+    /**
+     * The hanging indent that holds a quotation clear of the bar drawn beside it.
+     *
+     * A `ParagraphStyle` because it is the only thing that can indent a line the *layout* made —
+     * spaces indent the line they are typed on and nothing else, so a quotation long enough to
+     * wrap had its first line clear of the bar and every line after it against it. See
+     * [MarkdownRenderPlan.indents].
+     *
+     * Defaulted, because a renderer that draws no bar wants no room kept for one: export leaves
+     * quote bars out on purpose, and an indent with nothing beside it is a ragged left edge.
+     */
+    val quoteIndent: ParagraphStyle = ParagraphStyle(),
 ) {
     // Unstyled rather than absent for a style nobody has given a span to: a new [MdStyle] with no
     // entry here is a paragraph that looks plain, which is a bug someone will notice and fix, and
     // not a note that cannot be opened.
     fun spanFor(style: MdStyle, arg: Int = 0): SpanStyle = when {
-        style != MdStyle.SIZE -> byStyle[style] ?: SpanStyle()
-        sizesApply && arg > 0 -> SpanStyle(fontSize = arg.sp)
-        else -> SpanStyle()
+        style == MdStyle.SIZE -> if (attributesApply && arg > 0) SpanStyle(fontSize = arg.sp) else SpanStyle()
+        // Zero is not a colour anyone asked for — it is what a range with no argument carries — and
+        // a fully transparent one would be text painted in nothing at all.
+        style == MdStyle.COLOR -> if (attributesApply && arg != 0) SpanStyle(color = Color(arg)) else SpanStyle()
+        else -> byStyle[style] ?: SpanStyle()
     }
 }
 
@@ -81,6 +98,11 @@ class MarkdownOutputTransformation(
                     addStyle(styles.spanFor(range.style, range.arg), range.start, range.end)
                 }
             }
+            for (range in plan.indents) {
+                if (range.end > range.start) {
+                    addStyle(styles.quoteIndent, range.start, range.end)
+                }
+            }
         }
 
         // And a short blank line past the end, so the last line of a note can be scrolled clear of
@@ -102,14 +124,15 @@ class MarkdownOutputTransformation(
 /**
  * The Material theme, resolved into one `SpanStyle` per [MdStyle].
  *
- * [sizes] says whether this document may set its own font sizes — true on a sheet, false in a `.md`
- * note. See [MarkdownStyles.sizesApply].
+ * [attributes] says whether this document obeys the sizes and colours a bracketed span can name —
+ * always on a sheet, and in a `.md` note only where the user has turned it on. See
+ * [MarkdownStyles.attributesApply].
  */
 @Composable
-fun rememberMarkdownStyles(sizes: Boolean = true): MarkdownStyles {
+fun rememberMarkdownStyles(attributes: Boolean = true): MarkdownStyles {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
-    return remember(colors, typography, sizes) {
+    return remember(colors, typography, attributes) {
         // Sizes come from the heading styles the rendered view already uses, so a note looks the
         // same whether it is being edited here or displayed on a sheet.
         fun heading(size: TextUnit) = SpanStyle(fontSize = size, fontWeight = FontWeight.SemiBold)
@@ -129,10 +152,14 @@ fun rememberMarkdownStyles(sizes: Boolean = true): MarkdownStyles {
         )
 
         MarkdownStyles(
-            sizesApply = sizes,
+            attributesApply = attributes,
             // A blank line of a 14 sp face comes out at about 16 dp, which is what holds the last
             // line of a note off the formatting bar once it has been scrolled to.
             trailingSpace = SpanStyle(fontSize = 14.sp),
+            // Wide enough to clear a three dp bar and read as a step, and the same on the line the
+            // quotation is typed on as on the lines it wraps onto — which is the whole point of
+            // saying it here rather than writing spaces into the text.
+            quoteIndent = ParagraphStyle(textIndent = TextIndent(firstLine = 12.sp, restLine = 12.sp)),
             byStyle = mapOf(
                 MdStyle.H1 to heading(typography.headlineMedium.fontSize),
                 MdStyle.H2 to heading(typography.headlineSmall.fontSize),

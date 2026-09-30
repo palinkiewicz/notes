@@ -13,6 +13,8 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.Tessellator
+import androidx.compose.ui.graphics.Matrix
+import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.Stroke
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
@@ -27,6 +29,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
  * - **Variable width** strokes are tessellated into a filled outline, because no platform stroker
  *   can taper. The wet stroke under the pen takes the same route as the ink already committed, so
  *   the width a pen is pressing out is on the page as it is drawn rather than appearing at pen-up.
+ *
+ * A [Stroke.filled] stroke adds a third path underneath either of those: its centreline closed back
+ * to its start, filled by the even-odd rule. Even-odd rather than non-zero because that is the rule
+ * `HitTester.pointInPolygon` decides a lasso by, so the region painted in is the region the app
+ * already calls the inside of that loop — a doodle that crosses itself fills the way selecting it
+ * would. It is drawn first and the ink over it, so the outline keeps its own weight at the edge.
  *
  * ### Why committed strokes are cached
  *
@@ -46,6 +54,17 @@ class StrokeRenderer {
 
     /** Scratch geometry for the wet stroke and the live shape, which are rebuilt every frame. */
     private val path = Path()
+
+    /**
+     * Scratch for the interior of a filled wet stroke or live shape.
+     *
+     * Its own path rather than the one above reused: the fill is the centreline and the ink over it
+     * may be a tessellated outline, so the two are different geometry and both are wanted at once.
+     */
+    private val fillPath = Path()
+
+    /** Scratch for the live selection transform, so a drag allocates nothing per frame. */
+    private val scratchMatrix = Matrix()
     private val outline = StrokeOutline()
 
     /**
@@ -54,10 +73,18 @@ class StrokeRenderer {
      * Access-ordered and capped, so a note far longer than the screen cannot grow it without
      * bound: the strokes actually being drawn stay resident and the rest fall out.
      */
-    private val cache = object : LinkedHashMap<Stroke, Path>(CACHE_INITIAL, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Stroke, Path>): Boolean =
+    private val cache = object : LinkedHashMap<Stroke, StrokePaths>(CACHE_INITIAL, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Stroke, StrokePaths>): Boolean =
             size > CACHE_MAX
     }
+
+    /**
+     * One stroke's geometry: the ink itself, and the interior it encloses when it is filled.
+     *
+     * Held together rather than in two caches so that one eviction policy governs both and a
+     * stroke can never be left holding half of what it needs to be drawn.
+     */
+    private class StrokePaths(val ink: Path, val fill: Path?)
 
     /** Drops every cached path. For switching documents, where none of them can be reused. */
     fun clearCache() = cache.clear()
@@ -79,6 +106,12 @@ class StrokeRenderer {
      *   page, that is a single translation rather than something to work out per point — which is
      *   what lets one cached path serve every page, zoom and view mode.
      */
+    /**
+     * @param matrix an extra transform in **document points**, applied inside the scale to pixels
+     *   so the cached paths — which are in document points — are reused untouched. This is what
+     *   lets a selection be dragged, scaled and turned at input rate without rebuilding a single
+     *   path: the strokes are the same instances throughout and only the canvas moves.
+     */
     fun DrawScope.drawStrokes(
         strokes: List<Stroke>,
         ptToPx: Float,
@@ -86,18 +119,24 @@ class StrokeRenderer {
         opacity: Float = 1f,
         docTop: Float = -Float.MAX_VALUE,
         docBottom: Float = Float.MAX_VALUE,
+        matrix: Affine? = null,
     ) {
         if (strokes.isEmpty()) return
         withTransform({
             translate(0f, stripOffsetPx)
             scale(ptToPx, ptToPx, Offset.Zero)
+            if (matrix != null && !matrix.isIdentity) transform(matrix.toMatrix())
         }) {
             for (stroke in strokes) {
                 // Assigned to pages by the centreline, not the inked extent. A stroke cut at a page
                 // boundary ends exactly on it, and judging by the inked extent would place it on
                 // both pages — painting the lower half of its end cap as a dot at the top of the
                 // page below.
-                val core = stroke.coreBounds
+                //
+                // Where the pass carries a transform the band has to be tested against where the
+                // stroke is *going*, not where the document still says it is — a selection dragged
+                // onto the next page would otherwise be culled off the page it is now on.
+                val core = if (matrix == null) stroke.coreBounds else matrix.mapBounds(stroke.coreBounds)
                 if (core.bottom <= docTop || core.top >= docBottom) continue
                 drawCachedStroke(stroke, opacity)
             }
@@ -117,13 +156,17 @@ class StrokeRenderer {
             if (opacity >= 1f) it else it.copy(alpha = it.alpha * opacity)
         }
         val blend = stroke.blend.toBlendMode()
-        val cached = cachedPath(stroke)
+        val cached = cachedPaths(stroke)
+
+        // Under the ink, so the outline is the crisp edge of the mark and the fill merely reaches
+        // to the middle of it. Painting it over the ink would thin every stroke by half its width.
+        cached.fill?.let { drawPath(it, color, style = Fill, blendMode = blend) }
 
         if (stroke.hasWidthVariation) {
-            drawPath(cached, color, style = Fill, blendMode = blend)
+            drawPath(cached.ink, color, style = Fill, blendMode = blend)
         } else {
             drawPath(
-                path = cached,
+                path = cached.ink,
                 color = color,
                 style = DrawStroke(
                     width = stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f),
@@ -136,7 +179,7 @@ class StrokeRenderer {
     }
 
     /** The stroke's geometry in document points, built on first sight and kept. */
-    private fun cachedPath(stroke: Stroke): Path {
+    private fun cachedPaths(stroke: Stroke): StrokePaths {
         cache[stroke]?.let { return it }
         val built = Path()
         if (stroke.hasWidthVariation) {
@@ -151,8 +194,12 @@ class StrokeRenderer {
                 built.appendSmoothed(stroke.pointCount, { stroke.xs[it] }, { stroke.ys[it] })
             }
         }
-        cache[stroke] = built
-        return built
+        val fill = if (!stroke.filled || stroke.pointCount < MIN_FILL_POINTS) null else {
+            Path().also { layInterior(it, stroke.pointCount, { i -> stroke.xs[i] }, { i -> stroke.ys[i] }) }
+        }
+        val paths = StrokePaths(built, fill)
+        cache[stroke] = paths
+        return paths
     }
 
     /**
@@ -185,6 +232,15 @@ class StrokeRenderer {
                 blendMode = blend,
             )
             return
+        }
+
+        // The interior a filled pen is laying down, closed back to where the stroke began. It grows
+        // with the hand rather than appearing at pen-up, for the same reason the taper does: what
+        // the mark is going to be has to be visible while there is still time to change it.
+        if (builder.toolSpec.fill && n >= MIN_FILL_POINTS) {
+            fillPath.reset()
+            layInterior(fillPath, n, { builder.x(it) * ptToPx }, { toStripPx(builder.y(it)) })
+            drawPath(fillPath, color, style = Fill, blendMode = blend)
         }
 
         if (builder.hasWidthVariation) {
@@ -227,9 +283,15 @@ class StrokeRenderer {
         width: Float,
         color: Int,
         blend: BlendId,
+        filled: Boolean = false,
     ) {
         val n = outline.count
         if (n < 2) return
+        if (filled && n >= MIN_FILL_POINTS) {
+            fillPath.reset()
+            layInterior(fillPath, n, { outline.x(it) * ptToPx }, { toStripPx(outline.y(it)) })
+            drawPath(fillPath, Color(color), style = Fill, blendMode = blend.toBlendMode())
+        }
         path.reset()
         path.moveTo(outline.x(0) * ptToPx, toStripPx(outline.y(0)))
         path.appendSmoothed(n, { outline.x(it) * ptToPx }, { toStripPx(outline.y(it)) })
@@ -269,6 +331,24 @@ class StrokeRenderer {
     }
 
     /**
+     * Lays the region a stroke encloses into [into]: its centreline, closed, filled even-odd.
+     *
+     * Even-odd is the whole point. A stroke that crosses itself has an inside only by convention,
+     * and the convention this app has already committed to is the one `HitTester.pointInPolygon`
+     * uses to answer what a lasso caught — so a figure of eight fills the two lobes it looks like,
+     * and what is painted in is what the selection would have taken.
+     *
+     * The same smoothing the ink gets, so the edge of the fill lies under the middle of the line
+     * rather than cutting corners the drawn stroke rounds off.
+     */
+    private inline fun layInterior(into: Path, n: Int, x: (Int) -> Float, y: (Int) -> Float) {
+        into.fillType = PathFillType.EvenOdd
+        into.moveTo(x(0), y(0))
+        into.appendSmoothed(n, x, y)
+        into.close()
+    }
+
+    /**
      * Lays the tessellated contours in [outline] into [into].
      *
      * All of them go into **one** `Path`, filled once. That is what makes the tessellator's
@@ -295,6 +375,12 @@ class StrokeRenderer {
     }
 
     private companion object {
+        /**
+         * Below this there is no region to speak of: two points enclose nothing, and a fill drawn
+         * from them is a hairline along a line that is already being drawn.
+         */
+        const val MIN_FILL_POINTS = 3
+
         const val CACHE_INITIAL = 256
 
         /**
@@ -302,6 +388,23 @@ class StrokeRenderer {
          * any zoom, which is all that has to stay resident for a pan to cost nothing.
          */
         const val CACHE_MAX = 2048
+    }
+
+    /**
+     * The model's six-number transform as the 4x4 the canvas wants.
+     *
+     * `Affine` is `matrix(a, b, c, d, tx, ty)` in SVG order — column-major 2x3 — so `a` and `b` are
+     * the first *column*, not the first row. Compose's [Matrix] is column-major too, which is what
+     * makes this the plain index mapping it looks like rather than a transpose.
+     */
+    private fun Affine.toMatrix(): Matrix = scratchMatrix.also {
+        it.reset()
+        it[0, 0] = a
+        it[0, 1] = b
+        it[1, 0] = c
+        it[1, 1] = d
+        it[3, 0] = tx
+        it[3, 1] = ty
     }
 
     private fun BlendId.toBlendMode(): BlendMode = when (this) {

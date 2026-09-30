@@ -8,10 +8,12 @@ import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MdCodeBlock
 import pl.dakil.notes.editor.markdown.MdDecoration
 import pl.dakil.notes.editor.markdown.MdQuote
+import pl.dakil.notes.editor.markdown.MdStyleRange
 import pl.dakil.notes.editor.markdown.MdRule
 import pl.dakil.notes.editor.markdown.MdStyle
 import pl.dakil.notes.editor.markdown.MdTable
 import pl.dakil.notes.editor.markdown.MdTask
+import pl.dakil.notes.editor.markdown.MdImage
 
 /**
  * What the WYSIWYG editor actually shows.
@@ -89,6 +91,63 @@ class MarkdownRenderPlanTest {
         // A marker only opens emphasis where it is up against the text it styles.
         assertEquals("2 * 3 * 4", render("2 * 3 * 4"))
         assertEquals(emptyList<String>(), styled("2 * 3 * 4", MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `a wide marker keeps clear of whitespace too, the way a narrow one does`() {
+        // `** bold**` is bold in no other Markdown reader: emphasis opens only on a marker up
+        // against the text it styles. Rendering it as bold here would make this app the only
+        // program that agreed with the file, which is the one thing a plain-text format may not do.
+        assertEquals("** bold**", render("** bold**"))
+        assertEquals("**bold **", render("**bold **"))
+        assertEquals("~~struck ~~", render("~~struck ~~"))
+        // And the well-formed ones are untouched.
+        assertEquals("bold", render("**bold**"))
+        assertEquals("struck", render("~~struck~~"))
+    }
+
+    @Test
+    fun `a marker against a space still closes a run somewhere else on the line`() {
+        // The scan does not give up at the first candidate it turns down: `**a ** b**` closes on
+        // the second pair, which is the one against the text.
+        assertEquals("a ** b", render("**a ** b**"))
+    }
+
+    @Test
+    fun `a bold word inside an italic one closes on the right asterisks`() {
+        // Nesting the *wider* marker inside the narrower one is the case the scan used to get
+        // backwards: it took the `**` for the italic's closer, which left the run at the end with
+        // two asterisks nothing had asked for, in full view. CommonMark's rule of three is what
+        // says the middle run belongs to what comes after it — 1 + 2 is a multiple of three.
+        assertEquals("ab", render("*a**b***"))
+        assertEquals(listOf("ab"), styled("*a**b***", MdStyle.ITALIC))
+        assertEquals(listOf("b"), styled("*a**b***", MdStyle.BOLD))
+        // And the other way round, which always worked and has to go on working.
+        assertEquals(listOf("ab"), styled("**a*b***", MdStyle.BOLD))
+        assertEquals(listOf("b"), styled("**a*b***", MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `a bold run inside an italic one does not end the italic with it`() {
+        // The bold closes on its own pair and the italic carries on to the end of the line. Read
+        // as the italic's closer, the run after "b" ended the span half a sentence early and the
+        // rest of its markers were left on screen.
+        assertEquals("a b c", render("*a **b** c*"))
+        assertEquals(listOf("a b c"), styled("*a **b** c*", MdStyle.ITALIC))
+        assertEquals(listOf("b"), styled("*a **b** c*", MdStyle.BOLD))
+        assertEquals("ab c", render("*a**b** c*"))
+        assertEquals(listOf("ab c"), styled("*a**b** c*", MdStyle.ITALIC))
+    }
+
+    @Test
+    fun `three markers each side stay one span of two styles`() {
+        // The rule of three excuses itself when both widths are multiples of it, which is what
+        // keeps a bold-italic run from being read as a bold one with a stray asterisk beside it.
+        assertEquals("both", render("***both***"))
+        assertEquals(listOf("both"), styled("***both***", MdStyle.BOLD))
+        assertEquals(listOf("both"), styled("***both***", MdStyle.ITALIC))
+        assertEquals("test2", render("**test*2***"))
+        assertEquals(listOf("2"), styled("**test*2***", MdStyle.ITALIC))
     }
 
     @Test
@@ -174,10 +233,29 @@ class MarkdownRenderPlanTest {
 
     @Test
     fun `a quote marker disappears entirely and leaves a bar to be drawn`() {
-        // The marker becomes the indent that clears the drawn bar.
-        assertEquals("   to be", render("> to be"))
+        // The marker leaves nothing in its place: what holds the text clear of the bar is a
+        // hanging indent over the whole block, so the lines a quotation wraps onto are held clear
+        // of it too — which a run of spaces written into the line could never have reached.
+        assertEquals("to be", render("> to be"))
         assertEquals(listOf("to be"), styled("> to be", MdStyle.QUOTE))
-        assertEquals(listOf(MdQuote(0, 8)), decorations<MdQuote>("> to be"))
+        assertEquals(listOf(MdQuote(0, 5)), decorations<MdQuote>("> to be"))
+        assertEquals(
+            listOf(MdStyleRange(0, 5, MdStyle.QUOTE)),
+            MarkdownRenderer.plan("> to be").indents,
+        )
+    }
+
+    @Test
+    fun `one indent covers a whole quotation and stops short of the newline after it`() {
+        // One range per block, because a `ParagraphStyle` is laid out as its own piece of text: a
+        // range per line would break the quotation into as many blocks, and one ending on the
+        // newline that closes it gets an empty line underneath.
+        val quoted = "> one\n> two\nafter"
+        assertEquals(listOf(MdStyleRange(0, 7, MdStyle.QUOTE)), MarkdownRenderer.plan(quoted).indents)
+        // The blank line is the gap this app draws between a block and what follows it.
+        assertEquals("one\ntwo\n\nafter", render(quoted))
+        // Nothing quoted, nothing indented.
+        assertEquals(emptyList<MdStyleRange>(), MarkdownRenderer.plan("plain\ntext").indents)
     }
 
     @Test
@@ -642,17 +720,14 @@ class MarkdownRenderPlanTest {
         fun offsetsOf(decoration: MdDecoration): List<Int> = when (decoration) {
             is MdCodeBlock ->
                 listOf(decoration.start, decoration.end, decoration.headerStart, decoration.headerEnd)
-
             is MdTable ->
                 listOf(decoration.start, decoration.end, decoration.headerEnd) +
                     decoration.columnStops +
                     decoration.rows.flatMap { listOf(it.first, it.last) }
-
             is MdRule -> listOf(decoration.offset)
             is MdQuote -> listOf(decoration.start, decoration.end)
-            // `sourceMark` is left out on purpose: it is an offset into the source, and holding it
-            // to the rendered length is exactly the mistake this test would be there to catch.
             is MdTask -> listOf(decoration.offset)
+            is MdImage -> listOf(decoration.offset)
         }
     }
 

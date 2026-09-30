@@ -14,6 +14,9 @@ sealed interface MdPending {
 
     /** A font size, or null for the document's own. See [MarkdownActions.setSize]. */
     data class Size(val sp: Int?) : MdPending
+
+    /** A text colour as packed ARGB, or null for the document's own. See [MarkdownActions.setColor]. */
+    data class Color(val argb: Int?) : MdPending
 }
 
 /**
@@ -57,10 +60,12 @@ class PendingStyles {
      * caret standing inside a bold run is exactly where somebody types the words that end it.
      */
     fun toggleWrap(offset: Int, marker: String) {
-        val style = MdPending.Wrap(marker)
         val armed = stylesAt(offset)
         caret = offset
-        styles = if (style in armed) armed - style else armed + style
+        // Not by identity: a style carried onto this caret off the parse is written as the run it
+        // came from, so bold armed as part of `***` has to answer to a press of the bold button.
+        // See [MarkdownActions.toggleArmedMarker].
+        styles = MarkdownActions.toggleArmedMarker(armed, marker)
     }
 
     /** Arms [sp] at [offset], replacing whatever size was armed there — sizes do not stack. */
@@ -68,6 +73,13 @@ class PendingStyles {
         val armed = stylesAt(offset)
         caret = offset
         styles = armed.filterNot { it is MdPending.Size } + MdPending.Size(sp)
+    }
+
+    /** Arms [argb] at [offset], replacing whatever colour was armed there. See [setSize]. */
+    fun setColor(offset: Int, argb: Int?) {
+        val armed = stylesAt(offset)
+        caret = offset
+        styles = armed.filterNot { it is MdPending.Color } + MdPending.Color(argb)
     }
 
     /**

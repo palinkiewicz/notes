@@ -173,13 +173,22 @@ class RulerTest {
     }
 
     @Test
-    fun `turning the ruler end for end lands back where it started`() {
-        // The slab is symmetric, so the far half of the circle is a duplicate of the near half.
-        // Folding it away is what keeps the numbers the right way up at every heading.
-        assertEquals(0f, normalizeRulerAngle(PI.toFloat()), 1e-4f)
-        assertEquals(0.2f, normalizeRulerAngle(0.2f + PI.toFloat()), 1e-4f)
+    fun `turning the ruler upside down keeps the heading it was turned to`() {
+        // The far half of the circle is a real heading, not a duplicate: the slab hangs off its
+        // numbered edge, so folding 180° away would flip the body across to the other side of that
+        // edge and the ruler would jump out from under the fingers turning it.
+        assertEquals(PI.toFloat(), normalizeRulerAngle(PI.toFloat()), 1e-4f)
+        assertEquals(0.2f - PI.toFloat(), normalizeRulerAngle(0.2f + PI.toFloat()), 1e-4f)
         assertEquals((PI / 2).toFloat(), normalizeRulerAngle((PI / 2).toFloat()), 1e-4f)
-        assertEquals((PI / 2).toFloat(), normalizeRulerAngle((-PI / 2).toFloat()), 1e-4f)
+        assertEquals((-PI / 2).toFloat(), normalizeRulerAngle((-PI / 2).toFloat()), 1e-4f)
+    }
+
+    @Test
+    fun `a heading only wraps once the fingers have turned right round`() {
+        // Unbounded accumulation is the only thing being folded away here.
+        val full = (PI * 2).toFloat()
+        assertEquals(0.3f, normalizeRulerAngle(0.3f + full), 1e-4f)
+        assertEquals(-0.3f, normalizeRulerAngle(-0.3f - full), 1e-4f)
     }
 
     @Test

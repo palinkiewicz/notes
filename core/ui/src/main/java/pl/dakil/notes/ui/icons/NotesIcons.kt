@@ -129,6 +129,22 @@ object NotesIcons {
         )
     }
 
+    /** A circular arrow: the grip that turns a selection about its middle. */
+    val Rotate: ImageVector by lazy {
+        strokedIcon(
+            "Rotate",
+            "M20 12 a8 8 0 1 1 -2.34 -5.66 M20 3 L20 7 L16 7",
+        )
+    }
+
+    /** Arrows out of a corner: the grip that scales a selection about the opposite corner. */
+    val Resize: ImageVector by lazy {
+        strokedIcon(
+            "Resize",
+            "M5 19 L19 5 M5 13 L5 19 L11 19 M13 5 L19 5 L19 11",
+        )
+    }
+
     val Layers: ImageVector by lazy {
         strokedIcon(
             "Layers",
@@ -248,6 +264,22 @@ object NotesIcons {
                 "M13.5 7.5 m-0.9 0 a0.9 0.9 0 1 0 1.8 0 a0.9 0.9 0 1 0 -1.8 0 " +
                 "M6.8 14.5 m-0.9 0 a0.9 0.9 0 1 0 1.8 0 a0.9 0.9 0 1 0 -1.8 0",
         )
+    }
+
+    /**
+     * A shape with its interior hatched: draw this filled in, not merely outlined.
+     *
+     * Hatching rather than a solid silhouette because the whole icon set is stroked — and because a
+     * solid 24dp square tinted with the content colour reads as a swatch, which is the button next
+     * to this one.
+     */
+    val Fill: ImageVector by lazy {
+        strokedIcon("Fill", FILL_PATH)
+    }
+
+    /** The same glyph struck through: take the fill back out and leave the outline. */
+    val FillOff: ImageVector by lazy {
+        strokedIcon("FillOff", "$FILL_PATH M3.5 3.5 L20.5 20.5")
     }
 
     val Sort: ImageVector by lazy {
@@ -444,6 +476,11 @@ object NotesIcons {
      * `PathParser` is part of `ui-graphics`, so this needs no extra dependency and no generated
      * XML resources.
      */
+    /** Shared by [Fill] and [FillOff], which differ only by the stroke through them. */
+    private const val FILL_PATH =
+        "M4.5 5.5 h15 v13 h-15 Z " +
+            "M4.5 11.5 L10.5 5.5 M4.5 17.5 L16.5 5.5 M9.5 18.5 L19.5 8.5 M15.5 18.5 L19.5 14.5"
+
     /** Shared by [Folder] and [NewFolder], so the two can never drift apart. */
     private const val FOLDER_PATH =
         "M3 6.5 a1.5 1.5 0 0 1 1.5 -1.5 h4.5 l2 2.5 h8 a1.5 1.5 0 0 1 1.5 1.5 " +

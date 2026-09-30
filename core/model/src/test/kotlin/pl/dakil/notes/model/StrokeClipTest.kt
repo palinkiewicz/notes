@@ -133,6 +133,22 @@ class StrokeClipTest {
     }
 
     @Test
+    fun `a filled stroke stays filled on both sides of a cut`() {
+        // Unlike the shape spec, which a cut drops. A page break is presentation catching up with
+        // the document: each piece is what that page was already showing, and half a filled circle
+        // closed by the cut is the half-disc that was painted there.
+        val s = Stroke(
+            ToolId.PEN, -1, 2f, BlendId.NORMAL,
+            xs = floatArrayOf(0f, 40f, 40f, 0f),
+            ys = floatArrayOf(50f, 50f, 150f, 150f),
+            filled = true,
+        )
+        val pieces = s.clippedToBand(0f, 100f)
+        assertTrue(pieces.isNotEmpty())
+        for (piece in pieces) assertTrue("piece must stay filled", piece.filled)
+    }
+
+    @Test
     fun `style is carried onto every piece`() {
         val s = Stroke(
             ToolId.HIGHLIGHTER, 0x66FFE14D, 16f, BlendId.MULTIPLY,

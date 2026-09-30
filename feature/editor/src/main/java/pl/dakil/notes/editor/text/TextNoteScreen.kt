@@ -17,6 +17,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import pl.dakil.notes.data.SaveState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -127,7 +131,7 @@ fun TextNoteScreen(
                 val markdown = text.text.toString()
                 exporting = true
                 coroutineScope.launch(Dispatchers.Default) {
-                    val result = runCatching { exportText(context, markdown, format) }
+                    val result = runCatching { exportText(context, markdown, format, state.pandoc) }
                     exporting = false
                     exportOpen = false
                     result.getOrNull()?.let { shareExport(context, it) }
@@ -159,13 +163,40 @@ fun TextNoteScreen(
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },
+            onConfirmDeviceImage = { label, mimeType, base64 ->
+                reference = null
+                val before = text.text.toString()
+                val result = MarkdownActions.insertBase64Image(
+                    text = before,
+                    start = text.selection.start,
+                    end = text.selection.end,
+                    alt = label,
+                    mimeType = mimeType,
+                    base64Data = base64,
+                )
+                text.edit {
+                    replace(0, length, result.text)
+                    selection = TextRange(result.selectionStart, result.selectionEnd)
+                }
+            },
         )
+    }
+
+    // A conflict is not a failure: the note saved, and the version that was on disk was kept
+    // beside it. `error` is the wrong channel — it replaces the whole editor — so this gets the
+    // stock transient surface instead, which is also the one place the copy's name can be read.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val conflict = state.saveState as? SaveState.Conflicted
+    val conflictMessage = conflict?.let { stringResource(R.string.editor_conflict_saved, it.copyName) }
+    LaunchedEffect(conflictMessage) {
+        conflictMessage?.let { snackbarHostState.showSnackbar(it) }
     }
 
     Scaffold(
         // On the whole scaffold rather than on the field: the formatting bar is the one control the
         // user needs *while* the keyboard is up, so the bar has to rise with it.
         modifier = modifier.fillMaxSize().imePadding(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 // Tapping the name renames the note, matching the ink editor and the library's
@@ -240,6 +271,9 @@ fun TextNoteScreen(
                     onPopupChange = { popup = it },
                     onInsertLink = { reference = ReferenceKind.LINK },
                     onInsertImage = { reference = ReferenceKind.IMAGE },
+                    // A `.md` file has to stay one every other editor renders sensibly, so the size
+                    // and colour controls are offered only where the user has asked for them.
+                    attributes = state.pandoc,
                 )
             }
         },
@@ -267,6 +301,7 @@ fun TextNoteScreen(
                             onPopupChange = { popup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
                             onInsertImage = { reference = ReferenceKind.IMAGE },
+                            attributes = state.pandoc,
                         )
                     }
                     MarkdownEditor(
@@ -276,6 +311,7 @@ fun TextNoteScreen(
                         modifier = Modifier.fillMaxSize(),
                         // Only a note with nothing in it opens ready to type.
                         autoFocus = text.text.isEmpty(),
+                        attributes = state.pandoc,
                     )
                 }
             }

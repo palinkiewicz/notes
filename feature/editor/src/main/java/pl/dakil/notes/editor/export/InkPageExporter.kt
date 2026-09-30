@@ -160,7 +160,9 @@ object InkPageExporter {
     ) {
         if (block.markdown.isBlank()) return
         val plan = MarkdownRenderer.plan(block.markdown)
-        val annotated = plan.toAnnotatedString(block.markdown, exportMarkdownStyles())
+        // A sheet is paper: the sizes and colours its boxes carry are as much a part of the page
+        // as the ink beside them, and a printed page that dropped them is not a picture of it.
+        val annotated = plan.toAnnotatedString(block.markdown, exportMarkdownStyles(attributes = true))
         val rect = block.worldBounds()
         val widthPx = (rect.width * ptToPx).toInt().coerceAtLeast(1)
         val paragraph = Paragraph(
@@ -185,4 +187,4 @@ object InkPageExporter {
 }
 
 private fun Stroke.recolored(preset: ExportColorPreset): Stroke =
-    Stroke(tool, preset.apply(color), width, blend, xs, ys, widthFactors, tilts, times, shape)
+    Stroke(tool, preset.apply(color), width, blend, xs, ys, widthFactors, tilts, times, shape, filled)

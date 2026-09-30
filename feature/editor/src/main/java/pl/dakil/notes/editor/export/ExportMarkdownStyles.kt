@@ -17,13 +17,18 @@ import pl.dakil.notes.editor.markdown.MdStyle
  * off the UI tree. This carries only what a first cut of export needs: heading sizes, bold, italic,
  * strikethrough and monospace code. Fence backgrounds, table gridlines and quote bars are left out
  * on purpose — see the export screens' documentation for why.
+ *
+ * [attributes] says whether a bracketed span's own size and colour are obeyed, and follows the same
+ * rule the editor does: a sheet is paper and always obeys them, a `.md` note only where the user
+ * has turned them on. An export is a picture of what was on screen, so it has to be given the same
+ * answer the screen was, or a heading set at 32 comes out of the printer at body size.
  */
-fun exportMarkdownStyles(): MarkdownStyles {
+fun exportMarkdownStyles(attributes: Boolean = false): MarkdownStyles {
     fun heading(size: androidx.compose.ui.unit.TextUnit) =
         SpanStyle(fontSize = size, fontWeight = FontWeight.SemiBold)
 
     return MarkdownStyles(
-        sizesApply = false,
+        attributesApply = attributes,
         trailingSpace = SpanStyle(fontSize = 14.sp),
         byStyle = mapOf(
             MdStyle.H1 to heading(28.sp),

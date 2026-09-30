@@ -38,6 +38,7 @@
     <string name="editor_tool">Tool</string>
     <string name="editor_finger_drawing">Draw with finger</string>
     <string name="editor_ruler">Ruler</string>
+    <string name="editor_fill_shape">Fill shape</string>
     <string name="editor_more_options">More options</string>
     <string name="editor_tool_pen">Pen</string>
     <string name="editor_tool_fountain">Fountain</string>
@@ -47,12 +48,14 @@
     <string name="editor_tool_erase_area">Erase area</string>
     <string name="editor_tool_select">Select</string>
     <string name="editor_tool_text">Text</string>
+    <string name="editor_tool_image">Image</string>
     <string name="editor_width">Width</string>
     <string name="editor_opacity">Opacity</string>
     <string name="editor_smoothing">Smoothing</string>
     <string name="editor_pressure_sensitivity">Pressure sensitivity</string>
     <string name="editor_speed_thinning">Speed thinning</string>
     <string name="editor_eraser_size">Eraser size</string>
+    <string name="editor_size_set_custom">Custom size</string>
 
     <!--  ZOOM CHIP  -->
     <string name="editor_zoom_lock">Lock zoom</string>
@@ -124,6 +127,16 @@
     <string name="editor_text_box_delete">Delete text box</string>
     <string name="editor_type_here">Type here…</string>
 
+    <!--  SELECTION  -->
+    <string name="editor_selection_scale">Resize selection</string>
+    <string name="editor_selection_rotate">Rotate selection</string>
+    <string name="editor_selection_apex">Move shape corner</string>
+    <string name="editor_selection_duplicate">Duplicate selection</string>
+    <string name="editor_selection_colour">Selection colour</string>
+    <string name="editor_selection_fill">Fill selection</string>
+    <string name="editor_selection_unfill">Remove fill</string>
+    <string name="editor_selection_delete">Delete selection</string>
+
     <!--  MARKDOWN EDITOR  -->
     <string name="markdown_placeholder">Write something…</string>
     <string name="markdown_copy_code">Copy code</string>
@@ -143,11 +156,13 @@
     <string name="markdown_link_text">Text</string>
     <string name="markdown_image_description">Description</string>
     <string name="markdown_address">Address</string>
+    <string name="markdown_from_device">From device</string>
     <string name="markdown_insert">Insert</string>
 
     <!--  FORMAT BAR  -->
     <string name="markdown_paragraph_style">Paragraph style</string>
     <string name="markdown_font_size">Font size</string>
+    <string name="markdown_text_color">Text colour</string>
     <string name="markdown_bold">Bold</string>
     <string name="markdown_italic">Italic</string>
     <string name="markdown_strikethrough">Strikethrough</string>
@@ -169,4 +184,5 @@
     <string name="markdown_block_task">Tasks</string>
     <string name="markdown_block_ordered">Numbers</string>
 
+    <string name="editor_conflict_saved">A newer version was on disk. It was kept as \"%1$s\".</string>
 </resources>

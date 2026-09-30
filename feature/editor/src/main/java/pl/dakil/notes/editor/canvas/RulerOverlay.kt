@@ -253,14 +253,20 @@ private fun DrawScope.drawHeading(
     // Clear of the slab rather than on it: the numbers underneath are the reason the ruler is
     // being turned, and a badge sitting over them hides the very thing being lined up.
     val top = pose.thickness + height * 0.4f
-    drawRoundRect(
-        color = background.copy(alpha = 0.9f),
-        topLeft = Offset(-width * 0.5f, top),
-        size = Size(width, height),
-        cornerRadius = androidx.compose.ui.geometry.CornerRadius(height * 0.5f),
-    )
-    paint.color = color.toArgb()
-    drawContext.canvas.nativeCanvas.drawText(text, 0f, top + height * 0.5f + size * 0.38f, paint)
+    // The badge turns with the slab like everything else in this frame, so past a quarter turn it
+    // would be upside down. It is a readout, not part of the ruler — so it is spun back about its
+    // own middle, which leaves it where it was and the right way up.
+    val upright = if (abs(pose.angleRad) > (Math.PI / 2.0).toFloat()) 180f else 0f
+    withTransform({ rotate(degrees = upright, pivot = Offset(0f, top + height * 0.5f)) }) {
+        drawRoundRect(
+            color = background.copy(alpha = 0.9f),
+            topLeft = Offset(-width * 0.5f, top),
+            size = Size(width, height),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(height * 0.5f),
+        )
+        paint.color = color.toArgb()
+        drawContext.canvas.nativeCanvas.drawText(text, 0f, top + height * 0.5f + size * 0.38f, paint)
+    }
 }
 
 /**

@@ -203,6 +203,14 @@ class StrokePipelineTest {
     }
 
     @Test
+    fun `the tool's fill setting is baked into the stroke it draws`() {
+        // Baked at capture time like every other tool setting: turning the pen's fill off later
+        // must not empty the shapes it has already drawn.
+        assertTrue(drawLine(ToolSpec.PEN.copy(fill = true)).filled)
+        assertTrue(!drawLine(ToolSpec.PEN).filled)
+    }
+
+    @Test
     fun `a tap still produces a visible mark`() {
         val builder = StrokeBuilder()
         builder.start(ToolSpec.PEN, InputConfig(), stylus(10f, 10f, 0))

@@ -30,6 +30,7 @@ include(":app")
 include(":core:model")
 include(":core:format")
 include(":core:ink")
+include(":core:sync")
 
 // Android library modules.
 include(":core:data")

@@ -25,4 +25,5 @@ object MarkdownParser {
     internal val FENCE = Regex("^```\\s*(\\w*)\\s*$")
     internal val RULE = Regex("^\\s*([-*_])\\s*(\\1\\s*){2,}$")
     internal val TABLE_DELIMITER = Regex("^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$")
+    internal val REFERENCE_DEF = Regex("^\\s{0,3}\\[([^\\]]+)\\]:\\s*(\\S.*)$")
 }

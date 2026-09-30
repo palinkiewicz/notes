@@ -37,6 +37,7 @@
     <string name="editor_tool">Narzędzie</string>
     <string name="editor_finger_drawing">Rysowanie palcem</string>
     <string name="editor_ruler">Linijka</string>
+    <string name="editor_fill_shape">Wypełnienie kształtu</string>
     <string name="editor_more_options">Więcej opcji</string>
     <string name="editor_tool_pen">Pióro</string>
     <string name="editor_tool_fountain">Wieczne</string>
@@ -46,12 +47,14 @@
     <string name="editor_tool_erase_area">Wymaż obszar</string>
     <string name="editor_tool_select">Zaznacz</string>
     <string name="editor_tool_text">Tekst</string>
+    <string name="editor_tool_image">Obraz</string>
     <string name="editor_width">Szerokość</string>
     <string name="editor_opacity">Krycie</string>
     <string name="editor_smoothing">Wygładzanie</string>
     <string name="editor_pressure_sensitivity">Czułość na nacisk</string>
     <string name="editor_speed_thinning">Zwężanie przy szybkim ruchu</string>
     <string name="editor_eraser_size">Rozmiar gumki</string>
+    <string name="editor_size_set_custom">Własny rozmiar</string>
 
     <!--  ZOOM CHIP  -->
     <string name="editor_zoom_lock">Zablokuj powiększenie</string>
@@ -124,6 +127,16 @@
     <string name="editor_text_box_delete">Usuń pole tekstowe</string>
     <string name="editor_type_here">Pisz tutaj…</string>
 
+    <!--  SELECTION  -->
+    <string name="editor_selection_scale">Zmień rozmiar zaznaczenia</string>
+    <string name="editor_selection_rotate">Obróć zaznaczenie</string>
+    <string name="editor_selection_apex">Przesuń wierzchołek kształtu</string>
+    <string name="editor_selection_duplicate">Duplikuj zaznaczenie</string>
+    <string name="editor_selection_colour">Kolor zaznaczenia</string>
+    <string name="editor_selection_fill">Wypełnij zaznaczenie</string>
+    <string name="editor_selection_unfill">Usuń wypełnienie</string>
+    <string name="editor_selection_delete">Usuń zaznaczenie</string>
+
     <!--  MARKDOWN EDITOR  -->
     <string name="markdown_placeholder">Napisz coś…</string>
     <string name="markdown_copy_code">Kopiuj kod</string>
@@ -143,11 +156,13 @@
     <string name="markdown_link_text">Tekst</string>
     <string name="markdown_image_description">Opis</string>
     <string name="markdown_address">Adres</string>
+    <string name="markdown_from_device">Z urządzenia</string>
     <string name="markdown_insert">Wstaw</string>
 
     <!--  FORMAT BAR  -->
     <string name="markdown_paragraph_style">Styl akapitu</string>
     <string name="markdown_font_size">Rozmiar czcionki</string>
+    <string name="markdown_text_color">Kolor tekstu</string>
     <string name="markdown_bold">Pogrubienie</string>
     <string name="markdown_italic">Kursywa</string>
     <string name="markdown_strikethrough">Przekreślenie</string>
@@ -169,4 +184,5 @@
     <string name="markdown_block_task">Zadania</string>
     <string name="markdown_block_ordered">Numery</string>
 
+    <string name="editor_conflict_saved">Na dysku była nowsza wersja. Zachowano ją jako \"%1$s\".</string>
 </resources>

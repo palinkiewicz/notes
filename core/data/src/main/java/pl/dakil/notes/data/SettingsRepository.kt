@@ -28,6 +28,38 @@ enum class ToolbarPosition { BOTTOM, LEFT, RIGHT, TOP }
  * Keyed by a stable string rather than by ordinal, like [pl.dakil.notes.model.ViewMode]:
  * reordering the enum then cannot silently turn everyone's saved choice into a different one.
  */
+/**
+ * How often a background job runs.
+ *
+ * Keyed by an explicit string, never by ordinal or `name`: reordering the constants would otherwise
+ * silently change everyone's saved choice, which is what `LocaleSafeKeysTest` exists to prevent.
+ */
+enum class SyncFrequency(val key: String, val intervalMs: Long) {
+    MANUAL("manual", 0L),
+    // The platform floors a periodic job at fifteen minutes, so anything shorter is a lie.
+    QUARTER_HOUR("quarterHour", 15L * 60 * 1000),
+    HOURLY("hourly", 60L * 60 * 1000),
+    SIX_HOURLY("sixHourly", 6L * 60 * 60 * 1000),
+    DAILY("daily", 24L * 60 * 60 * 1000),
+    WEEKLY("weekly", 7L * 24 * 60 * 60 * 1000);
+
+    companion object {
+        fun fromKey(key: String?, fallback: SyncFrequency = WEEKLY): SyncFrequency =
+            entries.firstOrNull { it.key == key } ?: fallback
+    }
+}
+
+/** Which remote the library mirrors to, if any. */
+enum class SyncProvider(val key: String) {
+    NONE("none"),
+    DRIVE("drive"),
+    WEBDAV("webdav");
+
+    companion object {
+        fun fromKey(key: String?): SyncProvider = entries.firstOrNull { it.key == key } ?: NONE
+    }
+}
+
 enum class LibraryLayout(val key: String) {
     /** A card each, with a preview of what is in the note. */
     CARDS("cards"),
@@ -61,10 +93,42 @@ data class AppSettings(
     val defaultPageSize: PageSize = PageSize.A4,
     val defaultBackground: PageBackground = PageBackground.DEFAULT,
     val libraryRoot: String? = null,
+
+    // ---- Backup and sync. Secrets are not here: they live in `TokenStore`, sealed by the keystore.
+    val backupEnabled: Boolean = false,
+    /** A SAF tree URI. Any `DocumentsProvider` works, which is most of the point. */
+    val backupDestination: String? = null,
+    val backupFrequency: SyncFrequency = SyncFrequency.WEEKLY,
+    /** How many archives to keep. Zero means keep every one. */
+    val backupKeep: Int = 5,
+    val backupOnCharging: Boolean = true,
+    val backupWifiOnly: Boolean = true,
+    val syncProvider: SyncProvider = SyncProvider.NONE,
+    val syncFrequency: SyncFrequency = SyncFrequency.MANUAL,
+    val syncWifiOnly: Boolean = true,
+    val syncTwoWay: Boolean = true,
+    val webDavUrl: String = "",
+    val webDavUser: String = "",
+    /** Non-empty once a Drive client id has been entered; the secret is sealed away. */
+    val driveClientId: String = "",
+    val driveFolder: String = "DakNote",
+    val lastSyncAt: Long = 0L,
+    val lastBackupAt: Long = 0L,
     /** Which view new notes open in. */
     val defaultView: ViewMode = ViewMode.PAGED,
     /** How the note library draws its contents. */
     val libraryLayout: LibraryLayout = LibraryLayout.CARDS,
+    /**
+     * Whether a `.md` note obeys the sizes and colours a Pandoc bracketed span can name.
+     *
+     * Off by default, and deliberately a choice rather than a given. `[big]{size=24}` is a real
+     * Pandoc convention, but it is not something every Markdown tool renders — a note written with
+     * it opens elsewhere with the braces on show. Someone who keeps their notes to themselves, or
+     * whose other tools understand Pandoc, loses nothing by turning it on; someone syncing to an
+     * editor that does not is better off never being offered the buttons. A sheet is unaffected:
+     * it is paper, not a Markdown file, and always obeys them.
+     */
+    val pandocTextNotes: Boolean = false,
     /** The unit every paper measurement is shown and typed in. */
     val measurementUnit: MeasurementUnit = localeDefaultUnit(),
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
@@ -120,12 +184,29 @@ class SettingsRepository(context: Context) {
         defaultPageSize = readPageSize(),
         defaultBackground = readBackground(),
         libraryRoot = prefs.getString(KEY_LIBRARY_ROOT, null),
+        backupEnabled = prefs.getBoolean(KEY_BACKUP_ENABLED, false),
+        backupDestination = prefs.getString(KEY_BACKUP_DESTINATION, null),
+        backupFrequency = SyncFrequency.fromKey(prefs.getString(KEY_BACKUP_FREQUENCY, null)),
+        backupKeep = prefs.getInt(KEY_BACKUP_KEEP, 5),
+        backupOnCharging = prefs.getBoolean(KEY_BACKUP_CHARGING, true),
+        backupWifiOnly = prefs.getBoolean(KEY_BACKUP_WIFI, true),
+        syncProvider = SyncProvider.fromKey(prefs.getString(KEY_SYNC_PROVIDER, null)),
+        syncFrequency = SyncFrequency.fromKey(prefs.getString(KEY_SYNC_FREQUENCY, null), SyncFrequency.MANUAL),
+        syncWifiOnly = prefs.getBoolean(KEY_SYNC_WIFI, true),
+        syncTwoWay = prefs.getBoolean(KEY_SYNC_TWO_WAY, true),
+        webDavUrl = prefs.getString(KEY_WEBDAV_URL, "").orEmpty(),
+        webDavUser = prefs.getString(KEY_WEBDAV_USER, "").orEmpty(),
+        driveClientId = prefs.getString(KEY_DRIVE_CLIENT_ID, "").orEmpty(),
+        driveFolder = prefs.getString(KEY_DRIVE_FOLDER, "DakNote").orEmpty().ifEmpty { "DakNote" },
+        lastSyncAt = prefs.getLong(KEY_LAST_SYNC, 0L),
+        lastBackupAt = prefs.getLong(KEY_LAST_BACKUP, 0L),
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
         libraryLayout = LibraryLayout.fromKey(
             prefs.getString(KEY_LIBRARY_LAYOUT, LibraryLayout.CARDS.key) ?: LibraryLayout.CARDS.key
         ),
+        pandocTextNotes = prefs.getBoolean(KEY_PANDOC_TEXT_NOTES, false),
         measurementUnit = prefs.getString(KEY_UNIT, null)
             ?.let(MeasurementUnit::fromKey) ?: localeDefaultUnit(),
     )
@@ -166,8 +247,45 @@ class SettingsRepository(context: Context) {
 
     fun setLibraryRoot(ref: String?) = prefs.edit().putString(KEY_LIBRARY_ROOT, ref).apply()
 
+    fun setBackupEnabled(on: Boolean) = prefs.edit().putBoolean(KEY_BACKUP_ENABLED, on).apply()
+    fun setBackupDestination(uri: String?) = prefs.edit().putString(KEY_BACKUP_DESTINATION, uri).apply()
+    fun setBackupFrequency(v: SyncFrequency) = prefs.edit().putString(KEY_BACKUP_FREQUENCY, v.key).apply()
+    fun setBackupKeep(n: Int) = prefs.edit().putInt(KEY_BACKUP_KEEP, n).apply()
+    fun setBackupOnCharging(on: Boolean) = prefs.edit().putBoolean(KEY_BACKUP_CHARGING, on).apply()
+    fun setBackupWifiOnly(on: Boolean) = prefs.edit().putBoolean(KEY_BACKUP_WIFI, on).apply()
+    fun setSyncProvider(v: SyncProvider) = prefs.edit().putString(KEY_SYNC_PROVIDER, v.key).apply()
+    fun setSyncFrequency(v: SyncFrequency) = prefs.edit().putString(KEY_SYNC_FREQUENCY, v.key).apply()
+    fun setSyncWifiOnly(on: Boolean) = prefs.edit().putBoolean(KEY_SYNC_WIFI, on).apply()
+    fun setSyncTwoWay(on: Boolean) = prefs.edit().putBoolean(KEY_SYNC_TWO_WAY, on).apply()
+    fun setWebDav(url: String, user: String) =
+        prefs.edit().putString(KEY_WEBDAV_URL, url).putString(KEY_WEBDAV_USER, user).apply()
+    fun setDriveClientId(id: String) = prefs.edit().putString(KEY_DRIVE_CLIENT_ID, id).apply()
+    fun setDriveFolder(name: String) = prefs.edit().putString(KEY_DRIVE_FOLDER, name).apply()
+    fun setLastSyncAt(at: Long) = prefs.edit().putLong(KEY_LAST_SYNC, at).apply()
+    fun setLastBackupAt(at: Long) = prefs.edit().putLong(KEY_LAST_BACKUP, at).apply()
+
+    /**
+     * A short, stable name for this device, minted on first use.
+     *
+     * Five characters from an unambiguous alphabet — no `I`, `O`, `0` or `1` — because it ends up
+     * in file names a person has to read out and type: `Standup.sync-conflict-20260828-141233-K7QF2`.
+     * It identifies the *installation*, not the user, and is never sent anywhere; a conflict copy
+     * simply has to say which device made it.
+     */
+    fun deviceId(): String {
+        prefs.getString(KEY_DEVICE_ID, null)?.let { return it }
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val random = java.security.SecureRandom()
+        val minted = buildString { repeat(5) { append(alphabet[random.nextInt(alphabet.length)]) } }
+        prefs.edit().putString(KEY_DEVICE_ID, minted).apply()
+        return minted
+    }
+
     fun setLibraryLayout(layout: LibraryLayout) =
         prefs.edit().putString(KEY_LIBRARY_LAYOUT, layout.key).apply()
+
+    fun setPandocTextNotes(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_PANDOC_TEXT_NOTES, enabled).apply()
 
     /**
      * Records a colour the user chose, newest first, de-duplicated.
@@ -284,7 +402,25 @@ class SettingsRepository(context: Context) {
         const val KEY_PURE_BLACK = "ui.pureBlack"
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"
         const val KEY_LIBRARY_ROOT = "library.root"
+        const val KEY_DEVICE_ID = "library.deviceId"
+        const val KEY_BACKUP_ENABLED = "backup.enabled"
+        const val KEY_BACKUP_DESTINATION = "backup.destination"
+        const val KEY_BACKUP_FREQUENCY = "backup.frequency"
+        const val KEY_BACKUP_KEEP = "backup.keep"
+        const val KEY_BACKUP_CHARGING = "backup.charging"
+        const val KEY_BACKUP_WIFI = "backup.wifiOnly"
+        const val KEY_SYNC_PROVIDER = "sync.provider"
+        const val KEY_SYNC_FREQUENCY = "sync.frequency"
+        const val KEY_SYNC_WIFI = "sync.wifiOnly"
+        const val KEY_SYNC_TWO_WAY = "sync.twoWay"
+        const val KEY_WEBDAV_URL = "sync.webdav.url"
+        const val KEY_WEBDAV_USER = "sync.webdav.user"
+        const val KEY_DRIVE_CLIENT_ID = "sync.drive.clientId"
+        const val KEY_DRIVE_FOLDER = "sync.drive.folder"
+        const val KEY_LAST_SYNC = "sync.lastAt"
+        const val KEY_LAST_BACKUP = "backup.lastAt"
         const val KEY_LIBRARY_LAYOUT = "ui.libraryLayout"
+        const val KEY_PANDOC_TEXT_NOTES = "ui.pandocTextNotes"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

@@ -24,6 +24,10 @@ import pl.dakil.notes.editor.NoteViewModel
 import pl.dakil.notes.editor.text.TextNoteScreen
 import pl.dakil.notes.editor.text.TextNoteViewModel
 import pl.dakil.notes.format.NoteKind
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import pl.dakil.notes.library.LibraryScreen
 import pl.dakil.notes.library.LibraryViewModel
 import pl.dakil.notes.library.R as LibraryR
@@ -90,13 +94,15 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
             // of its own to translate them with.
             rootFolderName = stringResource(LibraryR.string.library_root_folder),
             untitledName = stringResource(LibraryR.string.library_untitled),
+            // Adopting a folder replaces the backend underneath every ref this screen is holding.
+            rootChanges = container.store.rootChanges,
         )
     )
     val noteViewModel: NoteViewModel = viewModel(
         factory = NoteViewModel.factory(container.repository, container.settings)
     )
     val textNoteViewModel: TextNoteViewModel = viewModel(
-        factory = TextNoteViewModel.factory(container.repository)
+        factory = TextNoteViewModel.factory(container.repository, container.settings)
     )
 
     LaunchedEffect(Unit) { libraryViewModel.start() }
@@ -204,12 +210,38 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                         label = "destination",
                     ) { screen ->
                         when (screen) {
-                            Destination.LIBRARY -> LibraryScreen(
-                                viewModel = libraryViewModel,
-                                onOpenNote = { openNote = it.value },
-                            )
+                            Destination.LIBRARY -> {
+                                // Once the library is a folder the user chose, this app is no
+                                // longer the only thing writing to it: Syncthing, a cloud client or
+                                // a file manager can all land a note while the app is in the
+                                // background. SAF has no change stream worth listening to
+                                // (`StoreCapabilities.watch` is false for it), so coming back to
+                                // the foreground is the moment to look again.
+                                val owner = LocalLifecycleOwner.current
+                                DisposableEffect(owner, openNote) {
+                                    val observer = LifecycleEventObserver { _, event ->
+                                        // Only with no editor over the top: closing one already
+                                        // refreshes, and refreshing underneath an open note would
+                                        // rescan on every return from the keyboard.
+                                        if (event == Lifecycle.Event.ON_RESUME && openNote == null) {
+                                            libraryViewModel.refresh()
+                                        }
+                                    }
+                                    owner.lifecycle.addObserver(observer)
+                                    onDispose { owner.lifecycle.removeObserver(observer) }
+                                }
+                                LibraryScreen(
+                                    viewModel = libraryViewModel,
+                                    onOpenNote = { openNote = it.value },
+                                )
+                            }
 
-                            Destination.SETTINGS -> SettingsScreen(container.settings)
+                            Destination.SETTINGS -> SettingsScreen(
+                                container.settings,
+                                container.libraryRoot,
+                                container.backupRunner,
+                                container.syncCoordinator,
+                            )
                         }
                     }
                 }

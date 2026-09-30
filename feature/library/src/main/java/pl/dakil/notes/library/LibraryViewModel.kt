@@ -6,11 +6,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -99,6 +102,14 @@ class LibraryViewModel(
     private val rootFolderName: String,
     /** What a note created without a name is called. */
     private val untitledName: String,
+    /**
+     * Emits when the library's root moves to a different backend.
+     *
+     * Every ref this screen holds — the crumb stack, the folder it is listing — was issued by the
+     * old store and means nothing to the new one, so the only correct response is to start again
+     * from the new root.
+     */
+    private val rootChanges: Flow<Int> = emptyFlow(),
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState(layout = settings.read().libraryLayout))
@@ -130,6 +141,13 @@ class LibraryViewModel(
             .map { it.libraryLayout }
             .distinctUntilChanged()
             .onEach { layout -> _state.update { it.copy(layout = layout) } }
+            .launchIn(viewModelScope)
+
+        // `drop(1)`: the flow replays its current value on subscription, and that one is the root
+        // this view model is already being started against.
+        rootChanges
+            .drop(1)
+            .onEach { start() }
             .launchIn(viewModelScope)
     }
 
@@ -457,6 +475,7 @@ class LibraryViewModel(
             settings: SettingsRepository,
             rootFolderName: String,
             untitledName: String,
+            rootChanges: Flow<Int> = emptyFlow(),
         ) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -467,6 +486,7 @@ class LibraryViewModel(
                     settings,
                     rootFolderName,
                     untitledName,
+                    rootChanges,
                 ) as T
         }
     }

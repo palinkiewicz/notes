@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.SaveState
+import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
@@ -45,6 +46,16 @@ data class TextNoteUiState(
     @StringRes val errorRes: Int? = null,
     /** Every tag in use across the library, for the tag editor's autocomplete. */
     val knownTags: List<String> = emptyList(),
+    /**
+     * Whether this note obeys the sizes and colours a Pandoc bracketed span can name.
+     *
+     * A user setting rather than a property of the note — see [AppSettings.pandocTextNotes]. It
+     * rides in the UI state because it decides two things the screen shows: whether the formatting
+     * bar offers the size and colour controls at all, and whether the field renders what they
+     * write. Off, the tags are still hidden and still saved, so turning the setting on and off does
+     * not edit anybody's file.
+     */
+    val pandoc: Boolean = false,
 )
 
 /**
@@ -55,7 +66,10 @@ data class TextNoteUiState(
  * the field's own — `TextFieldState.undoState` already merges typing into bursts, so there is no
  * reason for this screen to run an [pl.dakil.notes.editor.EditHistory] of its own.
  */
-class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
+class TextNoteViewModel(
+    private val repository: NoteRepository,
+    settings: SettingsRepository,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(TextNoteUiState())
     val state: StateFlow<TextNoteUiState> = _state.asStateFlow()
@@ -87,12 +101,19 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
         repository.saveState
             .onEach { save -> _state.update { it.copy(saveState = save) } }
             .launchIn(viewModelScope)
+        // Collected rather than read once: the setting can be changed with a note already open, and
+        // a formatting bar that only notices on the next launch is one the user thinks is broken.
+        settings.settings
+            .onEach { app -> _state.update { it.copy(pandoc = app.pandocTextNotes) } }
+            .launchIn(viewModelScope)
     }
 
     fun open(ref: StoreRef) {
         if (_state.value.ref == ref && !_state.value.isLoading) return
         autosave?.cancel()
-        _state.update { TextNoteUiState(ref = ref, isLoading = true) }
+        // The setting survives the reset: it is not the note's, and the collector above only emits
+        // again when it changes.
+        _state.update { TextNoteUiState(ref = ref, isLoading = true, pandoc = it.pandoc) }
 
         viewModelScope.launch {
             repository.loadMarkdown(ref).fold(
@@ -191,10 +212,11 @@ class TextNoteViewModel(private val repository: NoteRepository) : ViewModel() {
     }
 
     companion object {
-        fun factory(repository: NoteRepository) = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                TextNoteViewModel(repository) as T
-        }
+        fun factory(repository: NoteRepository, settings: SettingsRepository) =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    TextNoteViewModel(repository, settings) as T
+            }
     }
 }

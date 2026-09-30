@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+    What Android's own auto-backup is allowed to take.
+
+    This was an empty template for a long time, which meant the platform silently shipped the whole
+    library, the search index and every preference to the user's Google Drive with no UI and no
+    consent beyond the OS toggle. Three things must never go:
+
+      * the sync secrets are sealed by a key that lives in *this device's* keystore, so a restored
+        copy can never be decrypted — it produces an account that looks configured and fails
+        every refresh;
+      * the search index is a derived cache that is cheaper to rebuild than to restore stale;
+      * the sync state describes files on the device that wrote it. Another device's bookkeeping
+        arriving as your own is the one input that makes the planner delete things.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="sync-secrets.xml" />
+    <exclude domain="database" path="note-index.db" />
+    <exclude domain="file" path="sync/" />
 </full-backup-content>

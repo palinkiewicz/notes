@@ -139,17 +139,22 @@ data class RulerPose(
 }
 
 /**
- * Folds an angle into (-90°, 90°].
+ * Folds an angle into (-180°, 180°].
  *
- * A straightedge is symmetric — both edges draw, and turning it end for end changes nothing about
- * the line it makes — so the far half of the circle is redundant. Spending it keeps the printed
- * scale the right way up at every heading, which a ruler whose numbers can end up upside down does
- * not.
+ * Only enough to keep the stored heading from growing without bound as the fingers turn round and
+ * round; the whole circle is kept.
+ *
+ * It is tempting to fold the far half away too, on the grounds that a straightedge is symmetric and
+ * turning it end for end draws the same line — and that is what this used to do, to keep the
+ * printed numbers the right way up. But the slab hangs off its numbered edge, so subtracting 180°
+ * flips the body of the ruler across to the other side of that edge: the user turning the ruler
+ * past vertical sees it jump, mid-gesture, out from under their fingers. A real ruler turned upside
+ * down stays where it is and reads upside down, so this one does the same.
  */
 fun normalizeRulerAngle(angleRad: Float): Float {
     if (!angleRad.isFinite()) return 0f
-    val half = (Math.PI / 2.0).toFloat()
-    val full = Math.PI.toFloat()
+    val half = Math.PI.toFloat()
+    val full = (Math.PI * 2.0).toFloat()
     var a = angleRad
     while (a > half) a -= full
     while (a <= -half) a += full
