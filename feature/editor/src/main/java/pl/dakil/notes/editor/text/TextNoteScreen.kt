@@ -128,7 +128,7 @@ fun TextNoteScreen(
             exporting = exporting,
             onDismiss = { if (!exporting) exportOpen = false },
             onExport = { _, format ->
-                val markdown = text.text.toString()
+                val markdown = viewModel.expandedText()
                 exporting = true
                 coroutineScope.launch(Dispatchers.Default) {
                     val result = runCatching { exportText(context, markdown, format, state.pandoc) }
@@ -166,7 +166,7 @@ fun TextNoteScreen(
             onConfirmDeviceImage = { label, mimeType, base64 ->
                 reference = null
                 val before = text.text.toString()
-                val result = MarkdownActions.insertBase64Image(
+                val result = viewModel.insertBase64Image(
                     text = before,
                     start = text.selection.start,
                     end = text.selection.end,
@@ -312,6 +312,7 @@ fun TextNoteScreen(
                         // Only a note with nothing in it opens ready to type.
                         autoFocus = text.text.isEmpty(),
                         attributes = state.pandoc,
+                        images = viewModel,
                     )
                 }
             }

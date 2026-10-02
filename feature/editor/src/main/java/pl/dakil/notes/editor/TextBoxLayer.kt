@@ -158,6 +158,7 @@ private fun TextBoxContent(
                 } else {
                     { mark, checked -> viewModel.toggleTask(box.id, mark, checked) }
                 },
+                images = viewModel,
             )
         },
     ) { measurables, constraints ->

@@ -269,6 +269,7 @@ private fun EditableTextBox(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = stringResource(R.string.editor_type_here),
                     attributes = true,
+                    images = viewModel,
                     // Back into the strip's own coordinates, because the thing that has to move to
                     // reveal the caret is the whole sheet.
                     onCaretBounds = { top, bottom ->

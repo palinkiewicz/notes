@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
@@ -172,6 +173,11 @@ fun MarkdownEditor(
      * under the keyboard.
      */
     onCaretBounds: ((top: Float, bottom: Float) -> Unit)? = null,
+    /**
+     * Who resolves image tokens to bitmaps, when this field is a view of a document whose
+     * oversized payloads are held elsewhere. See [ImageRefsSupport].
+     */
+    images: ImageRefsSupport? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val styles = rememberMarkdownStyles(attributes)
@@ -208,7 +214,7 @@ fun MarkdownEditor(
             .fillMaxSize()
             .focusRequester(focusRequester)
             // Copy and cut have to carry the Markdown away rather than the rendering of it.
-            .markdownClipboard(state)
+            .markdownClipboard(state, images)
             // Sides only. There is nothing to pad against at the top: the document's first line
             // is meant to sit against the app bar, and the blank lines that space paragraphs out
             // are only ever *between* two of them. Nor at the bottom, where padding would hold a
@@ -367,7 +373,7 @@ fun MarkdownEditor(
                                     )
                                 }
                             }
-                            is MdImage -> EditorImageBlock(decoration, result, scroll.value)
+                            is MdImage -> EditorImageBlock(decoration, result, scroll.value, images)
                             // The rest are shapes rather than controls, and are drawn behind the
                             // text instead of placed over it.
                             is MdRule, is MdQuote -> Unit
@@ -545,13 +551,21 @@ private fun BoxScope.EditorImageBlock(
     image: MdImage,
     layout: TextLayoutResult,
     scroll: Int,
+    images: ImageRefsSupport?,
 ) {
-    val bitmap = remember(image.url) { ImageLoader.load(image.url) } ?: return
+    // Decoded off the composition and held in state, exactly as the static one is - see
+    // [StaticImageBlock]. Until it lands the block draws nothing, and nothing below it jumps.
+    var bitmap by remember(image.url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(image.url, layout.size.width) {
+        bitmap = images?.resolveImage(image.url, layout.size.width)
+            ?: ImageLoader.load(image.url, layout.size.width)
+    }
+    val decoded = bitmap ?: return
     val at = image.offset.coerceIn(0, layout.layoutInput.text.length)
     val line = layout.getLineForOffset(at)
 
     androidx.compose.foundation.Image(
-        bitmap = bitmap,
+        bitmap = decoded,
         contentDescription = image.alt,
         modifier = Modifier
             .fillMaxWidth()

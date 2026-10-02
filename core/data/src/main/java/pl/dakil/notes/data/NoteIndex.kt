@@ -140,6 +140,7 @@ class NoteIndex(
         fileModified: Long,
         fileSize: Long,
     ) = withContext(io) {
+        val searchable = indexedBody(body)
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
@@ -156,7 +157,7 @@ class NoteIndex(
                     put("modified", modified)
                     put("file_modified", fileModified)
                     put("file_size", fileSize)
-                    put("snippet", body.take(SNIPPET_LENGTH).replace('\n', ' ').trim())
+                    put("snippet", searchable.take(SNIPPET_LENGTH).replace('\n', ' ').trim())
                 },
                 SQLiteDatabase.CONFLICT_REPLACE,
             )
@@ -166,7 +167,7 @@ class NoteIndex(
                 ContentValues().apply {
                     put("ref", ref.value)
                     put("title", title)
-                    put("body", body + "\n" + tags.joinToString(" "))
+                    put("body", searchable + "\n" + tags.joinToString(" "))
                 },
             )
             db.setTransactionSuccessful()
@@ -405,7 +406,7 @@ class NoteIndex(
         const val DATABASE_NAME = "note-index.db"
 
         /** Bumping this rebuilds the index from the files, which are the source of truth. */
-        const val VERSION = 3
+        const val VERSION = 4
 
         /**
          * Matches a folder path and everything beneath it.
@@ -430,5 +431,19 @@ class NoteIndex(
         /** ASCII unit separator: it cannot occur in a user-typed tag, so no escaping is needed. */
         const val TAG_SEPARATOR = "\u001F"
         const val SNIPPET_LENGTH = 240
+
+        /** Matches an embedded image payload: the data URI itself, base64 and all. */
+        private val PAYLOAD = Regex("""data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+""")
+
+        /**
+         * Takes embedded image payloads out of a body before it reaches the index.
+         *
+         * An image is stored as a few megabytes of base64, and every one of those bytes used to be
+         * written into the FTS table: the tokenizer read the whole payload, the table grew by it,
+         * and a scan that touched several such notes stalled long enough for the library to hang.
+         * Nothing the user can search for lives in the payload — it is an encoding of pixels — so
+         * the snippet and the searchable body both get what is left when it is gone.
+         */
+        private fun indexedBody(body: String) = body.replace(PAYLOAD, "")
     }
 }

@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -28,6 +29,9 @@ import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.InkCallbacks
 import pl.dakil.notes.editor.markdown.PendingStyles
+import pl.dakil.notes.editor.markdown.ImageRefsSupport
+import pl.dakil.notes.editor.markdown.ImageRefs
+import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
 import pl.dakil.notes.ink.PathSplitter
@@ -171,12 +175,31 @@ data class EditorUiState(
 class NoteViewModel(
     private val repository: NoteRepository,
     private val settings: SettingsRepository,
-) : ViewModel() {
+) : ViewModel(), ImageRefsSupport {
 
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
     private val history = EditHistory()
+
+    /**
+     * The oversized image payloads the shared field is not carrying. See [ImageRefs].
+     */
+    private val imagePayloads = HashMap<String, String>()
+
+    override fun expand(markdown: String): String = ImageRefs.expand(markdown, imagePayloads::get)
+
+    override fun collapseForPaste(markdown: String): String =
+        ImageRefs.collapseForPaste(markdown, imagePayloads::put)
+
+    override suspend fun resolveImage(url: String, widthPx: Int): ImageBitmap? {
+        val source = if (url.startsWith(ImageRefs.TOKEN_PREFIX)) {
+            imagePayloads[url] ?: return null
+        } else {
+            url
+        }
+        return ImageLoader.load(source, widthPx)
+    }
 
     /**
      * The live buffer for the box being edited, replaced wholesale when a different one opens.
@@ -261,6 +284,9 @@ class NoteViewModel(
 
     private fun adopt(note: Note, ref: StoreRef?) {
         history.clear()
+        // A different document is opening; its images start empty rather than inheriting whatever
+        // the last one had. Tokens the old map answered are gone with it.
+        imagePayloads.clear()
         closeTextField()
         _state.update { current ->
             current.copy(
@@ -577,7 +603,7 @@ class NoteViewModel(
         // last few characters typed into the box being left have not been committed yet.
         commitTypedText()
         typingJob?.cancel()
-        textField = TextFieldState(box.markdown)
+        textField = TextFieldState(ImageRefs.collapse(box.markdown, imagePayloads::put))
         _state.update { it.copy(editingTextBlock = id, activeTextBlock = id, selection = null) }
 
         // `drop(1)` skips the value the flow emits on subscription — the text just loaded out of
@@ -752,9 +778,11 @@ class NoteViewModel(
         val box = current.sheet?.block(id) as? TextBlock ?: return
         if (current.isReadOnly) return
         val typed = textField.text.toString()
-        if (typed == box.markdown) return
+        // Compared against the box as the field sees it - collapsed, since that is what was loaded
+        // into the field - rather than the box's own Markdown, which carries the payloads back.
+        if (typed == ImageRefs.collapse(box.markdown, imagePayloads::put)) return
 
-        val filled = box.copy(markdown = typed)
+        val filled = box.copy(markdown = ImageRefs.expand(typed, imagePayloads::get))
         if (id != pendingBox) {
             commitEdit(Edit.ReplaceBlock(box, filled))
             return

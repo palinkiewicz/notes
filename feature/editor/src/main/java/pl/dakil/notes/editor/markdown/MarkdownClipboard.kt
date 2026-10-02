@@ -45,7 +45,10 @@ import kotlinx.coroutines.launch
  * are here only to hold their places in the row.
  */
 @Composable
-fun Modifier.markdownClipboard(state: TextFieldState): Modifier {
+fun Modifier.markdownClipboard(
+    state: TextFieldState,
+    images: ImageRefsSupport? = null,
+): Modifier {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -54,9 +57,13 @@ fun Modifier.markdownClipboard(state: TextFieldState): Modifier {
     fun carryAway(cut: Boolean) {
         val selection = state.selection
         if (selection.collapsed) return
-        val source = state.text.toString().substring(selection.min, selection.max)
+        // A def line among what is carried gets its payload back first: the clipboard holds the
+        // real Markdown, not the field's view of it. See [ImageRefs].
+        val carried = images?.expand(
+            state.text.toString().substring(selection.min, selection.max),
+        ) ?: state.text.toString().substring(selection.min, selection.max)
         scope.launch {
-            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("markdown", source)))
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("markdown", carried)))
         }
         state.edit {
             if (cut) replace(selection.min, selection.max, "")
@@ -68,7 +75,10 @@ fun Modifier.markdownClipboard(state: TextFieldState): Modifier {
     fun pasteOver() {
         scope.launch {
             val entry = clipboard.getClipEntry() ?: return@launch
-            val pasted = entry.clipData.plainText(context) ?: return@launch
+            val raw = entry.clipData.plainText(context) ?: return@launch
+            // Taken aside on the way in, exactly as a device image would be: a paste can carry the
+            // same megabytes an insert would have. See [ImageRefs].
+            val pasted = images?.collapseForPaste(raw) ?: raw
             val selection = state.selection
             state.edit {
                 replace(selection.min, selection.max, pasted)

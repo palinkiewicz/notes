@@ -120,7 +120,7 @@ private fun DrawScope.drawTextBlock(
     if (widthPx <= 0) return
 
     val laid = measurer.measure(
-        text = block.markdown,
+        text = previewText(block.markdown),
         style = style,
         overflow = TextOverflow.Clip,
         constraints = Constraints(maxWidth = widthPx),
@@ -141,6 +141,54 @@ private fun DrawScope.drawTextBlock(
  * The conversion the sheet editor makes in the other direction when it derives its `ptToPx`.
  */
 private const val PT_PER_DP = 72f / 160f
+
+/**
+ * Paints one text box as the words it holds, with the Markdown left in.
+ *
+ * A box's lines are pruned before measuring: a payload of several megabytes written into a box —
+ * an image pasted as a data URI, base64 dumped as text — costs the main thread minutes of
+ * line-breaking, and the box shows a fragment no bigger than its own height. Nothing past the cap
+ * is ever visible in a preview, so the tail is replaced with an ellipsis instead of measured.
+ */
+private fun previewText(markdown: String): String {
+    if (markdown.length <= MAX_PREVIEW_LINE) return markdown
+    if (markdown.length <= MAX_PREVIEW_TOTAL) {
+        var long = false
+        var at = 0
+        while (at <= markdown.lastIndex) {
+            val end = markdown.indexOf('\n', at).let { if (it < 0) markdown.length else it }
+            if (end - at > MAX_PREVIEW_LINE) {
+                long = true
+                break
+            }
+            at = end + 1
+        }
+        if (!long) return markdown
+    }
+    return buildString(minOf(markdown.length, MAX_PREVIEW_TOTAL + 1)) {
+        var start = 0
+        while (start <= markdown.lastIndex) {
+            if (length > MAX_PREVIEW_TOTAL) break
+            val end = markdown.indexOf('\n', start).let { if (it < 0) markdown.length else it }
+            val kept = if (end - start > MAX_PREVIEW_LINE) {
+                append(markdown, start, start + MAX_PREVIEW_LINE)
+                append('…')
+                start + MAX_PREVIEW_LINE
+            } else {
+                append(markdown, start, end)
+                end
+            }
+            start = kept + 1
+            if (start <= markdown.lastIndex) append('\n')
+        }
+    }
+}
+
+/** The longest line a preview measures of a text box. */
+private const val MAX_PREVIEW_LINE = 512
+
+/** The longest text a preview measures of a text box. */
+private const val MAX_PREVIEW_TOTAL = 16_384
 
 /**
  * Near-black rather than the theme's `onSurface`.

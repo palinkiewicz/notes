@@ -14,8 +14,8 @@ android {
         applicationId = "pl.dakil.notes"
         minSdk = 29
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 6
+        versionName = "1.1.1-fix"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

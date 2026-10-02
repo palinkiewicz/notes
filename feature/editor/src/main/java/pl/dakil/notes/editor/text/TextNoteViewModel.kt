@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -25,6 +26,10 @@ import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.editor.markdown.MarkdownActions
+import pl.dakil.notes.editor.markdown.ImageRefsSupport
+import pl.dakil.notes.editor.markdown.ImageRefs
+import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.format.FrontmatterCodec
 
 @Immutable
@@ -69,7 +74,7 @@ data class TextNoteUiState(
 class TextNoteViewModel(
     private val repository: NoteRepository,
     settings: SettingsRepository,
-) : ViewModel() {
+) : ViewModel(), ImageRefsSupport {
 
     private val _state = MutableStateFlow(TextNoteUiState())
     val state: StateFlow<TextNoteUiState> = _state.asStateFlow()
@@ -79,6 +84,30 @@ class TextNoteViewModel(
         private set
 
     private var autosave: Job? = null
+
+    /**
+     * The oversized image payloads the field is not carrying.
+     *
+     * The field holds the note's body with each oversized payload standing in as its token; the
+     * real bytes live here, and [expand] puts them back wherever the machinery is not welcome.
+     * Cleared when a different note opens, so one note's images never bleed into another's. See
+     * [ImageRefs].
+     */
+    private val imagePayloads = HashMap<String, String>()
+
+    override fun expand(markdown: String): String = ImageRefs.expand(markdown, imagePayloads::get)
+
+    override fun collapseForPaste(markdown: String): String =
+        ImageRefs.collapseForPaste(markdown, imagePayloads::put)
+
+    override suspend fun resolveImage(url: String, widthPx: Int): ImageBitmap? {
+        val source = if (url.startsWith(ImageRefs.TOKEN_PREFIX)) {
+            imagePayloads[url] ?: return null
+        } else {
+            url
+        }
+        return ImageLoader.load(source, widthPx)
+    }
 
     /**
      * Frontmatter keys this app does not read, kept aside while the note is open.
@@ -94,7 +123,7 @@ class TextNoteViewModel(
     private fun composed(): String = FrontmatterCodec.render(
         tags = _state.value.tags,
         remainder = frontmatterRemainder,
-        body = text.text.toString(),
+        body = expand(text.text.toString()),
     )
 
     init {
@@ -120,7 +149,11 @@ class TextNoteViewModel(
                 onSuccess = { markdown ->
                     val parsed = FrontmatterCodec.parse(markdown)
                     frontmatterRemainder = parsed.remainder
-                    text = TextFieldState(parsed.body)
+                    // A different note is opening, so its images start empty rather than
+                    // inheriting whatever the last one had; tokens the old map answered are gone
+                    // with it.
+                    imagePayloads.clear()
+                    text = TextFieldState(ImageRefs.collapse(parsed.body, imagePayloads::put))
                     _state.update {
                         it.copy(
                             title = ref.noteTitle(),
@@ -200,6 +233,32 @@ class TextNoteViewModel(
             val tags = repository.allTags()
             _state.update { it.copy(knownTags = tags) }
         }
+    }
+
+    /**
+     * The note's Markdown with the payloads back in it.
+     *
+     * For the exporter and anywhere else the machinery is not welcome: the file, and anything
+     * reading it, gets the real document, not the field's view of it. See [ImageRefs].
+     */
+    fun expandedText(): String = expand(text.text.toString())
+
+    /**
+     * The screen's device-image insert, with the payload taken aside before it reaches the field.
+     *
+     * The insert appends its reference definition after the caret it reports, and the collapse
+     * only touches definitions, so the returned offsets stay true for the collapsed text.
+     */
+    fun insertBase64Image(
+        text: String,
+        start: Int,
+        end: Int,
+        alt: String,
+        mimeType: String,
+        base64Data: String,
+    ): MarkdownActions.Result {
+        val inserted = MarkdownActions.insertBase64Image(text, start, end, alt, mimeType, base64Data)
+        return inserted.copy(text = ImageRefs.collapse(inserted.text, imagePayloads::put))
     }
 
     fun setSourceMode(source: Boolean) = _state.update { it.copy(sourceMode = source) }

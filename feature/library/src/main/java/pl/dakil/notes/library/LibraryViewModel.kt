@@ -161,7 +161,14 @@ class LibraryViewModel(
                 return@launch
             }
             _state.update { it.copy(crumbs = listOf(Crumb(root, rootFolderName))) }
-            refresh()
+            // What the index already knows goes on screen before a single file is read. The scan
+            // that follows reads a note in full the first time it sees its file, and a note whose
+            // images are embedded can run to several megabytes — waiting for the whole tree to be
+            // re-read before the first listing was what made the library sit frozen on launch. The
+            // index is a derived cache, so a row updated a few seconds late is a cosmetic delay,
+            // not a lie about what is on disk.
+            repository.refreshIndex(_state.value.current ?: root, _state.value.path)
+            reload()
             // The whole tree, once, so a search from the root reaches a note in a folder nobody has
             // opened yet. Unchanged files are only stat'ed, so this stays cheap after the first run.
             repository.refreshIndex(root, "", recursive = true)
