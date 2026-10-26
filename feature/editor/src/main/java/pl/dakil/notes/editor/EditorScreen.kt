@@ -50,6 +50,8 @@ import pl.dakil.notes.editor.markdown.rememberImageInsertState
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.export.ExportSheet
+import pl.dakil.notes.editor.export.ExportAction
+import pl.dakil.notes.editor.export.rememberExportSaver
 import pl.dakil.notes.editor.export.exportInk
 import pl.dakil.notes.editor.export.shareExport
 import pl.dakil.notes.editor.markdown.FormatPopup
@@ -267,19 +269,31 @@ fun EditorScreen(
         )
     }
 
+    // Whether the last save landed, until the snackbar has said so. Set by a failed render as well:
+    // an export that silently does nothing reads as a button that is broken.
+    var exportOutcome by remember { mutableStateOf<Boolean?>(null) }
+    val saveExport = rememberExportSaver { exportOutcome = it }
     if (exportOpen) {
         ExportSheet(
             isInk = true,
             exporting = exporting,
             onDismiss = { if (!exporting) exportOpen = false },
-            onExport = { preset, format ->
+            onExport = { preset, format, action ->
                 val note = state.note ?: return@ExportSheet
                 exporting = true
-                coroutineScope.launch(Dispatchers.Default) {
-                    val result = runCatching { exportInk(context, note.sheet, preset, format) }
+                coroutineScope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        runCatching { exportInk(context, note.sheet, preset, format) }
+                    }
                     exporting = false
                     exportOpen = false
-                    result.getOrNull()?.let { shareExport(context, it) }
+                    result.fold(
+                        onSuccess = { files ->
+                            if (action == ExportAction.SAVE) saveExport(files, title)
+                            else shareExport(context, files)
+                        },
+                        onFailure = { exportOutcome = false },
+                    )
                 }
             },
         )
@@ -299,6 +313,15 @@ fun EditorScreen(
         imageFailure ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(imageFailure)
         imageFailed = false
+    }
+
+    val exportMessage = exportOutcome?.let {
+        stringResource(if (it) R.string.editor_export_saved else R.string.editor_export_failed)
+    }
+    LaunchedEffect(exportMessage) {
+        exportMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(exportMessage)
+        exportOutcome = null
     }
 
     Scaffold(

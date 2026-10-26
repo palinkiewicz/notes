@@ -25,7 +25,10 @@
     <string name="editor_export_format">Format</string>
     <string name="editor_export_pdf">PDF</string>
     <string name="editor_export_png">PNG</string>
-    <string name="editor_export_action">Export &amp; share</string>
+    <string name="editor_export_action">Save</string>
+    <string name="editor_export_share">Share</string>
+    <string name="editor_export_saved">Export saved</string>
+    <string name="editor_export_failed">Could not save the export</string>
 
     <!--  COLOUR PICKERS  -->
     <string name="editor_pen_colour">Pen colour</string>

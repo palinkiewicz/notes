@@ -14,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -33,9 +35,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.model.ExportColorPreset
+import pl.dakil.notes.ui.icons.NotesIcons
 
 /** Which container an export lands in. Not stored anywhere, so it needs no locale-safe key. */
 enum class ExportFormat { PDF, PNG }
+
+/** What happens to an export once it is rendered: written to a file, or handed to another app. */
+enum class ExportAction { SAVE, SHARE }
 
 /**
  * Export as PDF or PNG, with an optional colour transform.
@@ -49,7 +55,7 @@ fun ExportSheet(
     isInk: Boolean,
     exporting: Boolean,
     onDismiss: () -> Unit,
-    onExport: (ExportColorPreset, ExportFormat) -> Unit,
+    onExport: (ExportColorPreset, ExportFormat, ExportAction) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var preset by remember { mutableStateOf(ExportColorPreset.AS_IS) }
@@ -98,22 +104,36 @@ fun ExportSheet(
                 ) { Text(stringResource(R.string.editor_export_png)) }
             }
 
-            Button(
-                onClick = { onExport(preset, format) },
-                enabled = !exporting,
-                modifier = Modifier
+            // Saving is the main action, so it gets the width; sharing is the same render handed to
+            // another app, and sits beside it as the icon everyone already reads as "share".
+            Row(
+                Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
                     .padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (exporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Text(stringResource(R.string.editor_export_action))
+                Button(
+                    onClick = { onExport(preset, format, ExportAction.SAVE) },
+                    enabled = !exporting,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (exporting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Text(stringResource(R.string.editor_export_action))
+                    }
+                }
+                FilledTonalIconButton(
+                    onClick = { onExport(preset, format, ExportAction.SHARE) },
+                    enabled = !exporting,
+                ) {
+                    Icon(NotesIcons.Share, contentDescription = stringResource(R.string.editor_export_share))
                 }
             }
         }

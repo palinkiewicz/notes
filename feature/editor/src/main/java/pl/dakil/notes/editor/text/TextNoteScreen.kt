@@ -43,9 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.export.ExportSheet
+import pl.dakil.notes.editor.export.ExportAction
+import pl.dakil.notes.editor.export.rememberExportSaver
 import pl.dakil.notes.editor.export.exportText
 import pl.dakil.notes.editor.export.shareExport
 import pl.dakil.notes.editor.markdown.InsertImageDialogs
@@ -134,19 +137,31 @@ fun TextNoteScreen(
         )
     }
 
+    // Whether the last save landed, until the snackbar has said so. Set by a failed render as well:
+    // an export that silently does nothing reads as a button that is broken.
+    var exportOutcome by remember { mutableStateOf<Boolean?>(null) }
+    val saveExport = rememberExportSaver { exportOutcome = it }
     if (exportOpen) {
         ExportSheet(
             isInk = false,
             exporting = exporting,
             onDismiss = { if (!exporting) exportOpen = false },
-            onExport = { _, format ->
+            onExport = { _, format, action ->
                 val markdown = text.text.toString()
                 exporting = true
-                coroutineScope.launch(Dispatchers.Default) {
-                    val result = runCatching { exportText(context, markdown, format, state.pandoc) }
+                coroutineScope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        runCatching { exportText(context, markdown, format, state.pandoc) }
+                    }
                     exporting = false
                     exportOpen = false
-                    result.getOrNull()?.let { shareExport(context, it) }
+                    result.fold(
+                        onSuccess = { files ->
+                            if (action == ExportAction.SAVE) saveExport(files, title)
+                            else shareExport(context, files)
+                        },
+                        onFailure = { exportOutcome = false },
+                    )
                 }
             },
         )
@@ -194,6 +209,15 @@ fun TextNoteScreen(
         imageFailure ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(imageFailure)
         viewModel.dismissImageFailure()
+    }
+
+    val exportMessage = exportOutcome?.let {
+        stringResource(if (it) R.string.editor_export_saved else R.string.editor_export_failed)
+    }
+    LaunchedEffect(exportMessage) {
+        exportMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(exportMessage)
+        exportOutcome = null
     }
 
     Scaffold(

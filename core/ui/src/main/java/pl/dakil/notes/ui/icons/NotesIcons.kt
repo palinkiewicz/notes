@@ -41,6 +41,7 @@ object NotesIcons {
     val Delete get() = Icons.Default.Delete
     val More get() = Icons.Default.MoreVert
     val Export get() = Icons.Default.Share
+    val Share get() = Icons.Default.Share
     val Check get() = Icons.Default.Check
     val Close get() = Icons.Default.Close
     val Rename get() = Icons.Default.Edit
