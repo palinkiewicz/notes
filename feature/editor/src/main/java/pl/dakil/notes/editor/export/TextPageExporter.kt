@@ -73,6 +73,9 @@ object TextPageExporter {
         val widthPx = (PAGE_WIDTH_PT * ptToPx).toInt().coerceAtLeast(1)
         val heightPx = (PAGE_HEIGHT_PT * ptToPx).toInt().coerceAtLeast(1)
 
+        // Once, before the loop: it empties the folder, and asked per page it deleted every page
+        // but the last before anyone could save or share them.
+        val dir = exportDir(context)
         val files = ArrayList<File>()
         for (page in selected(breaks, pages)) {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
@@ -80,7 +83,7 @@ object TextPageExporter {
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
                 drawPage(paragraph, breaks, page, ptToPx)
             }
-            val file = File(exportDir(context), "export_${page + 1}.png")
+            val file = File(dir, "export_${page + 1}.png")
             FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
             files += file

@@ -81,6 +81,9 @@ object InkPageExporter {
         val strokeRenderer = StrokeRenderer()
         val widthPx = (format.width * ptToPx).toInt().coerceAtLeast(1)
         val heightPx = (format.height * ptToPx).toInt().coerceAtLeast(1)
+        // Once, before the loop: it empties the folder, and asked per page it deleted every page
+        // but the last before anyone could save or share them.
+        val dir = exportDir(context)
         val files = ArrayList<File>()
         for (page in pages) {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
@@ -88,7 +91,7 @@ object InkPageExporter {
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
                 drawPage(sheet, page, format, ptToPx, preset, strokeRenderer, fontResolver)
             }
-            val file = File(exportDir(context), "export_${page + 1}.png")
+            val file = File(dir, "export_${page + 1}.png")
             FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
             files += file
