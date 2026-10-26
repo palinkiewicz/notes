@@ -15,6 +15,7 @@
     <string name="editor_show_formatted">Show formatted text</string>
     <string name="editor_edit_source">Edit Markdown source</string>
     <string name="editor_error_open">Could not open the note</string>
+    <string name="editor_error_image">Could not add the image</string>
     <string name="editor_more">More</string>
     <string name="editor_export">Export</string>
     <string name="editor_export_colors">Colours</string>
@@ -133,6 +134,7 @@
     <string name="editor_selection_apex">Move shape corner</string>
     <string name="editor_selection_duplicate">Duplicate selection</string>
     <string name="editor_selection_colour">Selection colour</string>
+    <string name="editor_selection_remove_tint">Remove colour filter</string>
     <string name="editor_selection_fill">Fill selection</string>
     <string name="editor_selection_unfill">Remove fill</string>
     <string name="editor_selection_delete">Delete selection</string>
@@ -156,7 +158,11 @@
     <string name="markdown_link_text">Text</string>
     <string name="markdown_image_description">Description</string>
     <string name="markdown_address">Address</string>
-    <string name="markdown_from_device">From device</string>
+    <string name="markdown_image_from_device">From device</string>
+    <string name="markdown_image_from_device_detail">Pick a photo or an image file</string>
+    <string name="markdown_image_from_link">From link</string>
+    <string name="markdown_image_from_link_detail">Use an image address</string>
+    <string name="markdown_image_hold_for_link">Image (hold for a link)</string>
     <string name="markdown_insert">Insert</string>
 
     <!--  FORMAT BAR  -->

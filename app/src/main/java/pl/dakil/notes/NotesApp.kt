@@ -13,7 +13,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.window.core.layout.WindowSizeClass
@@ -106,21 +109,32 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
     )
 
     LaunchedEffect(Unit) { libraryViewModel.start() }
+    val appScope = rememberCoroutineScope()
+    // The library's own remembered state — its scroll position above all — outlives the editor
+    // being pushed over it. Without a holder, `AnimatedContent` disposes the library while a note
+    // is open and every return lands back at the top of the list.
+    val savedScreens = rememberSaveableStateHolder()
 
     // Only the editor that is actually open is flushed: the other one still holds the last note it
     // had, and flushing that would rewrite a file nobody has touched.
     //
     // The flush happens before `openNote` is cleared, so the save is issued as the closing animation
     // starts rather than after half a second of sliding.
+    //
+    // The library is re-read from the index once the save has landed, not rescanned: the write
+    // updates the index itself, and a rescan racing the write could read the file half-written.
     fun closeEditor() {
         val ref = openNote
-        if (ref != null && NoteKind.of(ref.substringAfterLast('/')) == NoteKind.TEXT) {
+        val saving = if (ref != null && NoteKind.of(ref.substringAfterLast('/')) == NoteKind.TEXT) {
             textNoteViewModel.flush()
         } else {
             noteViewModel.flush()
         }
         openNote = null
-        libraryViewModel.refresh()
+        appScope.launch {
+            saving?.join()
+            libraryViewModel.reloadFromIndex()
+        }
     }
 
     // Without these the system back gesture falls through to the activity and finishes it, so
@@ -181,6 +195,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                     )
                 }
             } else {
+                savedScreens.SaveableStateProvider("shell") {
                 NavigationSuiteScaffold(
                     navigationSuiteItems = {
                         // `navigationSuiteItems` is a plain builder, not a composable scope, so
@@ -244,6 +259,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                             )
                         }
                     }
+                }
                 }
             }
         }

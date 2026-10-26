@@ -41,6 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import pl.dakil.notes.data.ImageImport
+import pl.dakil.notes.data.ImportedImage
+import pl.dakil.notes.editor.markdown.DefaultImageSource
+import pl.dakil.notes.editor.markdown.InsertImageDialogs
+import pl.dakil.notes.editor.markdown.rememberImageInsertState
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.export.ExportSheet
@@ -91,9 +97,37 @@ fun EditorScreen(
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
     var formatPopup by remember { mutableStateOf<FormatPopup?>(null) }
     var reference by remember { mutableStateOf<ReferenceKind?>(null) }
-    var imageTapPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
-    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    // Where the picture being chosen goes, in strip points. Set by whatever asked for one — a tap
+    // with the image tool, or the image button of a text box's formatting bar.
+    var imageSpot by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    var imageFailed by remember { mutableStateOf(false) }
+    fun place(image: ImportedImage) {
+        val (x, y) = imageSpot ?: return
+        imageSpot = null
+        viewModel.insertImageBlock(x, y, image)
+    }
+    val imageInsert = rememberImageInsertState(
+        mode = state.imageInsertMode,
+        onPicked = ::place,
+        onFailed = { imageFailed = true },
+    )
+    // A sheet holds its pictures, so an address is fetched once and kept, rather than linked to
+    // and lost the day the page it came from goes away.
+    fun placeImageFromLink(url: String) {
+        coroutineScope.launch {
+            val image = withContext(Dispatchers.IO) {
+                runCatching { DefaultImageSource.bytes(url)?.let { ImageImport.normalise(it, null) } }.getOrNull()
+            }
+            if (image != null) place(image) else imageFailed = true
+        }
+    }
+    // The formatting bar of a box: the picture goes under the box it was asked for from.
+    fun insertImageFromBox(link: Boolean) {
+        imageSpot = viewModel.imageSpotBelowActiveBox() ?: return
+        if (link) imageInsert.startLink() else imageInsert.start()
+    }
+    val context = LocalContext.current
 
     val sheet = state.sheet
     val title = state.note?.meta?.title?.takeIf { it.isNotBlank() }
@@ -205,49 +239,10 @@ fun EditorScreen(
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },
-            onConfirmDeviceImage = if (kind == ReferenceKind.IMAGE) { label, mimeType, base64 ->
-                reference = null
-                val before = field.text.toString()
-                val result = MarkdownActions.insertBase64Image(
-                    text = before,
-                    start = field.selection.start,
-                    end = field.selection.end,
-                    alt = label,
-                    mimeType = mimeType,
-                    base64Data = base64,
-                )
-                field.edit {
-                    replace(0, length, result.text)
-                    selection = TextRange(result.selectionStart, result.selectionEnd)
-                }
-            } else null,
         )
     }
 
-    imageTapPosition?.let { (tapX, tapY) ->
-        ReferenceDialog(
-            kind = ReferenceKind.IMAGE,
-            initialLabel = "",
-            onDismiss = { imageTapPosition = null },
-            onConfirm = { label, url ->
-                imageTapPosition = null
-                val markdown = MarkdownActions.insertImage("", 0, 0, label, url).text
-                viewModel.insertTextBlockWithContent(tapX, tapY, markdown)
-            },
-            onConfirmDeviceImage = { label, mimeType, base64 ->
-                imageTapPosition = null
-                val markdown = MarkdownActions.insertBase64Image(
-                    text = "",
-                    start = 0,
-                    end = 0,
-                    alt = label,
-                    mimeType = mimeType,
-                    base64Data = base64,
-                ).text
-                viewModel.insertTextBlockWithContent(tapX, tapY, markdown)
-            },
-        )
-    }
+    InsertImageDialogs(imageInsert, onLink = { _, url -> placeImageFromLink(url) })
 
     if (renaming) {
         RenameNoteDialog(
@@ -298,6 +293,12 @@ fun EditorScreen(
     val conflictMessage = conflict?.let { stringResource(R.string.editor_conflict_saved, it.copyName) }
     LaunchedEffect(conflictMessage) {
         conflictMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
+    val imageFailure = if (imageFailed) stringResource(R.string.editor_error_image) else null
+    LaunchedEffect(imageFailure) {
+        imageFailure ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(imageFailure)
+        imageFailed = false
     }
 
     Scaffold(
@@ -387,7 +388,12 @@ fun EditorScreen(
                             openPopup = formatPopup,
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
-                            onInsertImage = { reference = ReferenceKind.IMAGE },
+                            onInsertImage = { insertImageFromBox(link = false) },
+                            onInsertImageLink = if (imageInsert.longPressOpensLink) {
+                                { insertImageFromBox(link = true) }
+                            } else {
+                                null
+                            },
                             // A sheet is paper, not a Markdown file: it can set its own sizes and colours.
                             attributes = true,
                             compact = true,
@@ -439,7 +445,12 @@ fun EditorScreen(
                             openPopup = formatPopup,
                             onPopupChange = { formatPopup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
-                            onInsertImage = { reference = ReferenceKind.IMAGE },
+                            onInsertImage = { insertImageFromBox(link = false) },
+                            onInsertImageLink = if (imageInsert.longPressOpensLink) {
+                                { insertImageFromBox(link = true) }
+                            } else {
+                                null
+                            },
                             attributes = true,
                         )
                     }
@@ -462,7 +473,10 @@ fun EditorScreen(
                         viewModel = viewModel,
                         darkTheme = darkTheme,
                         modifier = Modifier.fillMaxSize(),
-                        onImageToolTap = { x, y -> imageTapPosition = x to y },
+                        onImageToolTap = { x, y ->
+                            imageSpot = x to y
+                            imageInsert.start()
+                        },
                     )
                 }
             }

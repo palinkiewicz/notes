@@ -14,6 +14,7 @@
     <string name="editor_show_formatted">Pokaż sformatowany tekst</string>
     <string name="editor_edit_source">Edytuj źródło Markdown</string>
     <string name="editor_error_open">Nie udało się otworzyć notatki</string>
+    <string name="editor_error_image">Nie udało się dodać obrazu</string>
     <string name="editor_more">Więcej</string>
     <string name="editor_export">Eksportuj</string>
     <string name="editor_export_colors">Kolory</string>
@@ -133,6 +134,7 @@
     <string name="editor_selection_apex">Przesuń wierzchołek kształtu</string>
     <string name="editor_selection_duplicate">Duplikuj zaznaczenie</string>
     <string name="editor_selection_colour">Kolor zaznaczenia</string>
+    <string name="editor_selection_remove_tint">Usuń filtr koloru</string>
     <string name="editor_selection_fill">Wypełnij zaznaczenie</string>
     <string name="editor_selection_unfill">Usuń wypełnienie</string>
     <string name="editor_selection_delete">Usuń zaznaczenie</string>
@@ -156,7 +158,11 @@
     <string name="markdown_link_text">Tekst</string>
     <string name="markdown_image_description">Opis</string>
     <string name="markdown_address">Adres</string>
-    <string name="markdown_from_device">Z urządzenia</string>
+    <string name="markdown_image_from_device">Z urządzenia</string>
+    <string name="markdown_image_from_device_detail">Wybierz zdjęcie lub plik obrazu</string>
+    <string name="markdown_image_from_link">Z linku</string>
+    <string name="markdown_image_from_link_detail">Użyj adresu obrazu</string>
+    <string name="markdown_image_hold_for_link">Obraz (przytrzymaj, aby wstawić link)</string>
     <string name="markdown_insert">Wstaw</string>
 
     <!--  FORMAT BAR  -->

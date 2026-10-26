@@ -72,6 +72,19 @@ enum class LibraryLayout(val key: String) {
     }
 }
 
+/** What tapping an "insert image" button does. */
+enum class ImageInsertMode(val key: String) {
+    /** Asks first: from the device, or from an address. */
+    DIALOG("dialog"),
+
+    /** Opens the photo picker straight away; an address is a long press away. */
+    PICKER("picker");
+
+    companion object {
+        fun fromKey(key: String?): ImageInsertMode = entries.firstOrNull { it.key == key } ?: DIALOG
+    }
+}
+
 /** Everything the user can configure. Defaults are what a casual note-taker should never touch. */
 data class AppSettings(
     val input: InputConfig = InputConfig(),
@@ -129,6 +142,8 @@ data class AppSettings(
      * it is paper, not a Markdown file, and always obeys them.
      */
     val pandocTextNotes: Boolean = false,
+    /** What an "insert image" button does when tapped. */
+    val imageInsertMode: ImageInsertMode = ImageInsertMode.DIALOG,
     /** The unit every paper measurement is shown and typed in. */
     val measurementUnit: MeasurementUnit = localeDefaultUnit(),
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
@@ -207,6 +222,7 @@ class SettingsRepository(context: Context) {
             prefs.getString(KEY_LIBRARY_LAYOUT, LibraryLayout.CARDS.key) ?: LibraryLayout.CARDS.key
         ),
         pandocTextNotes = prefs.getBoolean(KEY_PANDOC_TEXT_NOTES, false),
+        imageInsertMode = ImageInsertMode.fromKey(prefs.getString(KEY_IMAGE_INSERT_MODE, null)),
         measurementUnit = prefs.getString(KEY_UNIT, null)
             ?.let(MeasurementUnit::fromKey) ?: localeDefaultUnit(),
     )
@@ -286,6 +302,9 @@ class SettingsRepository(context: Context) {
 
     fun setPandocTextNotes(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_PANDOC_TEXT_NOTES, enabled).apply()
+
+    fun setImageInsertMode(mode: ImageInsertMode) =
+        prefs.edit().putString(KEY_IMAGE_INSERT_MODE, mode.key).apply()
 
     /**
      * Records a colour the user chose, newest first, de-duplicated.
@@ -421,6 +440,7 @@ class SettingsRepository(context: Context) {
         const val KEY_LAST_BACKUP = "backup.lastAt"
         const val KEY_LIBRARY_LAYOUT = "ui.libraryLayout"
         const val KEY_PANDOC_TEXT_NOTES = "ui.pandocTextNotes"
+        const val KEY_IMAGE_INSERT_MODE = "ui.imageInsertMode"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

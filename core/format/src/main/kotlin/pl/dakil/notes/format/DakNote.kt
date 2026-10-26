@@ -72,11 +72,17 @@ object DakNote {
     const val DIR_TEXT = "text/"
     const val DIR_ASSETS = "assets/"
 
+    /** Pictures, one entry per distinct image, named by content. See [mediaEntry]. */
+    const val DIR_MEDIA = "media/"
+
     /** v1 only, still read for migration. */
     const val DIR_PAGES = "pages/"
 
     fun inkEntry(block: BlockId): String = "$DIR_INK${block.raw}.dsv"
     fun textEntry(block: BlockId): String = "$DIR_TEXT${block.raw}.md"
+
+    /** The entry a picture named [fileName] — content hash and extension — is stored under. */
+    fun mediaEntry(fileName: String): String = "$DIR_MEDIA$fileName"
 
     fun newId(): String = UUID.randomUUID().toString()
 

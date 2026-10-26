@@ -266,9 +266,24 @@ class SafNoteStore(
      * preserving a version of a note that is about to be overwritten.
      */
     override suspend fun siblingOf(sibling: StoreRef, name: String): StoreRef? = withContext(io) {
+        val parent = parentOf(sibling) ?: return@withContext null
+        try {
+            newChild(parent, name, guessMimeType(name))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Walked up through the document id, which for the external-storage provider is a path.
+     *
+     * Providers whose ids are opaque have no answer, and a parent that turns out not to be a
+     * directory is no answer either.
+     */
+    override suspend fun parentOf(ref: StoreRef): StoreRef? = withContext(io) {
         val tree = treeUri ?: return@withContext null
         val documentId = try {
-            DocumentsContract.getDocumentId(uriOf(sibling))
+            DocumentsContract.getDocumentId(uriOf(ref))
         } catch (_: Exception) {
             return@withContext null
         }
@@ -278,11 +293,7 @@ class SafNoteStore(
             DocumentsContract.buildDocumentUriUsingTree(tree, documentId.substring(0, cut)).toString()
         )
         if (metadata(parent)?.isDirectory != true) return@withContext null
-        try {
-            newChild(parent, name, guessMimeType(name))
-        } catch (_: Exception) {
-            null
-        }
+        parent
     }
 
     private fun guessMimeType(name: String): String =

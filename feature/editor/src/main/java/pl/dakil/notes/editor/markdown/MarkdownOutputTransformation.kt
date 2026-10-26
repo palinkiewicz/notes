@@ -83,6 +83,10 @@ data class MarkdownStyles(
 class MarkdownOutputTransformation(
     private val styles: MarkdownStyles,
     private val formatted: Boolean,
+    /** Who knows how tall each block image is. See [MarkdownImages]. */
+    private val images: MarkdownImages? = null,
+    /** [MarkdownImages.version] when this was built: a new size is a new transformation. */
+    private val imageVersion: Int = 0,
 ) : OutputTransformation {
 
     override fun TextFieldBuffer.transformOutput() {
@@ -103,6 +107,15 @@ class MarkdownOutputTransformation(
                     addStyle(styles.quoteIndent, range.start, range.end)
                 }
             }
+            // Read inside the transformation, so a size arriving lays the field out again with
+            // the room the picture needs.
+            if (images != null) {
+                for (decoration in plan.decorations) {
+                    if (decoration is MdImage && decoration.offset < length) {
+                        addStyle(images.paragraphFor(decoration.url), decoration.offset, decoration.offset + 1)
+                    }
+                }
+            }
         }
 
         // And a short blank line past the end, so the last line of a note can be scrolled clear of
@@ -116,9 +129,15 @@ class MarkdownOutputTransformation(
     // layout on every recomposition.
     override fun equals(other: Any?): Boolean =
         this === other ||
-            (other is MarkdownOutputTransformation && styles == other.styles && formatted == other.formatted)
+            (
+                other is MarkdownOutputTransformation &&
+                    styles == other.styles &&
+                    formatted == other.formatted &&
+                    images === other.images &&
+                    imageVersion == other.imageVersion
+                )
 
-    override fun hashCode(): Int = 31 * styles.hashCode() + formatted.hashCode()
+    override fun hashCode(): Int = 31 * (31 * styles.hashCode() + formatted.hashCode()) + System.identityHashCode(images) * 31 + imageVersion
 }
 
 /**

@@ -45,10 +45,7 @@ import kotlinx.coroutines.launch
  * are here only to hold their places in the row.
  */
 @Composable
-fun Modifier.markdownClipboard(
-    state: TextFieldState,
-    images: ImageRefsSupport? = null,
-): Modifier {
+fun Modifier.markdownClipboard(state: TextFieldState): Modifier {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -57,13 +54,9 @@ fun Modifier.markdownClipboard(
     fun carryAway(cut: Boolean) {
         val selection = state.selection
         if (selection.collapsed) return
-        // A def line among what is carried gets its payload back first: the clipboard holds the
-        // real Markdown, not the field's view of it. See [ImageRefs].
-        val carried = images?.expand(
-            state.text.toString().substring(selection.min, selection.max),
-        ) ?: state.text.toString().substring(selection.min, selection.max)
+        val source = state.text.toString().substring(selection.min, selection.max)
         scope.launch {
-            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("markdown", carried)))
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("markdown", source)))
         }
         state.edit {
             if (cut) replace(selection.min, selection.max, "")
@@ -75,10 +68,7 @@ fun Modifier.markdownClipboard(
     fun pasteOver() {
         scope.launch {
             val entry = clipboard.getClipEntry() ?: return@launch
-            val raw = entry.clipData.plainText(context) ?: return@launch
-            // Taken aside on the way in, exactly as a device image would be: a paste can carry the
-            // same megabytes an insert would have. See [ImageRefs].
-            val pasted = images?.collapseForPaste(raw) ?: raw
+            val pasted = entry.clipData.plainText(context) ?: return@launch
             val selection = state.selection
             state.edit {
                 replace(selection.min, selection.max, pasted)

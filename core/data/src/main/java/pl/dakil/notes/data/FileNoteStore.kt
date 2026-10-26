@@ -166,6 +166,10 @@ class FileNoteStore(
         StoreRef(File(parent, uniqueName(parent, name.sanitizeFileName())).absolutePath)
     }
 
+    override suspend fun parentOf(ref: StoreRef): StoreRef? = withContext(io) {
+        fileOf(ref).parentFile?.let { StoreRef(it.absolutePath) }
+    }
+
     /**
      * Watches [dir] with `FileObserver`.
      *

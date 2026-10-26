@@ -3,6 +3,7 @@ package pl.dakil.notes.format
 import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Note
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
@@ -60,7 +61,10 @@ object DakNoteWriter {
             written += DakNote.ENTRY_SHEET
 
             for ((name, bytes) in payloads) {
-                if (written.add(name)) writeDeflated(zip, name, bytes)
+                if (!written.add(name)) continue
+                // A picture is already compressed; deflating it again costs time on every save and
+                // saves nothing.
+                if (name.startsWith(DakNote.DIR_MEDIA)) writeStored(zip, name, bytes) else writeDeflated(zip, name, bytes)
             }
 
             // Everything this build did not understand, replayed byte for byte.
@@ -110,6 +114,10 @@ object DakNoteWriter {
                     payloads[it] = block.markdown.toByteArray(Charsets.UTF_8)
                 }
             }
+
+            // Under the name it arrived with: it is derived from the content, so it is already
+            // canonical, and two blocks showing one picture share the entry.
+            is ImageBlock -> block.src.also { payloads[it] = block.bytes }
 
             is OpaqueBlock -> block.payloadEntry?.also { name ->
                 block.payload?.let { payloads[name] = it }

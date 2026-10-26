@@ -1,7 +1,6 @@
 package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -11,6 +10,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.SettingsRepository
@@ -29,9 +30,6 @@ import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.InkCallbacks
 import pl.dakil.notes.editor.markdown.PendingStyles
-import pl.dakil.notes.editor.markdown.ImageRefsSupport
-import pl.dakil.notes.editor.markdown.ImageRefs
-import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
 import pl.dakil.notes.ink.PathSplitter
@@ -52,6 +50,12 @@ import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
+import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.data.ImageImport
+import pl.dakil.notes.data.ImageInsertMode
+import pl.dakil.notes.data.ImportedImage
+import pl.dakil.notes.model.carriedBy
+import pl.dakil.notes.model.placedBy
 import pl.dakil.notes.model.translated
 import pl.dakil.notes.model.withId
 import pl.dakil.notes.model.ToolSpec
@@ -64,8 +68,13 @@ data class Selection(
     val strokesByBlock: Map<BlockId, List<Int>> = emptyMap(),
     val textBlocks: Set<BlockId> = emptySet(),
     val bounds: Rect = Rect.ZERO,
+    /** Pictures, which are taken whole like text boxes but, unlike them, scale with the handles. */
+    val images: Set<BlockId> = emptySet(),
 ) {
-    val isEmpty: Boolean get() = strokesByBlock.isEmpty() && textBlocks.isEmpty()
+    val isEmpty: Boolean get() = strokesByBlock.isEmpty() && textBlocks.isEmpty() && images.isEmpty()
+
+    /** Every block taken whole rather than stroke by stroke. */
+    val wholeBlocks: Set<BlockId> get() = textBlocks + images
     val strokeCount: Int get() = strokesByBlock.values.sumOf { it.size }
 }
 
@@ -108,7 +117,10 @@ data class EditorUiState(
      * that does nothing on the devices this app is for. Picking a pen again goes back to drawing.
      */
     val textToolActive: Boolean = false,
+    /** The image tool: a tap on the paper places a picture there. */
     val imageToolActive: Boolean = false,
+    /** What an "insert image" button does when tapped. A user setting, see [ImageInsertMode]. */
+    val imageInsertMode: ImageInsertMode = ImageInsertMode.DIALOG,
     /**
      * Whether the straightedge is out.
      *
@@ -175,31 +187,12 @@ data class EditorUiState(
 class NoteViewModel(
     private val repository: NoteRepository,
     private val settings: SettingsRepository,
-) : ViewModel(), ImageRefsSupport {
+) : ViewModel() {
 
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
     private val history = EditHistory()
-
-    /**
-     * The oversized image payloads the shared field is not carrying. See [ImageRefs].
-     */
-    private val imagePayloads = HashMap<String, String>()
-
-    override fun expand(markdown: String): String = ImageRefs.expand(markdown, imagePayloads::get)
-
-    override fun collapseForPaste(markdown: String): String =
-        ImageRefs.collapseForPaste(markdown, imagePayloads::put)
-
-    override suspend fun resolveImage(url: String, widthPx: Int): ImageBitmap? {
-        val source = if (url.startsWith(ImageRefs.TOKEN_PREFIX)) {
-            imagePayloads[url] ?: return null
-        } else {
-            url
-        }
-        return ImageLoader.load(source, widthPx)
-    }
 
     /**
      * The live buffer for the box being edited, replaced wholesale when a different one opens.
@@ -247,6 +240,7 @@ class NoteViewModel(
                         recentColors = app.recentColors,
                         zoomPresets = app.zoomPresets,
                         measurementUnit = app.measurementUnit,
+                        imageInsertMode = app.imageInsertMode,
                     )
                 }
             }
@@ -268,7 +262,22 @@ class NoteViewModel(
         _state.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             repository.load(ref).fold(
-                onSuccess = { note -> adopt(note, ref) },
+                onSuccess = { loaded ->
+                    // Images an older build embedded in text boxes become picture blocks; the note
+                    // is then saved, so the base64 leaves the file as well as the screen.
+                    val note = withContext(Dispatchers.Default) {
+                        if (loaded.readOnly) {
+                            loaded
+                        } else {
+                            val sheet = SheetImages.migrateEmbedded(loaded.sheet) { bytes, mime ->
+                                runCatching { ImageImport.keep(bytes, mime) }.getOrNull()
+                            }
+                            if (sheet === loaded.sheet) loaded else loaded.copy(sheet = sheet)
+                        }
+                    }
+                    adopt(note, ref)
+                    if (note !== loaded) repository.requestSave(ref, note)
+                },
                 onFailure = { cause ->
                     _state.update {
                         it.copy(
@@ -284,9 +293,6 @@ class NoteViewModel(
 
     private fun adopt(note: Note, ref: StoreRef?) {
         history.clear()
-        // A different document is opening; its images start empty rather than inheriting whatever
-        // the last one had. Tokens the old map answered are gone with it.
-        imagePayloads.clear()
         closeTextField()
         _state.update { current ->
             current.copy(
@@ -352,11 +358,12 @@ class NoteViewModel(
     }
 
     /** Forces a write; called when the editor leaves the foreground. */
-    fun flush() {
+    /** Writes immediately; the job completes once the file and the index both have the note. */
+    fun flush(): Job? {
         val current = _state.value
-        val note = current.note ?: return
-        val ref = current.ref ?: return
-        viewModelScope.launch { repository.flush(ref, note) }
+        val note = current.note ?: return null
+        val ref = current.ref ?: return null
+        return viewModelScope.launch { repository.flush(ref, note) }
     }
 
     // ---- Tools ---------------------------------------------------------------------------------
@@ -568,28 +575,33 @@ class NoteViewModel(
     }
 
     /**
-     * Inserts a new text block with prefilled markdown content (e.g. an image) at [x], [y]
-     * and puts it into edit history.
+     * Puts [image] on the sheet with its top-left at ([x], [y]), sized to the column. See
+     * [SheetImages.placement].
+     *
+     * The picture comes out selected, with the select tool in hand: the next thing anyone does to a
+     * picture they have just placed is move it or size it, and the handles are already round it.
      */
-    fun insertTextBlockWithContent(x: Float, y: Float, markdown: String) {
+    fun insertImageBlock(x: Float, y: Float, image: ImportedImage) {
         val current = _state.value
-        val note = current.note ?: return
-        val sheet = note.sheet
+        val sheet = current.sheet ?: return
         if (current.isReadOnly) return
+        val rect = SheetImages.placement(sheet, x, y, image.width, image.height)
+        val block = SheetImages.blockFor(sheet, image, rect)
+        commitEdit(Edit.AddBlock(block))
+        selectTool(ToolId.LASSO)
+        select(Selection(images = setOf(block.id), bounds = block.worldBounds()))
+    }
 
-        val format = sheet.format
-        val left = x.coerceIn(0f, (format.contentRight - MIN_TEXT_WIDTH).coerceAtLeast(0f))
-        val top = y.coerceAtLeast(0f)
-        val box = TextBlock(
-            id = sheet.nextBlockId(),
-            z = (sheet.blocks.maxOfOrNull { it.z } ?: 0) + 1,
-            rect = Rect(left, top, maxOf(format.contentRight, left + MIN_TEXT_WIDTH), top + NEW_TEXT_HEIGHT),
-            markdown = markdown,
-        )
-
-        commitEdit(Edit.AddBlock(box))
-        _state.update { it.copy(imageToolActive = false, textToolActive = true) }
-        beginTextEditing(box.id)
+    /**
+     * Where a picture asked for from a text box's formatting bar goes: under that box, at its left.
+     *
+     * Null with no box active, which leaves the caller to choose somewhere else.
+     */
+    fun imageSpotBelowActiveBox(): Pair<Float, Float>? {
+        val current = _state.value
+        val id = current.activeTextBlock ?: return null
+        val box = current.sheet?.block(id) as? TextBlock ?: return null
+        return box.rect.left to box.rect.bottom + IMAGE_BELOW_BOX
     }
 
     /** Puts the caret in [id]'s text, loading it into [textField]. */
@@ -603,7 +615,7 @@ class NoteViewModel(
         // last few characters typed into the box being left have not been committed yet.
         commitTypedText()
         typingJob?.cancel()
-        textField = TextFieldState(ImageRefs.collapse(box.markdown, imagePayloads::put))
+        textField = TextFieldState(box.markdown)
         _state.update { it.copy(editingTextBlock = id, activeTextBlock = id, selection = null) }
 
         // `drop(1)` skips the value the flow emits on subscription — the text just loaded out of
@@ -778,11 +790,9 @@ class NoteViewModel(
         val box = current.sheet?.block(id) as? TextBlock ?: return
         if (current.isReadOnly) return
         val typed = textField.text.toString()
-        // Compared against the box as the field sees it - collapsed, since that is what was loaded
-        // into the field - rather than the box's own Markdown, which carries the payloads back.
-        if (typed == ImageRefs.collapse(box.markdown, imagePayloads::put)) return
+        if (typed == box.markdown) return
 
-        val filled = box.copy(markdown = ImageRefs.expand(typed, imagePayloads::get))
+        val filled = box.copy(markdown = typed)
         if (id != pendingBox) {
             commitEdit(Edit.ReplaceBlock(box, filled))
             return
@@ -936,7 +946,17 @@ class NoteViewModel(
                 .map { it.id }
             for (id in texts) sheet.block(id)?.let { bounds = bounds.union(it.worldBounds()) }
 
-            val selection = Selection(byBlock, texts.toSet(), bounds)
+            // By the centre, more lenient than a text box's two corners: a photo is often bigger
+            // than the loop anyone wants to draw round it.
+            val images = sheet.blocks.filterIsInstance<ImageBlock>()
+                .filter { image ->
+                    val r = image.worldBounds()
+                    HitTester.pointInPolygon((r.left + r.right) / 2f, (r.top + r.bottom) / 2f, xs, ys, count)
+                }
+                .map { it.id }
+            for (id in images) sheet.block(id)?.let { bounds = bounds.union(it.worldBounds()) }
+
+            val selection = Selection(byBlock, texts.toSet(), bounds, images.toSet())
             _state.update { it.copy(selection = selection.takeUnless { s -> s.isEmpty }) }
         }
 
@@ -950,20 +970,30 @@ class NoteViewModel(
     /**
      * Moves, scales or turns everything selected.
      *
-     * Text boxes are carried but never scaled or turned. A box's width is a measurement the reader
-     * chose — it is what decides where the lines break — and its height is whatever the words need,
-     * so the only part of a transform that can honestly apply to one is where its top-left corner
-     * ends up. Rotating a paragraph is not something this document format can express at all.
+     * Text boxes are moved and turned but never scaled: a box's width is a measurement the reader
+     * chose — it is what decides where the lines break — so a scale has nothing honest to change.
+     * Pictures are scaled too, evenly. Both are turned about their own top-left corner, held in
+     * the block's transform. See [carriedBy] and [placedBy].
      */
     fun transformSelection(matrix: Affine) = mutateSelection(
         stroke = { it.transformed(matrix) },
-        block = { block ->
-            val r = block.rect
-            block.translated(matrix.mapX(r.left, r.top) - r.left, matrix.mapY(r.left, r.top) - r.top)
-        },
+        block = { it.carriedBy(matrix) },
+        image = { it.placedBy(matrix) },
     )
 
-    fun recolorSelection(color: Int) = mutateSelection(stroke = { it.withStyle(color = color) })
+    /**
+     * Recolours the ink selected, and shows the pictures selected in that colour.
+     *
+     * A picture is filtered rather than painted — see [ImageBlock.tint] — so [clearImageTint] gives
+     * the original back.
+     */
+    fun recolorSelection(color: Int) = mutateSelection(
+        stroke = { it.withStyle(color = color) },
+        image = { it.copy(tint = color) },
+    )
+
+    /** Takes the colour filter off every selected picture. */
+    fun clearImageTint() = mutateSelection(stroke = { it }, image = { it.copy(tint = null) })
 
     /**
      * Fills or empties every selected stroke.
@@ -995,6 +1025,15 @@ class NoteViewModel(
             val r = block.worldBounds()
             if (!r.contains(x, y)) continue
             select(Selection(emptyMap(), setOf(block.id), r))
+            return
+        }
+        // Last: a picture is under everything written on it, and ink drawn over a photo is meant to
+        // be picked up before the photo is.
+        for (block in topDown) {
+            if (block !is ImageBlock) continue
+            val r = block.worldBounds()
+            if (!r.contains(x, y)) continue
+            select(Selection(images = setOf(block.id), bounds = r))
             return
         }
         clearSelection()
@@ -1051,7 +1090,7 @@ class NoteViewModel(
                 block.copy(strokes = block.strokes.filterIndexed { i, _ -> i !in doomed }),
             )
         }
-        for (blockId in selection.textBlocks) {
+        for (blockId in selection.wholeBlocks) {
             sheet.block(blockId)?.let { edits += Edit.RemoveBlock(it) }
         }
         if (edits.isEmpty()) return
@@ -1099,19 +1138,21 @@ class NoteViewModel(
         // taken are tracked across the loop.
         val taken = sheet.blocks.mapTo(HashSet()) { it.id.raw }
         var n = taken.size
-        for (blockId in selection.textBlocks) {
-            val text = sheet.block(blockId) as? TextBlock ?: continue
+        val copiedImages = LinkedHashSet<BlockId>()
+        for (blockId in selection.wholeBlocks) {
+            val original = sheet.block(blockId) ?: continue
+            if (original !is TextBlock && original !is ImageBlock) continue
             while ("b$n" in taken) n++
             taken += "b$n"
-            val copy = text.translated(DUPLICATE_OFFSET, DUPLICATE_OFFSET).withId(BlockId("b$n"))
-            copiedText += copy.id
+            val copy = original.translated(DUPLICATE_OFFSET, DUPLICATE_OFFSET).withId(BlockId("b$n"))
+            if (copy is ImageBlock) copiedImages += copy.id else copiedText += copy.id
             bounds = bounds.union(copy.worldBounds())
             edits += Edit.AddBlock(copy)
         }
 
         if (edits.isEmpty()) return
         commitEdit(if (edits.size == 1) edits[0] else Edit.Batch(edits))
-        select(Selection(copiedStrokes, copiedText, bounds))
+        select(Selection(copiedStrokes, copiedText, bounds, copiedImages))
     }
 
     /**
@@ -1127,6 +1168,7 @@ class NoteViewModel(
     private fun mutateSelection(
         stroke: (Stroke) -> Stroke,
         block: ((TextBlock) -> Block)? = null,
+        image: ((ImageBlock) -> ImageBlock)? = null,
     ) {
         val current = _state.value
         val selection = current.selection ?: return
@@ -1141,6 +1183,9 @@ class NoteViewModel(
             val targets = indices.toHashSet()
             val updated = inkBlock.strokes.mapIndexed { i, s -> if (i in targets) stroke(s) else s }
             for (i in indices) updated.getOrNull(i)?.let { bounds = bounds.union(it.bounds) }
+            // An edit that left every stroke as it was — taking a filter off the pictures in a
+            // mixed selection — is no step for undo to take back.
+            if (updated.indices.all { updated[it] === inkBlock.strokes[it] }) continue
             // Never merged. One gesture is one undo step: a drag and the scale after it are two
             // deliberate acts, and taking both back with one tap is not what the second one asked
             // for. The same reasoning that makes each committed stroke its own step.
@@ -1158,6 +1203,13 @@ class NoteViewModel(
             for (blockId in selection.textBlocks) {
                 sheet.block(blockId)?.let { bounds = bounds.union(it.worldBounds()) }
             }
+        }
+
+        for (blockId in selection.images) {
+            val picture = sheet.block(blockId) as? ImageBlock ?: continue
+            val placed = image?.invoke(picture) ?: picture
+            bounds = bounds.union(placed.worldBounds())
+            if (placed != picture) edits += Edit.ReplaceBlock(picture, placed, mergeable = false)
         }
 
         if (edits.isEmpty()) return
@@ -1246,6 +1298,9 @@ class NoteViewModel(
 
         /** A new box is a line tall and as wide as the column; both are only a starting point. */
         private const val NEW_TEXT_HEIGHT = 28f
+
+        /** The gap left between a text box and a picture inserted from its formatting bar. */
+        private const val IMAGE_BELOW_BOX = 12f
         private const val MIN_TEXT_WIDTH = 48f
         private const val MIN_TEXT_HEIGHT = 16f
 

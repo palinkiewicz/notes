@@ -2,6 +2,9 @@ package pl.dakil.notes.editor.markdown
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,6 +75,11 @@ fun MarkdownFormatBar(
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
+    /**
+     * What a long press on the image button does, when it does something — the way to an image by
+     * address once a tap goes straight to the photo picker. Null leaves the long press its tooltip.
+     */
+    onInsertImageLink: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     /** Whether this document may set its own sizes and colours. See [MdStyle.SIZE]. */
     attributes: Boolean = false,
@@ -106,6 +114,7 @@ fun MarkdownFormatBar(
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
+                onInsertImageLink = onInsertImageLink,
                 attributes = attributes,
             )
         }
@@ -121,6 +130,11 @@ fun MarkdownFormatRail(
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
+    /**
+     * What a long press on the image button does, when it does something — the way to an image by
+     * address once a tap goes straight to the photo picker. Null leaves the long press its tooltip.
+     */
+    onInsertImageLink: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     /** Whether this document may set its own sizes and colours. See [MdStyle.SIZE]. */
     attributes: Boolean = false,
@@ -141,6 +155,7 @@ fun MarkdownFormatRail(
                 onPopupChange = onPopupChange,
                 onInsertLink = onInsertLink,
                 onInsertImage = onInsertImage,
+                onInsertImageLink = onInsertImageLink,
                 attributes = attributes,
             )
         }
@@ -162,6 +177,11 @@ private fun FormatControls(
     onPopupChange: (FormatPopup?) -> Unit,
     onInsertLink: () -> Unit,
     onInsertImage: () -> Unit,
+    /**
+     * What a long press on the image button does, when it does something — the way to an image by
+     * address once a tap goes straight to the photo picker. Null leaves the long press its tooltip.
+     */
+    onInsertImageLink: (() -> Unit)? = null,
     attributes: Boolean,
 ) {
     val source = state.text.toString()
@@ -368,8 +388,11 @@ private fun FormatControls(
     )
     IconFormatButton(
         icon = NotesIcons.Image,
-        description = stringResource(R.string.markdown_image),
+        description = stringResource(
+            if (onInsertImageLink != null) R.string.markdown_image_hold_for_link else R.string.markdown_image,
+        ),
         onClick = { pending.clear(); onInsertImage() },
+        onLongClick = onInsertImageLink?.let { link -> { pending.clear(); link() } },
     )
     IconFormatButton(
         icon = NotesIcons.CodeBlock,
@@ -533,6 +556,7 @@ private fun IconFormatButton(
     selected: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     FormatButton(
         label = description,
@@ -540,6 +564,7 @@ private fun IconFormatButton(
         selected = selected,
         enabled = enabled,
         onClick = onClick,
+        onLongClick = onLongClick,
         content = { Icon(icon, contentDescription = null) },
     )
 }
@@ -559,14 +584,14 @@ private fun FormatButton(
     onClick: () -> Unit,
     content: @Composable () -> Unit,
     enabled: Boolean = true,
+    /**
+     * A second action on a long press. It takes the gesture the tooltip would have had, so a button
+     * with one says what the long press does in its accessibility label instead.
+     */
+    onLongClick: (() -> Unit)? = null,
     popup: @Composable () -> Unit = {},
 ) {
-    TooltipBox(
-        // Above the button: below would put the tooltip under the user's own fingertip.
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-        tooltip = { PlainTooltip { Text(label) } },
-        state = rememberTooltipState(),
-    ) {
+    val button = @Composable {
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -575,7 +600,15 @@ private fun FormatButton(
                     if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
                     else Modifier
                 )
-                .clickable(enabled = enabled, onClick = onClick, onClickLabel = description),
+                .then(
+                    if (onLongClick == null) {
+                        Modifier.clickable(enabled = enabled, onClick = onClick, onClickLabel = description)
+                    } else {
+                        Modifier
+                            .semantics { contentDescription = description }
+                            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick)
+                    }
+                ),
             contentAlignment = Alignment.Center,
         ) {
             CompositionLocalProvider(
@@ -588,6 +621,18 @@ private fun FormatButton(
             )
             popup()
         }
+    }
+    if (onLongClick != null) {
+        button()
+        return
+    }
+    TooltipBox(
+        // Above the button: below would put the tooltip under the user's own fingertip.
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = rememberTooltipState(),
+    ) {
+        button()
     }
 }
 

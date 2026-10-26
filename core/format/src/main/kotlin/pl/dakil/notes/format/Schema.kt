@@ -9,6 +9,8 @@ import pl.dakil.notes.model.NoteMeta
 import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.model.PageMargins
 import pl.dakil.notes.model.PageFormat
+import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PagePattern
@@ -201,12 +203,19 @@ internal object Schema {
     private val INK_BLOCK_KEYS =
         COMMON_BLOCK_KEYS + setOf("name", "visible", "locked", ShapeJson.KEY, FillJson.KEY)
     private val TEXT_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("flow")
+    private val IMAGE_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("mime", "tint")
 
     /** v1 stored the document text on blocks carrying `flow: "document"`. */
     fun isLegacyFlowText(json: JsonObject): Boolean = json.string("flow", "document") == "document"
 
     const val TYPE_INK = "ink"
     const val TYPE_TEXT = "text"
+
+    /**
+     * A picture. Added without a format bump: a build that predates it reads the block as opaque
+     * and writes it, and its payload, back untouched — see [OpaqueBlock].
+     */
+    const val TYPE_IMAGE = "image"
 
     /**
      * Reads one block descriptor. [resolve] supplies the bytes of the entry named by `src`, which
@@ -240,6 +249,24 @@ internal object Schema {
                 unknown = remainderOf(json, TEXT_BLOCK_KEYS),
                 markdown = src?.let { resolve(it) }?.toString(Charsets.UTF_8) ?: "",
             )
+
+            // An image whose payload is missing is kept opaque: there is nothing to draw, and writing
+            // it back as an image would have to invent bytes for it.
+            TYPE_IMAGE -> {
+                val bytes = src?.let { resolve(it) }
+                if (src == null || bytes == null) {
+                    OpaqueBlock(id = id, z = z, rect = rect, transform = transform, type = type, raw = json, payloadEntry = src)
+                } else {
+                    ImageBlock(
+                        id = id, z = z, rect = rect, transform = transform,
+                        unknown = remainderOf(json, IMAGE_BLOCK_KEYS),
+                        src = src,
+                        mimeType = json.string("mime", "image/png"),
+                        bytes = bytes,
+                        tint = json.string("tint").takeIf { it.isNotEmpty() }?.let { ColorCodec.parse(it) },
+                    )
+                }
+            }
 
             // Anything else: keep the descriptor and its payload verbatim. The user can still move
             // and reorder it, because z/rect/transform are understood generically.
@@ -278,6 +305,11 @@ internal object Schema {
 
             is TextBlock -> withSrc.withDefaults(block.unknown)
 
+            // `tint` only when there is one, so an untinted picture's descriptor never mentions it.
+            is ImageBlock -> withSrc.with("mime", block.mimeType)
+                .let { o -> block.tint?.let { o.with("tint", ColorCodec.toHex(it)) } ?: o }
+                .withDefaults(block.unknown)
+
             // Start from the original descriptor so unknown keys keep their position, then
             // overwrite only the generic fields the editor is allowed to change.
             is OpaqueBlock -> block.raw
@@ -293,6 +325,7 @@ internal object Schema {
     fun typeOf(block: Block): String = when (block) {
         is InkBlock -> TYPE_INK
         is TextBlock -> TYPE_TEXT
+        is ImageBlock -> TYPE_IMAGE
         is OpaqueBlock -> block.type
     }
 

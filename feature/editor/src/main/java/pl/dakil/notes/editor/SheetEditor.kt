@@ -353,7 +353,17 @@ private fun SheetLayers(
             )
         }
 
-        // 2. Text: the boxes, each standing where it was put and clipped to its own page.
+        // 2. Pictures, on the paper and under everything written on it.
+        SheetImageLayer(
+            sheet = sheet,
+            ptToPx = ptToPx,
+            paged = paged,
+            selected = state.selection?.images.orEmpty(),
+            controller = selectionController,
+            modifier = Modifier.matchParentSize(),
+        )
+
+        // 3. Text: the boxes, each standing where it was put and clipped to its own page.
         TextBoxLayer(
             sheet = sheet,
             state = state,
@@ -369,7 +379,7 @@ private fun SheetLayers(
             modifier = Modifier.matchParentSize(),
         )
 
-        // 3. Ink: over everything, and the arbiter of who gets each pointer event.
+        // 4. Ink: over everything, and the arbiter of who gets each pointer event.
         InkOverlay(
             sheet = sheet,
             tool = state.tool,
@@ -395,7 +405,7 @@ private fun SheetLayers(
             modifier = Modifier.matchParentSize(),
         )
 
-        // 4. The ruler, over the ink it is there to straighten. It takes no pointer input at all —
+        // 5. The ruler, over the ink it is there to straighten. It takes no pointer input at all —
         // two fingers on it are handled by the one gesture authority, in sheetTransformGestures.
         if (state.rulerEnabled) {
             RulerOverlay(

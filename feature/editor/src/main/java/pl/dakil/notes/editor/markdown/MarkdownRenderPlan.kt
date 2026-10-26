@@ -232,7 +232,15 @@ data class MdQuote(val start: Int, val end: Int) : MdDecoration
  */
 data class MdTask(val offset: Int, val checked: Boolean, val sourceMark: Int) : MdDecoration
 
-/** An image decoration with resolved destination URL or base64 data. */
+/**
+ * A line that is nothing but an image, drawn as the picture.
+ *
+ * The whole of `![alt](url)` is concealed behind the one character at [offset], and the layout is
+ * told to make that line as tall as the picture (see [MarkdownImages]). The room is real: text below
+ * the image starts below it, two images in a row stack rather than overlap, and the field's scroll
+ * reaches the last of them — none of which an overlay floated over a one-line-high blank could do.
+ * [url] is resolved already: a reference-style `![alt][id]` carries its definition's destination.
+ */
 data class MdImage(val offset: Int, val alt: String, val url: String) : MdDecoration
 
 /**
@@ -300,6 +308,15 @@ object MarkdownRenderer {
 
     private const val BULLET_GLYPH = "•  "
     private const val IMAGE_GLYPH = "🖼 "
+
+    /**
+     * What a block image's source is concealed behind.
+     *
+     * Zero-width, so nothing is painted under the picture — no glyph, no alt text showing round its
+     * edges — but still a character: the caret has somewhere to stand beside the image, and one
+     * Backspace takes away the whole tag, since the field deletes a replaced run in one piece.
+     */
+    internal const val IMAGE_BLOCK_CHAR = "\u200B"
 
     /**
      * What stands in the text where a checkbox goes.
@@ -371,7 +388,8 @@ object MarkdownRenderer {
         val references = HashMap<String, String>()
         for (lineIndex in 0 until lines.count) {
             MarkdownParser.REFERENCE_DEF.matchEntire(lines.text(lineIndex))?.let { match ->
-                references[match.groupValues[1].lowercase()] = match.groupValues[2].trim()
+                references[match.groupValues[1].trim().lowercase(java.util.Locale.ROOT)] =
+                    match.groupValues[2].trim()
             }
         }
 
@@ -672,6 +690,9 @@ object MarkdownRenderer {
      */
     private const val LIST_UNIT = "list "
 
+    /** A line that is nothing but an image — spaced by the picture's own margin, nothing more. */
+    private const val IMAGE_UNIT = "image"
+
     /**
      * What each line belongs to, for the sole purpose of deciding what goes above it.
      *
@@ -718,6 +739,7 @@ object MarkdownRenderer {
 
                         MarkdownParser.ORDERED.matchEntire(line) != null -> "${LIST_UNIT}1"
                         MarkdownParser.QUOTE.matchEntire(line) != null -> "quote"
+                        MarkdownParser.BLOCK_IMAGE.matchEntire(line) != null -> IMAGE_UNIT
                         else -> "line $k"
                     }
                     k + 1
@@ -769,6 +791,9 @@ object MarkdownRenderer {
      * a blank line in or out of a document does not change how far apart things are set.
      */
     private fun gapStyle(above: String, here: String): MdStyle? = when {
+        // A picture keeps its own small margin inside its line (see [MarkdownImages.ImageGap]); a
+        // paragraph's worth of air on top of it set two pictures in a row a hand's width apart.
+        above == IMAGE_UNIT || here == IMAGE_UNIT -> null
         above == BLOCK_UNIT || here == BLOCK_UNIT -> MdStyle.BLOCK_GAP
         above != here -> MdStyle.PARAGRAPH_GAP
         // The same unit twice over: two items of one list, or two lines of one quotation. A
@@ -862,7 +887,9 @@ object MarkdownRenderer {
         // screen, and mapping it would point the toggle at whatever the renderer put there instead.
         is MdTask -> copy(offset = closes(edits, offset))
 
-        is MdImage -> copy(offset = closes(edits, offset))
+        // Opens rather than closes: the offset is the concealing character itself, not the place
+        // after it, so the picture is laid over its own line.
+        is MdImage -> copy(offset = opens(edits, offset))
     }
 
     // ---- Lines -------------------------------------------------------------------------------
@@ -1232,6 +1259,24 @@ object MarkdownRenderer {
         MarkdownParser.REFERENCE_DEF.matchEntire(line)?.let {
             edits += MdEdit(start, lines.endInclusive(k), "")
             return
+        }
+
+        MarkdownParser.BLOCK_IMAGE.matchEntire(line)?.let { match ->
+            val url = match.groups[2]?.value
+                ?: references[match.groupValues[3].trim().lowercase(java.util.Locale.ROOT)]
+            if (!url.isNullOrEmpty()) {
+                // The newlines either side go too. The picture's line is laid out as a paragraph of
+                // its own — that is what lets it be made tall — and a paragraph boundary is already
+                // a line break, so a newline beside one renders as a whole empty line: a strip of
+                // blank text above and below every picture. The one before is taken only when no
+                // earlier edit has it already, which is the case for a picture on the line above.
+                val breakAbove = if (k > 0) lines.end(k - 1) else start
+                val from = if (k > 0 && (edits.lastOrNull()?.end ?: 0) <= breakAbove) breakAbove else start
+                val to = lines.endInclusive(k)
+                edits += MdEdit(from, to, IMAGE_BLOCK_CHAR, hides = false)
+                decorations += MdImage(offset = from, alt = match.groupValues[1], url = url)
+                return
+            }
         }
 
         MarkdownParser.HEADING.matchEntire(line)?.let { match ->
@@ -1754,19 +1799,6 @@ object MarkdownRenderer {
             text.indexOf(']', close + 2)
         }
         if (end < 0 || end >= to) return 0
-
-        if (image) {
-            val alt = text.substring(i + openLength, close)
-            val url = if (isInline) {
-                text.substring(close + 2, end).trim()
-            } else {
-                val refId = text.substring(close + 2, end).trim().lowercase()
-                references[refId] ?: ""
-            }
-            if (url.isNotEmpty()) {
-                decorations += MdImage(offset = i, alt = alt, url = url)
-            }
-        }
 
         // The URL is hidden with the brackets: it is the destination, not the prose. An image keeps
         // a glyph in its place so an empty alt text does not vanish without trace.

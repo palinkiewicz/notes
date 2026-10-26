@@ -9,9 +9,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -22,9 +27,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
+import pl.dakil.notes.model.placement
 import kotlin.math.roundToInt
 
 /**
@@ -41,7 +48,16 @@ import kotlin.math.roundToInt
  * anyway, and what does survive is a grey wash over the ink rather than a legible ruled page.
  */
 @Composable
-fun InkNotePreview(sheet: Sheet, modifier: Modifier = Modifier) {
+fun InkNotePreview(
+    sheet: Sheet,
+    modifier: Modifier = Modifier,
+    /**
+     * The decoded pictures, by [ImageBlock.src]. Decoding is the caller's: it is too slow for a
+     * draw pass, and the caller knows how small a thumbnail can afford to decode them. A picture
+     * with no bitmap yet is drawn as a plain tile in its place.
+     */
+    images: Map<String, ImageBitmap> = emptyMap(),
+) {
     val format = sheet.format
     BoxWithConstraints(modifier) {
         val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
@@ -75,6 +91,26 @@ fun InkNotePreview(sheet: Sheet, modifier: Modifier = Modifier) {
             // Page 0 only: everything below the first page break belongs to a page this card is
             // not showing, and the strip is one continuous coordinate space.
             clipRect(bottom = format.height * ptToPx) {
+                // First, as on the sheet: a picture is under everything written on it.
+                for (block in sheet.blocks) {
+                    if (block !is ImageBlock || block.rect.top >= format.height) continue
+                    val r = block.rect
+                    val at = block.placement()
+                    val origin = Offset(at.left * ptToPx, at.top * ptToPx)
+                    val bitmap = images[block.src]
+                    rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), origin) {
+                        if (bitmap == null) {
+                            drawRect(Color(IMAGE_TILE), origin, Size(r.width * ptToPx, r.height * ptToPx))
+                        } else {
+                            drawImage(
+                                image = bitmap,
+                                dstOffset = IntOffset(origin.x.roundToInt(), origin.y.roundToInt()),
+                                dstSize = IntSize((r.width * ptToPx).roundToInt().coerceAtLeast(1), (r.height * ptToPx).roundToInt().coerceAtLeast(1)),
+                                colorFilter = block.tint?.let(::imageTintFilter),
+                            )
+                        }
+                    }
+                }
                 for (block in sheet.blocksInPaintOrder()) {
                     when (block) {
                         is InkBlock -> if (block.visible) {
@@ -116,7 +152,7 @@ private fun DrawScope.drawTextBlock(
     if (block.markdown.isBlank()) return
     val bounds = block.worldBounds()
     if (bounds.top >= pageHeight) return
-    val widthPx = (bounds.width * ptToPx).roundToInt()
+    val widthPx = (block.rect.width * ptToPx).roundToInt()
     if (widthPx <= 0) return
 
     val laid = measurer.measure(
@@ -125,13 +161,18 @@ private fun DrawScope.drawTextBlock(
         overflow = TextOverflow.Clip,
         constraints = Constraints(maxWidth = widthPx),
     )
-    clipRect(
-        left = bounds.left * ptToPx,
-        top = bounds.top * ptToPx,
-        right = bounds.right * ptToPx,
-        bottom = minOf(bounds.bottom, pageHeight) * ptToPx,
-    ) {
-        drawText(laid, topLeft = Offset(bounds.left * ptToPx, bounds.top * ptToPx))
+    val at = block.placement()
+    val origin = Offset(at.left * ptToPx, at.top * ptToPx)
+    // Turned about its corner, as on the sheet; the clip is the box's own, turned with it.
+    rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), origin) {
+        clipRect(
+            left = origin.x,
+            top = origin.y,
+            right = origin.x + block.rect.width * ptToPx,
+            bottom = origin.y + block.rect.height.coerceAtLeast(laid.size.height / ptToPx) * ptToPx,
+        ) {
+            drawText(laid, topLeft = origin)
+        }
     }
 }
 
@@ -141,6 +182,9 @@ private fun DrawScope.drawTextBlock(
  * The conversion the sheet editor makes in the other direction when it derives its `ptToPx`.
  */
 private const val PT_PER_DP = 72f / 160f
+
+/** Where a picture is still being decoded: a light neutral, which reads as "something is here". */
+private const val IMAGE_TILE = 0xFFE3E3E8.toInt()
 
 /**
  * Paints one text box as the words it holds, with the Markdown left in.

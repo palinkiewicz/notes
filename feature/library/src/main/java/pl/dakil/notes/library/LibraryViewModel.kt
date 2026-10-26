@@ -28,6 +28,12 @@ import pl.dakil.notes.data.NoteStore
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.Sheet
 
 /** One level of the folder hierarchy, kept as a stack so "up" is always unambiguous. */
@@ -110,7 +116,7 @@ class LibraryViewModel(
      * from the new root.
      */
     private val rootChanges: Flow<Int> = emptyFlow(),
-) : ViewModel() {
+) : ViewModel(), PreviewLoader {
 
     private val _state = MutableStateFlow(LibraryUiState(layout = settings.read().libraryLayout))
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -124,8 +130,8 @@ class LibraryViewModel(
      * the index deliberately holds no geometry. Bounded because a library can be long and a sheet
      * of dense handwriting is not small; the cards ask for one at a time as they scroll into view.
      */
-    private val previews = object : LinkedHashMap<String, Pair<Long, Sheet>>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, Sheet>>) =
+    private val previews = object : LinkedHashMap<String, Pair<Long, NoteThumbnail>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, NoteThumbnail>>) =
             size > PREVIEW_CACHE_SIZE
     }
 
@@ -162,12 +168,12 @@ class LibraryViewModel(
             }
             _state.update { it.copy(crumbs = listOf(Crumb(root, rootFolderName))) }
             // What the index already knows goes on screen before a single file is read. The scan
-            // that follows reads a note in full the first time it sees its file, and a note whose
-            // images are embedded can run to several megabytes — waiting for the whole tree to be
-            // re-read before the first listing was what made the library sit frozen on launch. The
-            // index is a derived cache, so a row updated a few seconds late is a cosmetic delay,
-            // not a lie about what is on disk.
-            repository.refreshIndex(_state.value.current ?: root, _state.value.path)
+            // that follows reads a note in full the first time it sees its file — waiting for it
+            // before the first listing is what made the library sit on a spinner at launch. The
+            // index is a derived cache, so a row updated a moment late is a cosmetic delay, not a
+            // lie about what is on disk.
+            reload()
+            repository.refreshIndex(root, "")
             reload()
             // The whole tree, once, so a search from the root reaches a note in a folder nobody has
             // opened yet. Unchanged files are only stat'ed, so this stays cheap after the first run.
@@ -176,14 +182,31 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Brings the listing up to date with the files, without ever taking it off the screen.
+     *
+     * The index answers first and the rescan corrects it afterwards. A spinner in place of a list
+     * that was on screen a second ago — which is what this used to show on every return from a
+     * note — reads as the app having forgotten the folder, when nothing in it had changed.
+     */
     fun refresh() {
         val current = _state.value.current ?: return
         val path = _state.value.path
-        _state.update { it.copy(isLoading = true) }
         viewModelScope.launch {
-            repository.refreshIndex(current, path)
             reload()
+            repository.refreshIndex(current, path)
+            if (_state.value.current == current) reload()
         }
+    }
+
+    /**
+     * Re-reads the listing from the index alone.
+     *
+     * For when this app was the one writing: a save updates the index as it writes the file, so
+     * rescanning the folder afterwards would only re-read what is already known.
+     */
+    fun reloadFromIndex() {
+        viewModelScope.launch { reload() }
     }
 
     private suspend fun reload() {
@@ -200,6 +223,8 @@ class LibraryViewModel(
         )
         val tags = index.allTags()
         _state.update {
+            // The user moved on while the query ran; this answer is for a folder no longer shown.
+            if (it.current != current || it.path != state.path) return@update it
             it.copy(
                 items = items,
                 allTags = tags,
@@ -433,16 +458,52 @@ class LibraryViewModel(
      * Returns null rather than throwing for a note that cannot be read: a card with blank paper on
      * it is a better answer than a crash, and the note itself still opens.
      */
-    suspend fun loadPreview(note: LibraryItem.Note): Sheet? {
+    override suspend fun load(note: LibraryItem.Note): NoteThumbnail? {
+        peek(note)?.let { return it }
         if (note.summary.kind != NoteKind.INK) return null
         val key = note.ref.value
         val stampedAt = note.modifiedAt
-        synchronized(previews) {
-            previews[key]?.let { (stamp, sheet) -> if (stamp == stampedAt) return sheet }
-        }
         val sheet = repository.load(note.ref).getOrNull()?.sheet ?: return null
-        synchronized(previews) { previews[key] = stampedAt to sheet }
-        return sheet
+        val thumbnail = withContext(Dispatchers.Default) { NoteThumbnail(sheet, thumbnailImages(sheet)) }
+        synchronized(previews) { previews[key] = stampedAt to thumbnail }
+        return thumbnail
+    }
+
+    /**
+     * The pictures on [sheet]'s first page, decoded no larger than a card needs.
+     *
+     * Sampled by powers of two against [THUMBNAIL_PAGE_PX] — a page that wide is already wider than
+     * any card — so a camera photo costs a few hundred kilobytes here, not tens of megabytes.
+     */
+    private fun thumbnailImages(sheet: Sheet): Map<String, ImageBitmap> {
+        val format = sheet.format
+        val out = HashMap<String, ImageBitmap>()
+        for (image in sheet.blocks.filterIsInstance<ImageBlock>()) {
+            if (image.rect.top >= format.height || image.src in out) continue
+            val wanted = (THUMBNAIL_PAGE_PX * image.rect.width / format.width.coerceAtLeast(1f)).toInt().coerceAtLeast(16)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(image.bytes, 0, image.bytes.size, bounds)
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= wanted && sample < 64) sample *= 2
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeByteArray(image.bytes, 0, image.bytes.size, options)
+                ?.let { out[image.src] = it.asImageBitmap() }
+        }
+        return out
+    }
+
+    /**
+     * The preview already in memory, if there is one, without suspending.
+     *
+     * A card's first frame is drawn before any coroutine can answer it, so without this every card
+     * came back from an open note as its placeholder icon and was repainted a frame later.
+     */
+    override fun peek(note: LibraryItem.Note): NoteThumbnail? {
+        if (note.summary.kind != NoteKind.INK) return null
+        synchronized(previews) {
+            val (stamp, sheet) = previews[note.ref.value] ?: return null
+            return sheet.takeIf { stamp == note.modifiedAt }
+        }
     }
 
     fun dismissError() =
@@ -470,6 +531,9 @@ class LibraryViewModel(
 
         /** Roughly two screens of cards, so scrolling back up never re-reads a file. */
         private const val PREVIEW_CACHE_SIZE = 48
+
+        /** The page width a card's pictures are decoded against. */
+        private const val THUMBNAIL_PAGE_PX = 480
 
         /**
          * [rootFolderName] and [untitledName] are passed in already translated: this view model has

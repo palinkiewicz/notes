@@ -165,9 +165,32 @@ class MarkdownBlockActionsTest {
     }
 
     @Test
-    fun `an image is a link with a bang`() {
+    fun `an image is a link with a bang, on a line of its own`() {
+        // Only an image alone on its line is drawn as the picture; anywhere else it is a chip.
         val result = MarkdownActions.insertImage("", 0, 0, "a cat", "cat.png")
-        assertEquals("![a cat](cat.png)", result.text)
+        assertEquals("![a cat](cat.png)\n", result.text)
+        assertEquals(result.text.length, result.selectionStart)
+    }
+
+    @Test
+    fun `an image inserted mid-sentence breaks the line around itself`() {
+        val result = MarkdownActions.insertImage("see here", 3, 3, "", "x.png")
+        assertEquals("see\n![](x.png)\n here", result.text)
+        // On the line below the picture, ready to go on typing where the user was.
+        assertEquals("see\n![](x.png)\n".length, result.selectionStart)
+    }
+
+    @Test
+    fun `an image before an existing line break reuses it rather than adding a blank line`() {
+        val result = MarkdownActions.insertImage("a\nb", 1, 1, "", "x.png")
+        assertEquals("a\n![](x.png)\nb", result.text)
+        assertEquals(result.text.indexOf('b'), result.selectionStart)
+    }
+
+    @Test
+    fun `brackets in an image description and spaces in its address cannot break the tag`() {
+        val result = MarkdownActions.insertImage("", 0, 0, "a [big] cat", "my cat.png")
+        assertEquals("![a big cat](my%20cat.png)\n", result.text)
     }
 
     @Test

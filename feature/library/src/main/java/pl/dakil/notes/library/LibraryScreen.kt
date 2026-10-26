@@ -234,7 +234,7 @@ fun LibraryScreen(
                         },
                         onQuery = viewModel::setQuery,
                         handlers = handlers,
-                        loadPreview = viewModel::loadPreview,
+                        loadPreview = viewModel,
                         dateFormat = dateFormat,
                     )
                 }
@@ -286,7 +286,7 @@ fun LibraryScreen(
                         else -> LibraryContent(
                             state = state,
                             handlers = handlers,
-                            loadPreview = viewModel::loadPreview,
+                            loadPreview = viewModel,
                             dateFormat = dateFormat,
                         )
                     }

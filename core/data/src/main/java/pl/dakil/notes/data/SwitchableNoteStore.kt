@@ -81,5 +81,7 @@ class SwitchableNoteStore(initial: NoteStore) : NoteStore {
     override suspend fun siblingOf(sibling: StoreRef, name: String): StoreRef? =
         delegate.siblingOf(sibling, name)
 
+    override suspend fun parentOf(ref: StoreRef): StoreRef? = delegate.parentOf(ref)
+
     override fun watch(dir: StoreRef): Flow<StoreChange> = delegate.watch(dir)
 }

@@ -25,5 +25,13 @@ object MarkdownParser {
     internal val FENCE = Regex("^```\\s*(\\w*)\\s*$")
     internal val RULE = Regex("^\\s*([-*_])\\s*(\\1\\s*){2,}$")
     internal val TABLE_DELIMITER = Regex("^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$")
+    /**
+     * A line that is nothing but one image: `![alt](url)`, `![alt](url "title")` or `![alt][id]`.
+     *
+     * Group 1 is the alt text, group 2 an inline destination, group 3 a reference label. Such a line
+     * is drawn as the picture itself; an image in the middle of prose stays a labelled chip.
+     */
+    internal val BLOCK_IMAGE =
+        Regex("^\\s{0,3}!\\[([^\\[\\]]*)\\](?:\\(\\s*(\\S+?)(?:\\s+\"[^\"]*\")?\\s*\\)|\\[([^\\[\\]]+)\\])\\s*$")
     internal val REFERENCE_DEF = Regex("^\\s{0,3}\\[([^\\]]+)\\]:\\s*(\\S.*)$")
 }

@@ -28,6 +28,11 @@
     <string name="settings_library">Library</string>
     <string name="settings_notes_layout">Notes layout</string>
     <string name="settings_notes_layout_description">Cards show a preview of each note; the list fits more of them on screen.</string>
+    <string name="settings_images">Images</string>
+    <string name="settings_image_insert">Inserting an image</string>
+    <string name="settings_image_insert_description">What the image button does. With the photo picker first, hold the button to insert an image from a link instead.</string>
+    <string name="image_insert_dialog">Ask: device or link</string>
+    <string name="image_insert_picker">Photo picker first</string>
     <string name="settings_text_notes">Text notes</string>
     <string name="settings_pandoc_text_notes">Pandoc sizes and colours</string>
     <string name="settings_pandoc_text_notes_description">Let a .md note set its own font sizes and text colours, written as Pandoc spans. Other Markdown editors show these as plain text. Ink notes always use them.</string>

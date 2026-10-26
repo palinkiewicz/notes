@@ -678,51 +678,27 @@ object MarkdownActions {
     fun insertLink(text: String, start: Int, end: Int, label: String, url: String): Result =
         insertReference(text, start, end, label, url, prefix = "[")
 
-    /** `![alt](url)`. */
-    fun insertImage(text: String, start: Int, end: Int, alt: String, url: String): Result =
-        insertReference(text, start, end, alt, url, prefix = "![")
-
     /**
-     * An image reference with base64 payload placed at the foot of the document:
-     * `![label][img-id]` at caret/selection and `[img-id]: data:mime;base64,data` at end.
+     * `![alt](url)` on a line of its own, which is what makes it render as the picture.
+     *
+     * An image inside a sentence is drawn as a labelled chip — see [MdImage] — so an insert that
+     * left it beside whatever the caret was next to would show the user a chip and not the image
+     * they picked. A line break is added before it when the caret is mid-line and after it when
+     * anything follows, and the caret ends up on the line below, ready to go on typing.
      */
-    fun insertBase64Image(
-        text: String,
-        start: Int,
-        end: Int,
-        alt: String,
-        mimeType: String,
-        base64Data: String,
-        refId: String? = null,
-    ): Result {
+    fun insertImage(text: String, start: Int, end: Int, alt: String, url: String): Result {
         val from = minOf(start, end).coerceIn(0, text.length)
         val to = maxOf(start, end).coerceIn(0, text.length)
-        val label = alt.ifBlank { nextDefaultImageLabel(text) }
-        val id = refId ?: generateImageRefId(text)
-        val tag = "![$label][$id]"
-        val withTag = text.replaceRange(from, to, tag)
-        val caret = from + tag.length
-        val refDef = "[$id]: data:$mimeType;base64,$base64Data"
-        val out = when {
-            withTag.isEmpty() -> "$tag\n\n$refDef"
-            withTag.endsWith("\n\n") -> "$withTag$refDef"
-            withTag.endsWith("\n") -> "$withTag\n$refDef"
-            else -> "$withTag\n\n$refDef"
-        }
+        // Brackets would end the alt text early, and a space would end the destination.
+        val label = alt.replace("[", "").replace("]", "").replace("\n", " ").trim()
+        val destination = url.trim().replace(" ", "%20")
+        val before = if (from == 0 || text[from - 1] == '\n') "" else "\n"
+        val after = if (to < text.length && text[to] == '\n') "" else "\n"
+        val snippet = "$before![$label]($destination)$after"
+        val out = text.replaceRange(from, to, snippet)
+        // Past the newline that ends the image's line, whichever of the two supplied it.
+        val caret = (from + snippet.length + if (after.isEmpty()) 1 else 0).coerceAtMost(out.length)
         return Result(out, caret, caret)
-    }
-
-    internal fun generateImageRefId(existingText: String): String {
-        while (true) {
-            val id = "img-${kotlin.random.Random.nextInt(10_000_000, 100_000_000)}"
-            if (!existingText.contains(id)) return id
-        }
-    }
-
-    internal fun nextDefaultImageLabel(existingText: String): String {
-        val matches = Regex("""!\[Image (\d+)\]""").findAll(existingText)
-        val maxIndex = matches.mapNotNull { it.groupValues[1].toIntOrNull() }.maxOrNull() ?: 0
-        return "Image ${maxIndex + 1}"
     }
 
     private fun insertReference(

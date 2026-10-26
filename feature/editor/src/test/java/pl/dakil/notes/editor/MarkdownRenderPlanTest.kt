@@ -178,10 +178,64 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
-    fun `an image leaves a glyph where its markers were`() {
-        // An image cannot be drawn inside a text field, and an empty alt text would otherwise leave
-        // nothing at all on the line.
-        assertEquals("🖼 a cat", render("![a cat](cat.png)"))
+    fun `an image inside a sentence leaves a glyph where its markers were`() {
+        // Only a line that is nothing but an image is drawn as the picture; in prose it is a chip,
+        // and an empty alt text would otherwise leave nothing at all on the line.
+        assertEquals("see 🖼 a cat here", render("see ![a cat](cat.png) here"))
+        assertTrue(MarkdownRenderer.plan("see ![a cat](cat.png) here").decorations.none { it is MdImage })
+    }
+
+    @Test
+    fun `an image alone on its line is concealed entirely behind one invisible character`() {
+        // Nothing may show behind the picture — no glyph, no alt text — but the line needs one
+        // character for the layout to make tall and for the caret to stand beside.
+        assertEquals("\u200B", renderRaw("![a cat](cat.png)"))
+        val image = MarkdownRenderer.plan("![a cat](cat.png)").decorations.single() as MdImage
+        assertEquals(MdImage(offset = 0, alt = "a cat", url = "cat.png"), image)
+    }
+
+    @Test
+    fun `two images in a row are two pictures on two lines`() {
+        // What used to happen: both were floated over the same spot and the second covered the first.
+        val source = "![one](a.png)\n![two](b.png)\n\nafter"
+        val images = MarkdownRenderer.plan(source).decorations.filterIsInstance<MdImage>()
+        assertEquals(listOf("a.png", "b.png"), images.map { it.url })
+        val rendered = renderRaw(source)
+        assertEquals('\u200B', rendered[images[0].offset])
+        assertEquals('\u200B', rendered[images[1].offset])
+        assertEquals(images[0].offset + 1, images[1].offset)
+    }
+
+    @Test
+    fun `a picture's line takes the newlines beside it, so no empty line is drawn above or below`() {
+        // Each picture is a paragraph of its own, and a paragraph boundary is already a line break:
+        // a newline left beside one renders as a whole blank line of text.
+        assertEquals("above\u200Bbelow", renderRaw("above\n![](a.png)\nbelow"))
+    }
+
+    @Test
+    fun `a blank line the author left under a picture is still there`() {
+        assertEquals("above\u200B\nbelow", renderRaw("above\n![](a.png)\n\nbelow").replace("\n\n", "\n"))
+    }
+
+    @Test
+    fun `a reference-style image takes its address from the definition, which is hidden`() {
+        val source = "![cat][c1]\n\n[C1]: attachments/0123.png"
+        val image = MarkdownRenderer.plan(source).decorations.filterIsInstance<MdImage>().single()
+        assertEquals("attachments/0123.png", image.url)
+        assertFalse(render(source).contains("attachments"))
+    }
+
+    @Test
+    fun `an image with a title is still drawn as the picture`() {
+        val image = MarkdownRenderer.plan("![cat](cat.png \"A cat\")").decorations.single() as MdImage
+        assertEquals("cat.png", image.url)
+    }
+
+    @Test
+    fun `an image whose reference is never defined stays visible as text`() {
+        // There is no picture to draw, so hiding the tag would leave the user nothing to fix.
+        assertTrue(MarkdownRenderer.plan("![cat][nowhere]").decorations.none { it is MdImage })
     }
 
     @Test

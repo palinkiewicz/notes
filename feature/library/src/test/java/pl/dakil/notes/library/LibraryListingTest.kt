@@ -108,4 +108,15 @@ class LibraryListingTest {
 
         assertEquals("Work", items.single().path)
     }
+
+    @Test
+    fun `the attachments folder is not listed as a place to file notes`() {
+        // It holds the pictures of the notes beside it, and opening it shows an empty folder.
+        val items = LibraryListing.build(
+            folders = listOf(folder("attachments"), folder("Work")),
+            notes = emptyList(),
+            path = "",
+        )
+        assertEquals(listOf("Work"), items.map { it.name })
+    }
 }

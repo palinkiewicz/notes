@@ -1,6 +1,7 @@
 package pl.dakil.notes.library
 
 import androidx.compose.runtime.Immutable
+import pl.dakil.notes.data.Attachments
 import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.NoteSummary
 import pl.dakil.notes.data.StoreEntry
@@ -77,6 +78,9 @@ object LibraryListing {
         val items = ArrayList<LibraryItem>(folders.size + notes.size)
         if (filter == LibraryFilter.ALL || filter == LibraryFilter.FOLDERS) {
             folders
+                // A `.md` note's pictures live there; it is part of the notes beside it, not a
+                // place the user files things. See [Attachments].
+                .filter { !it.name.equals(Attachments.DIR, ignoreCase = true) }
                 .map { LibraryItem.Folder(it.ref, it.name, it.modifiedAt, path) }
                 .sortedWith(folderOrder(sort))
                 .forEach { items += it }

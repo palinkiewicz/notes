@@ -26,6 +26,7 @@ import pl.dakil.notes.editor.canvas.scaleMatrix
 import pl.dakil.notes.ink.handleCount
 import pl.dakil.notes.ink.handleInto
 import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.ShapeSpec
@@ -212,6 +213,17 @@ fun SelectionChrome(
                         elevation = 0.dp,
                         onClick = { pickingColor = true },
                     )
+                    // The way back from the colour button for a picture: its own colours again.
+                    if (selection.images.any { (sheet.block(it) as? ImageBlock)?.tint != null }) {
+                        HandleButton(
+                            icon = NotesIcons.Close,
+                            description = stringResource(R.string.editor_selection_remove_tint),
+                            container = MaterialTheme.colorScheme.secondaryContainer,
+                            content = MaterialTheme.colorScheme.onSecondaryContainer,
+                            elevation = 0.dp,
+                            onClick = viewModel::clearImageTint,
+                        )
+                    }
                     // Offered only where it means something: a text box has no interior to paint,
                     // and a selection of nothing but boxes would get a button that does nothing.
                     if (selection.strokeCount > 0) {

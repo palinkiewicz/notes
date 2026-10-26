@@ -97,6 +97,16 @@ class NoteRepository(
      */
     private var pendingMove: Pair<StoreRef, StoreRef>? = null
 
+    /**
+     * The document each file was last read as or written from: a [Note] by identity, or the text.
+     *
+     * Closing an editor flushes, and the flush used to write whatever it was handed. A note that
+     * was only looked at was re-zipped, re-indexed and re-stamped on every close — its timestamp
+     * moved it to the top of the library and a sync client uploaded it again. Holding the last
+     * content lets a write of the same document be recognised as the no-op it is.
+     */
+    private val lastContent = ConcurrentHashMap<String, Any>()
+
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: Flow<SaveState> = _saveState.asStateFlow()
 
@@ -145,6 +155,7 @@ class NoteRepository(
         store.read(ref) { DakNoteReader.read(it) }
     }.onSuccess { note ->
         remember(ref)
+        lastContent[ref.value] = note
         _saveState.value = if (note.readOnly) SaveState.ReadOnly else SaveState.Idle
     }.recoverCatching { cause ->
         throw when (cause) {
@@ -156,8 +167,9 @@ class NoteRepository(
     /** Reads a plain `.md` note. There is no format to parse — the bytes are the document. */
     suspend fun loadMarkdown(ref: StoreRef): Result<String> = runCatching {
         store.read(ref) { it.readBytes().toString(Charsets.UTF_8) }
-    }.onSuccess {
+    }.onSuccess { markdown ->
         remember(ref)
+        lastContent[ref.value] = markdown
         _saveState.value = SaveState.Idle
     }.recoverCatching { cause ->
         throw if (cause is StoreException) cause else StoreException("Could not open the note", cause)
@@ -219,9 +231,34 @@ class NoteRepository(
     suspend fun flushMarkdown(ref: StoreRef, markdown: String): Result<Unit> =
         performSave(PendingSave.Text(ref, markdown))
 
+    /**
+     * Records [markdown] as what [ref] already holds on disk.
+     *
+     * For an editor whose document is not byte-for-byte the file it read — a `.md` note's
+     * frontmatter is parsed and rendered back — so that its first flush can still tell "unchanged".
+     */
+    fun markUnchanged(ref: StoreRef, markdown: String) {
+        lastContent[ref.value] = markdown
+    }
+
+    private fun isUnchanged(ref: StoreRef, pending: PendingSave): Boolean {
+        val last = lastContent[ref.value] ?: return false
+        return when (pending) {
+            // Identity, not equality: a sheet of dense handwriting is expensive to compare, and the
+            // editor hands back the very instance it was given until something is edited.
+            is PendingSave.Ink -> last === pending.note
+            is PendingSave.Text -> last == pending.markdown
+        }
+    }
+
     private suspend fun performSave(pending: PendingSave): Result<Unit> = writeLock.withLock {
-        _saveState.value = SaveState.Saving
         val ref = pendingMove?.takeIf { it.first == pending.ref }?.second ?: pending.ref
+        if (isUnchanged(ref, pending)) {
+            pendingMove = null
+            if (_saveState.value == SaveState.Pending) _saveState.value = SaveState.Idle
+            return@withLock Result.success(Unit)
+        }
+        _saveState.value = SaveState.Saving
         // Applied or superseded either way: nothing older than this write is still queued behind
         // it, so keeping the redirect could only misdirect a save of some future note.
         pendingMove = null
@@ -231,6 +268,10 @@ class NoteRepository(
             when (pending) {
                 is PendingSave.Ink -> writeInk(ref, pending.note)
                 is PendingSave.Text -> writeText(ref, pending.markdown)
+            }
+            lastContent[ref.value] = when (pending) {
+                is PendingSave.Ink -> pending.note
+                is PendingSave.Text -> pending.markdown
             }
         }.onSuccess {
             val copy = preserved
@@ -383,6 +424,7 @@ class NoteRepository(
         runCatching {
             store.delete(ref)
             lastKnown.remove(ref.value)
+            lastContent.remove(ref.value)
             index.remove(ref)
         }.isSuccess
     }
@@ -474,7 +516,8 @@ class NoteRepository(
         val folders = ArrayList<StoreEntry>()
         for (entry in entries) {
             if (entry.isDirectory) {
-                if (recursive) folders += entry
+                // Pictures only; nothing in there is a note.
+                if (recursive && !entry.name.equals(Attachments.DIR, ignoreCase = true)) folders += entry
                 continue
             }
             val kind = NoteKind.of(entry.name) ?: continue
@@ -572,6 +615,9 @@ class NoteRepository(
         writeLock.withLock {
             val moved = store.moveTo(ref, fromParent, toParent)
             redirectPendingSave(ref, moved)
+            if (directoryName == null && NoteKind.of(moved.value.substringAfterLast('/')) == NoteKind.TEXT) {
+                carryAttachments(moved, fromParent, toParent)
+            }
             if (directoryName != null) {
                 // Its descendants' paths all changed; the destination rescan reindexes them.
                 index.removeSubtree(childPath(fromPath, directoryName))
@@ -579,6 +625,62 @@ class NoteRepository(
                 index.move(ref, moved, toPath)
             }
             moved
+        }
+    }
+
+    // ---- Attachments ---------------------------------------------------------------------------
+
+    /**
+     * Stores [image] in the attachments folder beside [note], and returns the link to write.
+     *
+     * Content-addressed, so a picture that is already there is not written again — inserting the
+     * same image twice, or into two notes in one folder, leaves one file.
+     */
+    suspend fun addAttachment(note: StoreRef, image: ImportedImage): Result<String> = runCatching {
+        val parent = store.parentOf(note) ?: throw StoreException("Could not find the note's folder")
+        val folder = store.child(parent, Attachments.DIR) ?: store.createDirectory(parent, Attachments.DIR)
+        if (store.child(folder, image.fileName) == null) {
+            val target = store.newChild(folder, image.fileName, image.mimeType)
+            store.write(target) { it.write(image.bytes) }
+        }
+        Attachments.linkTo(image.fileName)
+    }
+
+    /** The bytes [url] names in [note]'s attachments folder, or null if it names nothing there. */
+    suspend fun readAttachment(note: StoreRef, url: String): ByteArray? {
+        val name = Attachments.fileNameOf(url) ?: return null
+        return runCatching {
+            val parent = store.parentOf(note) ?: return null
+            val folder = store.child(parent, Attachments.DIR) ?: return null
+            val file = store.child(folder, name) ?: return null
+            store.read(file) { it.readBytes() }
+        }.getOrNull()
+    }
+
+    /**
+     * Copies the attachments a `.md` note refers to from [fromParent] into [toParent].
+     *
+     * Copied rather than moved: the folder is shared, and another note left behind may use the
+     * same picture. Best effort — a picture that cannot be copied leaves a broken image in the moved
+     * note, which is better than refusing to move the note at all.
+     */
+    private suspend fun carryAttachments(note: StoreRef, fromParent: StoreRef, toParent: StoreRef) {
+        val markdown = runCatching { store.read(note) { it.readBytes().toString(Charsets.UTF_8) } }
+            .getOrNull() ?: return
+        val names = Attachments.referencedIn(markdown)
+        if (names.isEmpty()) return
+        val source = store.child(fromParent, Attachments.DIR) ?: return
+        val target = runCatching {
+            store.child(toParent, Attachments.DIR) ?: store.createDirectory(toParent, Attachments.DIR)
+        }.getOrNull() ?: return
+        for (name in names) {
+            runCatching {
+                if (store.child(target, name) != null) return@runCatching
+                val from = store.child(source, name) ?: return@runCatching
+                val bytes = store.read(from) { it.readBytes() }
+                val to = store.newChild(target, name, ImageImport.mimeForName(name))
+                store.write(to) { it.write(bytes) }
+            }
         }
     }
 

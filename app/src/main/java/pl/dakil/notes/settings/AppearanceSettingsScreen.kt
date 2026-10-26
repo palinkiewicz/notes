@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
+import pl.dakil.notes.data.ImageInsertMode
 import pl.dakil.notes.data.LibraryLayout
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.model.AppColorTheme
@@ -148,6 +149,16 @@ fun AppearanceSettingsScreen(
                 summary = stringResource(R.string.settings_pandoc_text_notes_description),
                 checked = current.pandocTextNotes,
                 onCheckedChange = settings::setPandocTextNotes,
+            )
+
+            SectionHeader(stringResource(R.string.settings_images))
+
+            SelectRow(
+                title = stringResource(R.string.settings_image_insert),
+                summary = stringResource(R.string.settings_image_insert_description),
+                selected = current.imageInsertMode,
+                options = ImageInsertMode.entries.map { it to it.label() },
+                onSelect = settings::setImageInsertMode,
             )
 
             SectionHeader(stringResource(R.string.settings_paper))

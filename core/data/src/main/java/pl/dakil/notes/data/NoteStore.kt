@@ -172,6 +172,14 @@ interface NoteStore {
     suspend fun siblingOf(sibling: StoreRef, name: String): StoreRef?
 
     /**
+     * The folder [ref] is in, or null when the backend cannot tell.
+     *
+     * For the files that belong *beside* a note rather than in it — a `.md` note's attachments
+     * folder. Null means there is nowhere known to put them, never "put them somewhere else".
+     */
+    suspend fun parentOf(ref: StoreRef): StoreRef? = null
+
+    /**
      * Change notifications for [dir]. Backends without watch support return an empty flow, which
      * callers handle by refreshing on resume instead.
      */

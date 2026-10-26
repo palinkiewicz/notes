@@ -5,6 +5,7 @@ import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.Rect
@@ -266,6 +267,7 @@ object DakNoteReader {
                 strokes = block.strokes.map { it.transformed(Affine.translate(0f, dy)) },
             )
             is TextBlock -> block.copy(rect = rect)
+            is ImageBlock -> block.copy(rect = rect)
             is OpaqueBlock -> block.copy(rect = rect)
         }
     }

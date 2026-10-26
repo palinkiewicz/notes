@@ -26,6 +26,11 @@
     <string name="settings_library">Biblioteka</string>
     <string name="settings_notes_layout">Układ notatek</string>
     <string name="settings_notes_layout_description">Karty pokazują podgląd każdej notatki; lista mieści ich więcej na ekranie.</string>
+    <string name="settings_images">Obrazy</string>
+    <string name="settings_image_insert">Wstawianie obrazu</string>
+    <string name="settings_image_insert_description">Co robi przycisk obrazu. Przy wyborze zdjęć jako pierwszym przytrzymaj przycisk, aby zamiast tego wstawić obraz z linku.</string>
+    <string name="image_insert_dialog">Zapytaj: urządzenie czy link</string>
+    <string name="image_insert_picker">Najpierw wybór zdjęć</string>
     <string name="settings_text_notes">Notatki tekstowe</string>
     <string name="settings_pandoc_text_notes">Rozmiary i kolory Pandoc</string>
     <string name="settings_pandoc_text_notes_description">Pozwól notatce .md ustawiać własne rozmiary czcionki i kolory tekstu, zapisywane jako spany Pandoc. Inne edytory Markdown pokażą je jako zwykły tekst. Notatki odręczne zawsze ich używają.</string>

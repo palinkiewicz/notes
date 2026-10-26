@@ -3,6 +3,7 @@ package pl.dakil.notes.settings
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import pl.dakil.notes.R
+import pl.dakil.notes.data.ImageInsertMode
 import pl.dakil.notes.data.LibraryLayout
 import pl.dakil.notes.data.SyncFrequency
 import pl.dakil.notes.model.AppColorTheme
@@ -45,6 +46,14 @@ fun LibraryLayout.label(): String = stringResource(
     when (this) {
         LibraryLayout.CARDS -> R.string.library_layout_cards
         LibraryLayout.LIST -> R.string.library_layout_list
+    },
+)
+
+@Composable
+fun ImageInsertMode.label(): String = stringResource(
+    when (this) {
+        ImageInsertMode.DIALOG -> R.string.image_insert_dialog
+        ImageInsertMode.PICKER -> R.string.image_insert_picker
     },
 )
 

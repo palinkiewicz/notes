@@ -1,5 +1,16 @@
 package pl.dakil.notes.editor.export
 
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import pl.dakil.notes.editor.markdown.ImageLoader
+import pl.dakil.notes.model.ImageBlock
+import androidx.compose.ui.geometry.Offset
+import pl.dakil.notes.model.placement
+import pl.dakil.notes.ui.sheet.imageTintFilter
+import androidx.compose.ui.graphics.drawscope.rotate
+import kotlin.math.roundToInt
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfDocument
@@ -132,6 +143,32 @@ object InkPageExporter {
 
         val pageTop = pageIndex * format.height
         val pageBottom = pageTop + format.height
+
+        // Under the ink, as on the sheet. Decoded at the size it prints, one at a time, so a page of
+        // photographs does not hold all of them at full resolution at once.
+        clipRect(bottom = format.height * ptToPx) {
+            for (block in sheet.blocks) {
+                if (block !is ImageBlock || sheet.pageOf(block) != pageIndex) continue
+                val r = block.rect
+                val at = block.placement()
+                val width = (r.width * ptToPx).roundToInt().coerceAtLeast(1)
+                val height = (r.height * ptToPx).roundToInt().coerceAtLeast(1)
+                val bitmap = ImageLoader.decode(block.bytes, width) ?: continue
+                val origin = Offset(at.left * ptToPx, (at.top - pageTop) * ptToPx)
+                rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), origin) {
+                    drawImage(
+                        image = bitmap,
+                        dstOffset = IntOffset(origin.x.roundToInt(), origin.y.roundToInt()),
+                        dstSize = IntSize(width, height),
+                        // The export presets recolour ink, not photographs; a picture keeps
+                        // only the filter its author put on it.
+                        colorFilter = block.tint?.let(::imageTintFilter),
+                    )
+                }
+                bitmap.asAndroidBitmap().recycle()
+            }
+        }
+
         for (layer in sheet.inkLayers()) {
             if (!layer.visible) continue
             val recolored = layer.strokes.map { it.recolored(preset) }
@@ -163,7 +200,8 @@ object InkPageExporter {
         // A sheet is paper: the sizes and colours its boxes carry are as much a part of the page
         // as the ink beside them, and a printed page that dropped them is not a picture of it.
         val annotated = plan.toAnnotatedString(block.markdown, exportMarkdownStyles(attributes = true))
-        val rect = block.worldBounds()
+        val rect = block.rect
+        val at = block.placement()
         val widthPx = (rect.width * ptToPx).toInt().coerceAtLeast(1)
         val paragraph = Paragraph(
             text = annotated.text,
@@ -173,11 +211,13 @@ object InkPageExporter {
             fontFamilyResolver = fontResolver,
             spanStyles = annotated.spanStyles,
         )
-        val left = rect.left * ptToPx
-        val top = (rect.top - pageTop) * ptToPx
+        val left = at.left * ptToPx
+        val top = (at.top - pageTop) * ptToPx
         val canvas = drawContext.canvas
         canvas.save()
         canvas.translate(left, top)
+        // Turned about its corner, as on the sheet.
+        canvas.rotate(Math.toDegrees(at.angle.toDouble()).toFloat())
         paragraph.paint(canvas)
         canvas.restore()
     }

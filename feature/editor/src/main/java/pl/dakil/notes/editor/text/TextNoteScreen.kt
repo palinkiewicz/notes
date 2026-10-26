@@ -44,7 +44,9 @@ import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.export.ExportSheet
 import pl.dakil.notes.editor.export.exportText
 import pl.dakil.notes.editor.export.shareExport
+import pl.dakil.notes.editor.markdown.InsertImageDialogs
 import pl.dakil.notes.editor.markdown.MarkdownActions
+import pl.dakil.notes.editor.markdown.rememberImageInsertState
 import pl.dakil.notes.editor.markdown.FormatPopup
 import pl.dakil.notes.editor.markdown.MarkdownEditor
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
@@ -98,6 +100,12 @@ fun TextNoteScreen(
     // resource id, because the view model has no `Context` to resolve one with.
     val errorMessage = state.error ?: state.errorRes?.let { stringResource(it) }
 
+    val imageInsert = rememberImageInsertState(
+        mode = state.imageInsertMode,
+        onPicked = viewModel::insertImage,
+        onFailed = viewModel::imageFailed,
+    )
+
 
     if (renaming) {
         RenameNoteDialog(
@@ -128,7 +136,7 @@ fun TextNoteScreen(
             exporting = exporting,
             onDismiss = { if (!exporting) exportOpen = false },
             onExport = { _, format ->
-                val markdown = viewModel.expandedText()
+                val markdown = text.text.toString()
                 exporting = true
                 coroutineScope.launch(Dispatchers.Default) {
                     val result = runCatching { exportText(context, markdown, format, state.pandoc) }
@@ -163,24 +171,10 @@ fun TextNoteScreen(
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },
-            onConfirmDeviceImage = { label, mimeType, base64 ->
-                reference = null
-                val before = text.text.toString()
-                val result = viewModel.insertBase64Image(
-                    text = before,
-                    start = text.selection.start,
-                    end = text.selection.end,
-                    alt = label,
-                    mimeType = mimeType,
-                    base64Data = base64,
-                )
-                text.edit {
-                    replace(0, length, result.text)
-                    selection = TextRange(result.selectionStart, result.selectionEnd)
-                }
-            },
         )
     }
+
+    InsertImageDialogs(imageInsert, onLink = viewModel::insertImageLink)
 
     // A conflict is not a failure: the note saved, and the version that was on disk was kept
     // beside it. `error` is the wrong channel — it replaces the whole editor — so this gets the
@@ -190,6 +184,12 @@ fun TextNoteScreen(
     val conflictMessage = conflict?.let { stringResource(R.string.editor_conflict_saved, it.copyName) }
     LaunchedEffect(conflictMessage) {
         conflictMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
+    val imageFailure = if (state.imageFailed) stringResource(R.string.editor_error_image) else null
+    LaunchedEffect(imageFailure) {
+        imageFailure ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(imageFailure)
+        viewModel.dismissImageFailure()
     }
 
     Scaffold(
@@ -270,7 +270,8 @@ fun TextNoteScreen(
                     openPopup = popup,
                     onPopupChange = { popup = it },
                     onInsertLink = { reference = ReferenceKind.LINK },
-                    onInsertImage = { reference = ReferenceKind.IMAGE },
+                    onInsertImage = imageInsert::start,
+                    onInsertImageLink = if (imageInsert.longPressOpensLink) imageInsert::startLink else null,
                     // A `.md` file has to stay one every other editor renders sensibly, so the size
                     // and colour controls are offered only where the user has asked for them.
                     attributes = state.pandoc,
@@ -300,7 +301,8 @@ fun TextNoteScreen(
                             openPopup = popup,
                             onPopupChange = { popup = it },
                             onInsertLink = { reference = ReferenceKind.LINK },
-                            onInsertImage = { reference = ReferenceKind.IMAGE },
+                            onInsertImage = imageInsert::start,
+                            onInsertImageLink = if (imageInsert.longPressOpensLink) imageInsert::startLink else null,
                             attributes = state.pandoc,
                         )
                     }

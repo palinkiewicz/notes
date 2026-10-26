@@ -8,7 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.text.TextRange
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -26,10 +26,14 @@ import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.data.Attachments
+import pl.dakil.notes.data.ImageImport
+import pl.dakil.notes.data.ImageInsertMode
+import pl.dakil.notes.data.ImportedImage
+import pl.dakil.notes.editor.markdown.DataUriImages
+import pl.dakil.notes.editor.markdown.DefaultImageSource
+import pl.dakil.notes.editor.markdown.ImageSource
 import pl.dakil.notes.editor.markdown.MarkdownActions
-import pl.dakil.notes.editor.markdown.ImageRefsSupport
-import pl.dakil.notes.editor.markdown.ImageRefs
-import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.format.FrontmatterCodec
 
 @Immutable
@@ -61,6 +65,14 @@ data class TextNoteUiState(
      * not edit anybody's file.
      */
     val pandoc: Boolean = false,
+    /** What the image button does when tapped. A user setting, see [ImageInsertMode]. */
+    val imageInsertMode: ImageInsertMode = ImageInsertMode.DIALOG,
+    /**
+     * An image the user picked could not be added. Transient — shown once and dismissed — and not
+     * [error], which replaces the whole editor: a picture that did not arrive is no reason to take
+     * the note away.
+     */
+    val imageFailed: Boolean = false,
 )
 
 /**
@@ -74,7 +86,7 @@ data class TextNoteUiState(
 class TextNoteViewModel(
     private val repository: NoteRepository,
     settings: SettingsRepository,
-) : ViewModel(), ImageRefsSupport {
+) : ViewModel(), ImageSource {
 
     private val _state = MutableStateFlow(TextNoteUiState())
     val state: StateFlow<TextNoteUiState> = _state.asStateFlow()
@@ -86,27 +98,17 @@ class TextNoteViewModel(
     private var autosave: Job? = null
 
     /**
-     * The oversized image payloads the field is not carrying.
+     * The bytes behind an image in this note.
      *
-     * The field holds the note's body with each oversized payload standing in as its token; the
-     * real bytes live here, and [expand] puts them back wherever the machinery is not welcome.
-     * Cleared when a different note opens, so one note's images never bleed into another's. See
-     * [ImageRefs].
+     * `attachments/…` is relative to the folder the note is in, which only the note knows; every
+     * other destination means the same wherever it is read.
      */
-    private val imagePayloads = HashMap<String, String>()
-
-    override fun expand(markdown: String): String = ImageRefs.expand(markdown, imagePayloads::get)
-
-    override fun collapseForPaste(markdown: String): String =
-        ImageRefs.collapseForPaste(markdown, imagePayloads::put)
-
-    override suspend fun resolveImage(url: String, widthPx: Int): ImageBitmap? {
-        val source = if (url.startsWith(ImageRefs.TOKEN_PREFIX)) {
-            imagePayloads[url] ?: return null
-        } else {
-            url
+    override suspend fun bytes(url: String): ByteArray? {
+        if (Attachments.fileNameOf(url) != null) {
+            val ref = _state.value.ref ?: return null
+            return repository.readAttachment(ref, url)
         }
-        return ImageLoader.load(source, widthPx)
+        return DefaultImageSource.bytes(url)
     }
 
     /**
@@ -123,7 +125,7 @@ class TextNoteViewModel(
     private fun composed(): String = FrontmatterCodec.render(
         tags = _state.value.tags,
         remainder = frontmatterRemainder,
-        body = expand(text.text.toString()),
+        body = text.text.toString(),
     )
 
     init {
@@ -133,7 +135,9 @@ class TextNoteViewModel(
         // Collected rather than read once: the setting can be changed with a note already open, and
         // a formatting bar that only notices on the next launch is one the user thinks is broken.
         settings.settings
-            .onEach { app -> _state.update { it.copy(pandoc = app.pandocTextNotes) } }
+            .onEach { app ->
+                _state.update { it.copy(pandoc = app.pandocTextNotes, imageInsertMode = app.imageInsertMode) }
+            }
             .launchIn(viewModelScope)
     }
 
@@ -142,24 +146,32 @@ class TextNoteViewModel(
         autosave?.cancel()
         // The setting survives the reset: it is not the note's, and the collector above only emits
         // again when it changes.
-        _state.update { TextNoteUiState(ref = ref, isLoading = true, pandoc = it.pandoc) }
+        _state.update {
+            TextNoteUiState(ref = ref, isLoading = true, pandoc = it.pandoc, imageInsertMode = it.imageInsertMode)
+        }
 
         viewModelScope.launch {
             repository.loadMarkdown(ref).fold(
                 onSuccess = { markdown ->
                     val parsed = FrontmatterCodec.parse(markdown)
                     frontmatterRemainder = parsed.remainder
-                    // A different note is opening, so its images start empty rather than
-                    // inheriting whatever the last one had; tokens the old map answered are gone
-                    // with it.
-                    imagePayloads.clear()
-                    text = TextFieldState(ImageRefs.collapse(parsed.body, imagePayloads::put))
+                    val body = withoutEmbeddedImages(ref, parsed.body)
+                    text = TextFieldState(body)
                     _state.update {
                         it.copy(
                             title = ref.noteTitle(),
                             tags = parsed.tags,
                             isLoading = false,
                         )
+                    }
+                    if (body === parsed.body) {
+                        // The frontmatter is parsed and rendered back, so the composed note need
+                        // not be the file's exact bytes; it is still the file, and closing it
+                        // unread must not write it.
+                        repository.markUnchanged(ref, composed())
+                    } else {
+                        // Its images have just moved out to files; the note has to follow them.
+                        repository.requestSaveMarkdown(ref, composed())
                     }
                     startAutosave()
                     refreshKnownTags()
@@ -236,38 +248,69 @@ class TextNoteViewModel(
     }
 
     /**
-     * The note's Markdown with the payloads back in it.
+     * Moves images an older build embedded as base64 out into the attachments folder.
      *
-     * For the exporter and anywhere else the machinery is not welcome: the file, and anything
-     * reading it, gets the real document, not the field's view of it. See [ImageRefs].
+     * Returns [body] itself — the same instance — when there was nothing to move, which is how the
+     * caller tells "untouched" from "rewritten". A payload that cannot be stored stays where it is:
+     * the note still shows it, and the next open tries again.
      */
-    fun expandedText(): String = expand(text.text.toString())
+    private suspend fun withoutEmbeddedImages(ref: StoreRef, body: String): String {
+        val found = DataUriImages.find(body)
+        if (found.isEmpty()) return body
+        val links = HashMap<String, String>()
+        for (image in found) {
+            val bytes = image.bytes() ?: continue
+            repository.addAttachment(ref, ImageImport.keep(bytes, image.mimeType))
+                .onSuccess { links[image.uri] = it }
+        }
+        return if (links.isEmpty()) body else DataUriImages.replace(body, links)
+    }
 
     /**
-     * The screen's device-image insert, with the payload taken aside before it reaches the field.
+     * Stores [image] beside the note and puts it at the caret, on a line of its own.
      *
-     * The insert appends its reference definition after the caret it reports, and the collapse
-     * only touches definitions, so the returned offsets stay true for the collapsed text.
+     * The caret is read when the file has been written, not when the picker closed: the user can
+     * go on typing while a large photo is copied, and the picture lands where the caret is then.
      */
-    fun insertBase64Image(
-        text: String,
-        start: Int,
-        end: Int,
-        alt: String,
-        mimeType: String,
-        base64Data: String,
-    ): MarkdownActions.Result {
-        val inserted = MarkdownActions.insertBase64Image(text, start, end, alt, mimeType, base64Data)
-        return inserted.copy(text = ImageRefs.collapse(inserted.text, imagePayloads::put))
+    fun insertImage(image: ImportedImage) {
+        val ref = _state.value.ref ?: return
+        viewModelScope.launch {
+            repository.addAttachment(ref, image).fold(
+                onSuccess = { link -> insertImageLink(alt = "", url = link) },
+                onFailure = { imageFailed() },
+            )
+        }
+    }
+
+    /** A picked image could not be read or stored; see [TextNoteUiState.imageFailed]. */
+    fun imageFailed() = _state.update { it.copy(imageFailed = true) }
+
+    fun dismissImageFailure() = _state.update { it.copy(imageFailed = false) }
+
+    /** Puts `![alt](url)` at the caret, on a line of its own. */
+    fun insertImageLink(alt: String, url: String) {
+        val field = text
+        val result = MarkdownActions.insertImage(
+            field.text.toString(),
+            field.selection.start,
+            field.selection.end,
+            alt,
+            url,
+        )
+        field.edit {
+            replace(0, length, result.text)
+            selection = TextRange(result.selectionStart, result.selectionEnd)
+        }
     }
 
     fun setSourceMode(source: Boolean) = _state.update { it.copy(sourceMode = source) }
 
     /** Writes immediately, for when the editor is closing rather than pausing. */
-    fun flush() {
-        val ref = _state.value.ref ?: return
+    /** Writes immediately; the job completes once the file and the index both have the note. */
+    fun flush(): Job? {
+        val ref = _state.value.ref ?: return null
         val markdown = composed()
-        viewModelScope.launch { repository.flushMarkdown(ref, markdown) }
+        return viewModelScope.launch { repository.flushMarkdown(ref, markdown) }
     }
 
     companion object {

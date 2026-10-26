@@ -1,5 +1,8 @@
 package pl.dakil.notes.editor
 
+import androidx.compose.ui.graphics.TransformOrigin
+import pl.dakil.notes.model.carriedBy
+import pl.dakil.notes.model.placement
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -116,12 +119,18 @@ fun TextBoxLayer(
 
             for ((placeable, box) in placed) {
                 val carried = box.id in moving && !live.isIdentity
-                val left = if (carried) live.mapX(box.rect.left, box.rect.top) else box.rect.left
-                val top = if (carried) live.mapY(box.rect.left, box.rect.top) else box.rect.top
-                placeable.place(
-                    x = (left * ptToPx).roundToInt(),
-                    y = SheetPainter.documentYToStripPx(top, format, ptToPx, paged).roundToInt(),
-                )
+                val at = (if (carried) box.carriedBy(live) else box).placement()
+                val x = (at.left * ptToPx).roundToInt()
+                val y = SheetPainter.documentYToStripPx(at.top, format, ptToPx, paged).roundToInt()
+                if (at.angle == 0f) {
+                    placeable.place(x, y)
+                } else {
+                    // Turned about its top-left corner, the pivot the block's transform names.
+                    placeable.placeWithLayer(x, y) {
+                        rotationZ = Math.toDegrees(at.angle.toDouble()).toFloat()
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+                }
             }
         }
     }
@@ -158,7 +167,6 @@ private fun TextBoxContent(
                 } else {
                     { mark, checked -> viewModel.toggleTask(box.id, mark, checked) }
                 },
-                images = viewModel,
             )
         },
     ) { measurables, constraints ->
