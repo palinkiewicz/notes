@@ -14,7 +14,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
@@ -52,6 +54,7 @@ import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
+import pl.dakil.notes.model.ToolState
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.data.ImageImport
 import pl.dakil.notes.data.ImageInsertMode
@@ -231,6 +234,8 @@ class NoteViewModel(
     private var pendingBox: BlockId? = null
 
     init {
+        restoreTools()
+
         settings.settings
             .onEach { app ->
                 _state.update {
@@ -258,6 +263,41 @@ class NoteViewModel(
         repository.saveState
             .onEach { save -> _state.update { it.copy(saveState = save) } }
             .launchIn(viewModelScope)
+
+        // Debounced, because a slider being dragged changes the tool on every frame and each of
+        // those would otherwise be a preferences write.
+        _state.map { it.toolState() }
+            .distinctUntilChanged()
+            .drop(1)
+            .debounce(TOOL_SAVE_MS)
+            .onEach(::saveTools)
+            .launchIn(viewModelScope)
+    }
+
+    override fun onCleared() {
+        // The debounce dies with the scope, so a colour picked just before leaving goes down here.
+        saveTools(_state.value.toolState())
+        super.onCleared()
+    }
+
+    private fun EditorUiState.toolState() = ToolState(toolPresets, lastDrawingTool, lastEraser)
+
+    /** Picks up the tools as they were left, when the user has asked for them to be kept. */
+    private fun restoreTools() {
+        if (!settings.read().rememberTools) return
+        val saved = ToolState.decode(settings.readToolState())
+        _state.update {
+            it.copy(
+                tool = saved.presets.first { spec -> spec.tool == saved.lastDrawing },
+                toolPresets = saved.presets,
+                lastDrawingTool = saved.lastDrawing,
+                lastEraser = saved.lastEraser,
+            )
+        }
+    }
+
+    private fun saveTools(tools: ToolState) {
+        if (settings.read().rememberTools) settings.writeToolState(tools.encode())
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------------
@@ -1322,6 +1362,9 @@ class NoteViewModel(
 
         /** How long a pause in typing ends one undo step and starts the next. */
         private const val TYPING_COMMIT_MS = 400L
+
+        /** Long enough to outlast a slider drag, short enough that a quick exit still keeps it. */
+        private const val TOOL_SAVE_MS = 500L
 
         /** A new box is a line tall and as wide as the column; both are only a starting point. */
         private const val NEW_TEXT_HEIGHT = 28f

@@ -72,6 +72,8 @@
 
     <!--  INPUT SETTINGS  -->
     <string name="settings_finger_drawing">Draw with finger</string>
+    <string name="settings_remember_tools">Remember tool settings</string>
+    <string name="settings_remember_tools_description">Keep each pen\'s colour, width and opacity, and the tool you were using, after the app restarts. When off, tools start from their defaults.</string>
     <string name="settings_finger_drawing_description">Turn on if your device has no stylus: the editor gets a button that lets a finger draw. Two fingers always pan and zoom.</string>
     <string name="settings_palm_window">Palm rejection window</string>
     <string name="settings_palm_window_description">Touches within this time of a stylus sample are ignored. Raise it if your hand still draws; lower it if touch feels unresponsive.</string>

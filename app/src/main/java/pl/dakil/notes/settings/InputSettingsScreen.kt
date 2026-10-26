@@ -63,6 +63,17 @@ fun InputSettingsScreen(
                 onCheckedChange = settings::setFingerDrawing,
             )
 
+            // Switching it off forgets the kept tools, like the remember-place switches do.
+            SwitchRow(
+                title = stringResource(R.string.settings_remember_tools),
+                summary = stringResource(R.string.settings_remember_tools_description),
+                checked = current.rememberTools,
+                onCheckedChange = {
+                    settings.setRememberTools(it)
+                    if (!it) settings.clearToolState()
+                },
+            )
+
             SliderRow(
                 title = stringResource(R.string.settings_palm_window),
                 summary = stringResource(R.string.settings_palm_window_description),

@@ -4,14 +4,20 @@ package pl.dakil.notes.model
  * The drawing tools. The ordinal is persisted in the binary stroke stream, so entries may be
  * appended but never reordered or removed.
  */
-enum class ToolId {
-    PEN,
-    FOUNTAIN_PEN,
-    PENCIL,
-    HIGHLIGHTER,
-    ERASER_STROKE,
-    ERASER_POINT,
-    LASSO;
+enum class ToolId(
+    /**
+     * A stable name for settings, which unlike the `.dsv` ordinal must survive the constants being
+     * reordered or renamed — see `LocaleSafeKeysTest`.
+     */
+    val key: String,
+) {
+    PEN("pen"),
+    FOUNTAIN_PEN("fountainPen"),
+    PENCIL("pencil"),
+    HIGHLIGHTER("highlighter"),
+    ERASER_STROKE("eraserStroke"),
+    ERASER_POINT("eraserPoint"),
+    LASSO("lasso");
 
     val isDrawing: Boolean get() = this == PEN || this == FOUNTAIN_PEN || this == PENCIL || this == HIGHLIGHTER
 
@@ -21,6 +27,8 @@ enum class ToolId {
         private val VALUES = entries.toTypedArray()
         /** Unknown ids from a newer file degrade to a plain pen rather than failing the load. */
         fun fromOrdinal(o: Int): ToolId = VALUES.getOrElse(o) { PEN }
+
+        fun fromKey(key: String?): ToolId? = VALUES.firstOrNull { it.key == key }
     }
 }
 

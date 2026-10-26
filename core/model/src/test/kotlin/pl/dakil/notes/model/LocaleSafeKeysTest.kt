@@ -36,6 +36,13 @@ class LocaleSafeKeysTest {
     }
 
     @Test
+    fun `tool keys are the same in Turkish as anywhere else`() {
+        for (tool in ToolId.entries) {
+            assertEquals(tool, ToolId.fromKey(tool.key))
+        }
+    }
+
+    @Test
     fun `view mode keys are the same in Turkish as anywhere else`() {
         for (mode in ViewMode.entries) {
             assertEquals(mode, ViewMode.fromKey(mode.key))

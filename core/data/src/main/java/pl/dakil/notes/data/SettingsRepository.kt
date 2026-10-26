@@ -176,6 +176,13 @@ data class AppSettings(
      * writing on straight away, without waiting for it or touching it to catch it first.
      */
     val inertialScroll: Boolean = false,
+    /**
+     * Whether each tool's colour, width and opacity — and which pen was in hand — survive a restart.
+     *
+     * On by default: a pen that turns back to black every time the app is reopened is the surprise.
+     * The tools themselves are kept outside this class, see [SettingsRepository.readToolState].
+     */
+    val rememberTools: Boolean = true,
 )
 
 /**
@@ -244,6 +251,7 @@ class SettingsRepository(context: Context) {
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
         inertialScroll = prefs.getBoolean(KEY_INERTIAL_SCROLL, false),
+        rememberTools = prefs.getBoolean(KEY_REMEMBER_TOOLS, true),
         zoomIndicatorSeconds = prefs.getInt(KEY_ZOOM_INDICATOR, 3).coerceIn(0, MAX_ZOOM_INDICATOR_SECONDS),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
         libraryLayout = LibraryLayout.fromKey(
@@ -341,6 +349,21 @@ class SettingsRepository(context: Context) {
 
     fun setInertialScroll(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_INERTIAL_SCROLL, enabled).apply()
+
+    fun setRememberTools(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_REMEMBER_TOOLS, enabled).apply()
+
+    /**
+     * The tools as last left, as `ToolState.encode` wrote them, or null when none are kept.
+     *
+     * Not a field of [AppSettings]: it changes whenever a slider moves, and folding it in would
+     * rebuild and re-deliver every setting in the app to every screen listening, each time.
+     */
+    fun readToolState(): String? = prefs.getString(KEY_TOOL_STATE, null)
+
+    fun writeToolState(encoded: String) = prefs.edit().putString(KEY_TOOL_STATE, encoded).apply()
+
+    fun clearToolState() = prefs.edit().remove(KEY_TOOL_STATE).apply()
 
     fun setImageInsertMode(mode: ImageInsertMode) =
         prefs.edit().putString(KEY_IMAGE_INSERT_MODE, mode.key).apply()
@@ -487,6 +510,8 @@ class SettingsRepository(context: Context) {
         const val KEY_REMEMBER_INK = "view.rememberInk"
         const val KEY_REMEMBER_TEXT = "view.rememberText"
         const val KEY_INERTIAL_SCROLL = "view.inertialScroll"
+        const val KEY_REMEMBER_TOOLS = "tools.remember"
+        const val KEY_TOOL_STATE = "tools.state"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

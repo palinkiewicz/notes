@@ -70,6 +70,8 @@
 
     <!--  INPUT SETTINGS  -->
     <string name="settings_finger_drawing">Rysowanie palcem</string>
+    <string name="settings_remember_tools">Zapamiętuj ustawienia narzędzi</string>
+    <string name="settings_remember_tools_description">Zachowuj kolor, grubość i krycie każdego pisaka oraz używane narzędzie po ponownym uruchomieniu aplikacji. Gdy wyłączone, narzędzia zaczynają od ustawień domyślnych.</string>
     <string name="settings_finger_drawing_description">Włącz, jeśli Twoje urządzenie nie ma rysika: w edytorze pojawi się przycisk pozwalający rysować palcem. Dwa palce zawsze przesuwają i powiększają.</string>
     <string name="settings_palm_window">Okno odrzucania dłoni</string>
     <string name="settings_palm_window_description">Dotknięcia w tym czasie od próbki rysika są ignorowane. Zwiększ, jeśli dłoń nadal rysuje; zmniejsz, jeśli dotyk reaguje zbyt wolno.</string>
