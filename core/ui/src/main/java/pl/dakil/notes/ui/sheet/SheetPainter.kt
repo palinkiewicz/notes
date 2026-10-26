@@ -11,6 +11,7 @@ import pl.dakil.notes.model.PagePattern
 import pl.dakil.notes.model.PatternType
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.nextDown
 import kotlin.math.sqrt
 
 /**
@@ -124,6 +125,16 @@ object SheetPainter {
         return y * ptToPx + page * PAGE_GAP_PT * ptToPx
     }
 
+    /**
+     * The inverse of [documentYToStripPx], for a pointer.
+     *
+     * The gap below a page is desk, not paper, and has no document coordinate of its own. A point
+     * in it is held at the foot of the page above — just inside it — rather than carried on past
+     * the edge. Carried on, it landed in the top band of the *next* page: ink drawn on the desk was
+     * stamped onto that page, a lasso dragged there picked up what was on it, and a selection moved
+     * across the gap ran a gap ahead of the pen and then jumped back as the pen reached the paper.
+     * Held, the mapping never runs backwards, and a drag across the gap simply pauses at the edge.
+     */
     fun stripPxToDocumentY(py: Float, format: PageFormat, ptToPx: Float, paged: Boolean): Float {
         if (!paged) return py / ptToPx
         val pageHeightPx = format.height * ptToPx
@@ -131,7 +142,9 @@ object SheetPainter {
         val stride = pageHeightPx + gapPx
         if (stride <= 0f) return py / ptToPx
         val page = floor(py / stride).toInt().coerceAtLeast(0)
-        return (py - page * gapPx) / ptToPx
+        val y = (py - page * gapPx) / ptToPx
+        val foot = (page + 1) * format.height
+        return if (y >= foot) foot.nextDown() else y
     }
 
     // ---- Patterns --------------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.documentPointAt
@@ -69,5 +70,32 @@ class InkCoordinateTest {
 
         val correct = documentPointAt(px, py, ptToPx, zoom, format, paged = true)
         assertEquals(400f, correct.x, 0.01f)
+    }
+
+    @Test
+    fun `a touch in the gap between pages stays on the page above instead of the one below`() {
+        // Carried on past the edge, the gap read as the top band of the next page: ink and lassos
+        // drawn on the desk landed on that page, out of sight of the pen that drew them.
+        val footPx = SheetPainter.documentYToStripPx(format.height, format, ptToPx, paged = true)
+        val inGap = footPx - SheetPainter.PAGE_GAP_PT * ptToPx * 0.5f
+        val y = SheetPainter.stripPxToDocumentY(inGap, format, ptToPx, paged = true)
+        assertEquals(format.height, y, 0.01f)
+        assertTrue("must stay on the first page, got $y", y < format.height)
+    }
+
+    @Test
+    fun `dragging down across a page break never moves backwards`() {
+        // A selection follows this mapping sample by sample; any step back is the selection
+        // jumping back under a pen that only ever moved forward.
+        val start = SheetPainter.documentYToStripPx(format.height - 50f, format, ptToPx, paged = true)
+        val end = SheetPainter.documentYToStripPx(format.height + 50f, format, ptToPx, paged = true)
+        var previous = -Float.MAX_VALUE
+        var py = start
+        while (py <= end) {
+            val y = SheetPainter.stripPxToDocumentY(py, format, ptToPx, paged = true)
+            assertTrue("went back from $previous to $y at $py", y >= previous)
+            previous = y
+            py += 0.5f
+        }
     }
 }
