@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateDecay
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isUnspecified
 import androidx.compose.ui.input.pointer.PointerInputChange
@@ -180,7 +181,7 @@ fun Modifier.sheetTransformGestures(
             val velocity = tracker.calculateVelocity()
             val v = Offset(velocity.x, velocity.y)
             if (v.getDistance() > MIN_FLING_VELOCITY) {
-                flingJob = scope.launch { transform.coastTo(v, decay) }
+                flingJob = scope.launch(RealTimeFling) { transform.coastTo(v, decay) }
             }
         }
     }
@@ -231,6 +232,18 @@ private suspend fun SheetTransform.coastTo(velocity: Offset, decay: DecayAnimati
     ).animateDecay(decay) {
         if (!setOffset(value.x, value.y)) cancelAnimation()
     }
+}
+
+/**
+ * Runs a coast at real speed, whatever the system animation scale says.
+ *
+ * Compose stretches or squeezes every animation by the developer-options animator scale, and a
+ * decay is no exception: at a 3× setting the page shot off three times as fast as the finger threw
+ * it. That scale is for transitions — a fling is a continuation of the hand and has to keep its
+ * speed, which is why Compose's own scrollables pin it to 1 in exactly this way.
+ */
+private object RealTimeFling : MotionDurationScale {
+    override val scaleFactor: Float get() = 1f
 }
 
 /** Below this the residual velocity of a lifting finger reads as jitter, not as a throw. */
