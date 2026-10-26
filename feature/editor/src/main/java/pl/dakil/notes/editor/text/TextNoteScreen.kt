@@ -22,7 +22,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.withTimeoutOrNull
 import pl.dakil.notes.editor.SaveViewOnLeave
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarHost
@@ -335,11 +337,25 @@ fun TextNoteScreen(
                     // Opened where it was left, when the user asked for that. `maxValue` reads
                     // `Int.MAX_VALUE` until the field has been measured, and scrolling before then
                     // would land on a guess.
+                    //
+                    // The first measurement is not the last: images load after the text, and until
+                    // each one does it is a line tall. Scrolling once then clamped the saved spot
+                    // to a note with no pictures in it. So the view follows the note as it grows,
+                    // until it reaches the spot — or until the user scrolls, which is them choosing
+                    // somewhere else, or the pictures stop arriving.
                     val scroll = rememberScrollState()
                     LaunchedEffect(Unit) {
                         val saved = viewModel.savedScroll() ?: return@LaunchedEffect
-                        snapshotFlow { scroll.maxValue }.first { it != Int.MAX_VALUE }
-                        scroll.scrollTo(saved)
+                        var placed = -1
+                        withTimeoutOrNull(RESTORE_WINDOW_MS) {
+                            snapshotFlow { scroll.maxValue }
+                                .filter { it != Int.MAX_VALUE }
+                                .takeWhile { placed < 0 || (placed < saved && scroll.value == placed) }
+                                .collect { max ->
+                                    scroll.scrollTo(saved.coerceAtMost(max))
+                                    placed = scroll.value
+                                }
+                        }
                     }
                     SaveViewOnLeave { viewModel.rememberScroll(scroll.value) }
                     if (expanded) {
@@ -370,3 +386,6 @@ fun TextNoteScreen(
         }
     }
 }
+
+/** How long a reopened note keeps following its images down to where it was left. */
+private const val RESTORE_WINDOW_MS = 5_000L
