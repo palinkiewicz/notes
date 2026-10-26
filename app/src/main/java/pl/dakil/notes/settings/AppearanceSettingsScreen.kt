@@ -56,6 +56,8 @@ import pl.dakil.notes.ui.theme.resolveDark
 fun AppearanceSettingsScreen(
     current: AppSettings,
     settings: SettingsRepository,
+    /** Wipes the remembered positions of ink notes (true) or text notes (false). */
+    onForgetPositions: (ink: Boolean) -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     Scaffold(
@@ -140,6 +142,29 @@ fun AppearanceSettingsScreen(
                 selected = current.libraryLayout,
                 options = LibraryLayout.entries.map { it to it.label() },
                 onSelect = settings::setLibraryLayout,
+            )
+
+            SectionHeader(stringResource(R.string.settings_reopening))
+
+            // Switching one off forgets what it had kept: "don't remember" should leave nothing
+            // written down, not merely stop reading it.
+            SwitchRow(
+                title = stringResource(R.string.settings_remember_ink),
+                summary = stringResource(R.string.settings_remember_ink_description),
+                checked = current.rememberInkPosition,
+                onCheckedChange = {
+                    settings.setRememberInkPosition(it)
+                    if (!it) onForgetPositions(true)
+                },
+            )
+            SwitchRow(
+                title = stringResource(R.string.settings_remember_text),
+                summary = stringResource(R.string.settings_remember_text_description),
+                checked = current.rememberTextPosition,
+                onCheckedChange = {
+                    settings.setRememberTextPosition(it)
+                    if (!it) onForgetPositions(false)
+                },
             )
 
             SectionHeader(stringResource(R.string.settings_text_notes))

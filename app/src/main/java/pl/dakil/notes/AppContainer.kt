@@ -9,6 +9,7 @@ import pl.dakil.notes.data.FileNoteStore
 import pl.dakil.notes.data.LibraryRootController
 import pl.dakil.notes.data.NoteIndex
 import pl.dakil.notes.data.NoteRepository
+import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.SwitchableNoteStore
 import pl.dakil.notes.data.SyncProvider
@@ -37,6 +38,8 @@ class AppContainer(context: Context) {
 
     val index: NoteIndex by lazy { NoteIndex(appContext) }
 
+    val viewStates: NoteViewStates by lazy { NoteViewStates(appContext) }
+
     /** Where the library lives when the user has not chosen a folder of their own. */
     private val internalRoot: File by lazy { File(appContext.filesDir, "notes").apply { mkdirs() } }
 
@@ -56,6 +59,7 @@ class AppContainer(context: Context) {
             index = index,
             scope = applicationScope,
             deviceId = settings::deviceId,
+            viewStates = viewStates,
         )
     }
 

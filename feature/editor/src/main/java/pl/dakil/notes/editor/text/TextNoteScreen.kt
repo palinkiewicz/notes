@@ -18,7 +18,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import pl.dakil.notes.data.SaveState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
+import pl.dakil.notes.editor.SaveViewOnLeave
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
@@ -294,6 +298,16 @@ fun TextNoteScreen(
                 }
 
                 else -> Row(Modifier.fillMaxSize()) {
+                    // Opened where it was left, when the user asked for that. `maxValue` reads
+                    // `Int.MAX_VALUE` until the field has been measured, and scrolling before then
+                    // would land on a guess.
+                    val scroll = rememberScrollState()
+                    LaunchedEffect(Unit) {
+                        val saved = viewModel.savedScroll() ?: return@LaunchedEffect
+                        snapshotFlow { scroll.maxValue }.first { it != Int.MAX_VALUE }
+                        scroll.scrollTo(saved)
+                    }
+                    SaveViewOnLeave { viewModel.rememberScroll(scroll.value) }
                     if (expanded) {
                         MarkdownFormatRail(
                             state = text,
@@ -311,6 +325,7 @@ fun TextNoteScreen(
                         sourceMode = state.sourceMode,
                         pending = pending,
                         modifier = Modifier.fillMaxSize(),
+                        scroll = scroll,
                         // Only a note with nothing in it opens ready to type.
                         autoFocus = text.text.isEmpty(),
                         attributes = state.pandoc,

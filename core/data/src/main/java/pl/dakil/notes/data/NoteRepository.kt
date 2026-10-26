@@ -73,6 +73,8 @@ class NoteRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     /** Names the conflict copies this device makes; see [ConflictNaming]. */
     private val deviceId: () -> String = { "LOCAL" },
+    /** Where each note was last being read; kept in step with renames, moves and deletes. */
+    private val viewStates: NoteViewStates? = null,
 ) {
 
     private val writeLock = Mutex()
@@ -580,6 +582,7 @@ class NoteRepository(
             // title the file does not have.
             index.move(ref, moved, folder, landed.takeIf { kind == NoteKind.TEXT })
             if (kind == NoteKind.INK) retitle(moved, landed, folder)
+            viewStates?.move(ref, moved)
             moved
         }
     }
@@ -623,6 +626,7 @@ class NoteRepository(
                 index.removeSubtree(childPath(fromPath, directoryName))
             } else {
                 index.move(ref, moved, toPath)
+                viewStates?.move(ref, moved)
             }
             moved
         }
@@ -730,6 +734,7 @@ class NoteRepository(
             index.removeSubtree(childPath(path ?: index.pathOf(ref), directoryName))
         } else {
             index.remove(ref)
+            viewStates?.remove(ref)
         }
     }
 

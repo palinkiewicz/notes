@@ -33,6 +33,11 @@
     <string name="settings_image_insert_description">What the image button does. With the photo picker first, hold the button to insert an image from a link instead.</string>
     <string name="image_insert_dialog">Ask: device or link</string>
     <string name="image_insert_picker">Photo picker first</string>
+    <string name="settings_reopening">Reopening notes</string>
+    <string name="settings_remember_ink">Remember place in ink notes</string>
+    <string name="settings_remember_ink_description">Reopen a sheet at the page and zoom you left it on, even after a restart. When off, nothing is saved and sheets open at page 1.</string>
+    <string name="settings_remember_text">Remember place in text notes</string>
+    <string name="settings_remember_text_description">Reopen a .md note scrolled to where you left it, even after a restart. When off, nothing is saved and notes open at the top.</string>
     <string name="settings_text_notes">Text notes</string>
     <string name="settings_pandoc_text_notes">Pandoc sizes and colours</string>
     <string name="settings_pandoc_text_notes_description">Let a .md note set its own font sizes and text colours, written as Pandoc spans. Other Markdown editors show these as plain text. Ink notes always use them.</string>

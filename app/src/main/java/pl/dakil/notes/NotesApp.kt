@@ -102,10 +102,10 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
         )
     )
     val noteViewModel: NoteViewModel = viewModel(
-        factory = NoteViewModel.factory(container.repository, container.settings)
+        factory = NoteViewModel.factory(container.repository, container.settings, container.viewStates)
     )
     val textNoteViewModel: TextNoteViewModel = viewModel(
-        factory = TextNoteViewModel.factory(container.repository, container.settings)
+        factory = TextNoteViewModel.factory(container.repository, container.settings, container.viewStates)
     )
 
     LaunchedEffect(Unit) { libraryViewModel.start() }
@@ -256,6 +256,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                                 container.libraryRoot,
                                 container.backupRunner,
                                 container.syncCoordinator,
+                                container.viewStates,
                             )
                         }
                     }

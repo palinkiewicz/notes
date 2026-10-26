@@ -24,6 +24,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import pl.dakil.notes.data.NoteViewState
 import pl.dakil.notes.editor.canvas.InkOverlay
 import pl.dakil.notes.editor.canvas.PageChrome
 import pl.dakil.notes.editor.canvas.RULER_END_MARGIN
@@ -78,7 +79,16 @@ fun SheetEditor(
     // of zoom: the zoom lives in the placement transform, never in the geometry.
     val ptToPx = with(density) { (160f / 72f).dp.toPx() }
 
-    val transform = rememberSaveable(saver = SheetTransform.Saver) { SheetTransform() }
+    // Seeded from where the note was left, when the user asked for that; otherwise it opens at the
+    // top and fits the width. Saved-instance state still wins, so a rotation keeps the live view.
+    val transform = rememberSaveable(saver = SheetTransform.Saver) {
+        SheetTransform().apply {
+            viewModel.savedView()?.let { restore(it.zoom, it.offsetX, it.offsetY) }
+        }
+    }
+    SaveViewOnLeave {
+        transform.pose()?.let { viewModel.rememberView(NoteViewState.Ink(it[0], it[1], it[2])) }
+    }
 
     // The straightedge, if the user has one out. It is kept whether or not it is switched on, so
     // turning the tool off to see the page underneath and back on again does not lose the angle

@@ -142,6 +142,15 @@ data class AppSettings(
      * it is paper, not a Markdown file, and always obeys them.
      */
     val pandocTextNotes: Boolean = false,
+    /**
+     * Whether a sheet reopens where it was left — page, pan and zoom — even after a restart.
+     *
+     * Off by default: with it off nothing about where a note was read is written anywhere, and
+     * every note opens at its first page.
+     */
+    val rememberInkPosition: Boolean = false,
+    /** The same choice for `.md` notes, whose position is how far down they were scrolled. */
+    val rememberTextPosition: Boolean = false,
     /** What an "insert image" button does when tapped. */
     val imageInsertMode: ImageInsertMode = ImageInsertMode.DIALOG,
     /** The unit every paper measurement is shown and typed in. */
@@ -222,6 +231,8 @@ class SettingsRepository(context: Context) {
             prefs.getString(KEY_LIBRARY_LAYOUT, LibraryLayout.CARDS.key) ?: LibraryLayout.CARDS.key
         ),
         pandocTextNotes = prefs.getBoolean(KEY_PANDOC_TEXT_NOTES, false),
+        rememberInkPosition = prefs.getBoolean(KEY_REMEMBER_INK, false),
+        rememberTextPosition = prefs.getBoolean(KEY_REMEMBER_TEXT, false),
         imageInsertMode = ImageInsertMode.fromKey(prefs.getString(KEY_IMAGE_INSERT_MODE, null)),
         measurementUnit = prefs.getString(KEY_UNIT, null)
             ?.let(MeasurementUnit::fromKey) ?: localeDefaultUnit(),
@@ -302,6 +313,12 @@ class SettingsRepository(context: Context) {
 
     fun setPandocTextNotes(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_PANDOC_TEXT_NOTES, enabled).apply()
+
+    fun setRememberInkPosition(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_REMEMBER_INK, enabled).apply()
+
+    fun setRememberTextPosition(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_REMEMBER_TEXT, enabled).apply()
 
     fun setImageInsertMode(mode: ImageInsertMode) =
         prefs.edit().putString(KEY_IMAGE_INSERT_MODE, mode.key).apply()
@@ -441,6 +458,8 @@ class SettingsRepository(context: Context) {
         const val KEY_LIBRARY_LAYOUT = "ui.libraryLayout"
         const val KEY_PANDOC_TEXT_NOTES = "ui.pandocTextNotes"
         const val KEY_IMAGE_INSERT_MODE = "ui.imageInsertMode"
+        const val KEY_REMEMBER_INK = "view.rememberInk"
+        const val KEY_REMEMBER_TEXT = "view.rememberText"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

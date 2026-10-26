@@ -116,6 +116,25 @@ class SheetTransform {
         rawOffsetY = EDGE_PAD + insetTop
     }
 
+    /**
+     * Puts the view back where a note was left the last time it was open.
+     *
+     * Raw values, clamped on read like everything else here, so a pose saved on a wider window or
+     * against a note that has since lost pages settles itself rather than showing empty desk.
+     */
+    fun restore(zoom: Float, offsetX: Float, offsetY: Float) {
+        rawZoom = zoom.coerceIn(MIN_ZOOM, MAX_ZOOM)
+        rawOffsetX = offsetX
+        rawOffsetY = offsetY
+        settled = true
+    }
+
+    /**
+     * The pose to remember, as `[zoom, offsetX, offsetY]`, or null before the view has one — a
+     * sheet closed before its first layout was never looked at.
+     */
+    fun pose(): FloatArray? = if (settled) floatArrayOf(rawZoom, rawOffsetX, rawOffsetY) else null
+
     /** Scales by [factor] about the screen point ([focusX], [focusY]), which stays put. */
     fun zoomAround(factor: Float, focusX: Float, focusY: Float) {
         if (zoomLocked) return

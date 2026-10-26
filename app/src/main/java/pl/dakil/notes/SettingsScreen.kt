@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import pl.dakil.notes.data.LibraryRootController
 import pl.dakil.notes.data.sync.BackupRunner
 import pl.dakil.notes.data.sync.SyncCoordinator
+import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.settings.AppearanceSettingsScreen
 import pl.dakil.notes.settings.InputSettingsScreen
@@ -52,6 +53,7 @@ fun SettingsScreen(
     libraryRoot: LibraryRootController,
     backup: BackupRunner,
     sync: SyncCoordinator,
+    viewStates: NoteViewStates,
 ) {
     val context = LocalContext.current
     val current by settings.settings.collectAsState(initial = remember { settings.read() })
@@ -88,6 +90,7 @@ fun SettingsScreen(
                 SettingsPage.APPEARANCE -> AppearanceSettingsScreen(
                     current = current,
                     settings = settings,
+                    onForgetPositions = viewStates::clear,
                     onNavigateBack = { page = SettingsPage.ROOT },
                 )
 

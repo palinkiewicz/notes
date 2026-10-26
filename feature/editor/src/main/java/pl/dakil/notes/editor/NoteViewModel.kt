@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import pl.dakil.notes.data.NoteRepository
+import pl.dakil.notes.data.NoteViewState
+import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
@@ -187,6 +189,7 @@ data class EditorUiState(
 class NoteViewModel(
     private val repository: NoteRepository,
     private val settings: SettingsRepository,
+    private val viewStates: NoteViewStates,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EditorUiState())
@@ -314,6 +317,24 @@ class NoteViewModel(
     }
 
     fun openInMemory(note: Note, ref: StoreRef?) = adopt(note, ref)
+
+    /**
+     * Where the open note was left, or null when the user has not asked for that to be remembered.
+     *
+     * The setting is read at the moment of asking rather than from [state]: this is called while
+     * the editor is first composed, before the settings flow has necessarily delivered anything.
+     */
+    fun savedView(): NoteViewState.Ink? {
+        val ref = _state.value.ref ?: return null
+        if (!settings.read().rememberInkPosition) return null
+        return viewStates.get(ref) as? NoteViewState.Ink
+    }
+
+    /** Records where the open note is being looked at — and nothing at all with the setting off. */
+    fun rememberView(view: NoteViewState.Ink) {
+        val ref = _state.value.ref ?: return
+        if (settings.read().rememberInkPosition) viewStates.put(ref, view)
+    }
 
     private fun refreshKnownTags() {
         viewModelScope.launch {
@@ -1304,11 +1325,15 @@ class NoteViewModel(
         private const val MIN_TEXT_WIDTH = 48f
         private const val MIN_TEXT_HEIGHT = 16f
 
-        fun factory(repository: NoteRepository, settings: SettingsRepository) =
+        fun factory(
+            repository: NoteRepository,
+            settings: SettingsRepository,
+            viewStates: NoteViewStates,
+        ) =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    NoteViewModel(repository, settings) as T
+                    NoteViewModel(repository, settings, viewStates) as T
             }
     }
 }

@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pl.dakil.notes.data.NoteRepository
+import pl.dakil.notes.data.NoteViewState
+import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
@@ -85,7 +87,8 @@ data class TextNoteUiState(
  */
 class TextNoteViewModel(
     private val repository: NoteRepository,
-    settings: SettingsRepository,
+    private val settings: SettingsRepository,
+    private val viewStates: NoteViewStates,
 ) : ViewModel(), ImageSource {
 
     private val _state = MutableStateFlow(TextNoteUiState())
@@ -139,6 +142,19 @@ class TextNoteViewModel(
                 _state.update { it.copy(pandoc = app.pandocTextNotes, imageInsertMode = app.imageInsertMode) }
             }
             .launchIn(viewModelScope)
+    }
+
+    /** How far down the open note was left, or null when that is not being remembered. */
+    fun savedScroll(): Int? {
+        val ref = _state.value.ref ?: return null
+        if (!settings.read().rememberTextPosition) return null
+        return (viewStates.get(ref) as? NoteViewState.Text)?.scroll
+    }
+
+    /** Records how far down the open note is — and nothing at all with the setting off. */
+    fun rememberScroll(scroll: Int) {
+        val ref = _state.value.ref ?: return
+        if (settings.read().rememberTextPosition) viewStates.put(ref, NoteViewState.Text(scroll))
     }
 
     fun open(ref: StoreRef) {
@@ -314,11 +330,15 @@ class TextNoteViewModel(
     }
 
     companion object {
-        fun factory(repository: NoteRepository, settings: SettingsRepository) =
+        fun factory(
+            repository: NoteRepository,
+            settings: SettingsRepository,
+            viewStates: NoteViewStates,
+        ) =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    TextNoteViewModel(repository, settings) as T
+                    TextNoteViewModel(repository, settings, viewStates) as T
             }
     }
 }
