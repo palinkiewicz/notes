@@ -38,6 +38,9 @@
     <string name="settings_remember_ink_description">Reopen a sheet at the page and zoom you left it on, even after a restart. When off, nothing is saved and sheets open at page 1.</string>
     <string name="settings_remember_text">Remember place in text notes</string>
     <string name="settings_remember_text_description">Reopen a .md note scrolled to where you left it, even after a restart. When off, nothing is saved and notes open at the top.</string>
+    <string name="settings_sheet">Sheet</string>
+    <string name="settings_zoom_indicator">Zoom indicator</string>
+    <string name="settings_zoom_indicator_description">How long the zoom percentage stays on screen after zooming. Off keeps it hidden unless zoom is locked.</string>
     <string name="settings_text_notes">Text notes</string>
     <string name="settings_pandoc_text_notes">Pandoc sizes and colours</string>
     <string name="settings_pandoc_text_notes_description">Let a .md note set its own font sizes and text colours, written as Pandoc spans. Other Markdown editors show these as plain text. Ink notes always use them.</string>
@@ -91,6 +94,7 @@
     <string name="settings_milliseconds_x" translatable="false">%1$d ms</string>
     <string name="settings_pixels_x" translatable="false">%1$d px</string>
     <string name="settings_multiplier_x" translatable="false">%1$s×</string>
+    <string name="settings_seconds_x" translatable="false">%1$d s</string>
     <string name="settings_off">Off</string>
 
     <!--  ABOUT DIALOG  -->

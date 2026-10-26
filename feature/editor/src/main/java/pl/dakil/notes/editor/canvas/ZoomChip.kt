@@ -53,9 +53,13 @@ import kotlin.math.roundToInt
  * ### Why it comes and goes
  *
  * A permanent readout would be one more thing between the reader and the paper, and the scale is
- * only interesting while it is changing. So the chip fades in on a zoom and back out [LINGER_MS]
+ * only interesting while it is changing. So the chip fades in on a zoom and back out `lingerMs`
  * after the last one — except when the zoom is locked, where it stays put, because a lock that is
  * in force but invisible is a bug report waiting to happen ("pinching stopped working").
+ *
+ * `lingerMs` is a user setting, and zero means a zoom never brings the chip up at all: it sits over
+ * the top of the page, and someone who writes straight after a pinch has it over the line they are
+ * on. The lock still shows it, for the reason above.
  *
  * ### Why zoom is never read during composition here
  *
@@ -70,6 +74,7 @@ import kotlin.math.roundToInt
 fun ZoomChip(
     transform: SheetTransform,
     presets: List<Int>,
+    lingerMs: Long,
     pageHeightPx: Float,
     onAddPreset: (Int) -> Unit,
     onRemovePreset: (Int) -> Unit,
@@ -82,13 +87,16 @@ fun ZoomChip(
 
     // `collectLatest` is the timer: each new zoom cancels the pending hide and starts the wait
     // again, so a slow pinch does not blink the chip away between two of its frames.
-    LaunchedEffect(transform) {
+    LaunchedEffect(transform, lingerMs) {
+        // A restart can land mid-wait, which would otherwise strand the chip on screen.
+        lingering = false
         snapshotFlow { transform.zoomEpoch to transform.zoomLocked }
             // The value on arrival is the state the note opened in, not something the user did.
             .drop(1)
             .collectLatest {
+                if (lingerMs <= 0L) return@collectLatest
                 lingering = true
-                delay(LINGER_MS)
+                delay(lingerMs)
                 lingering = false
             }
     }
@@ -341,6 +349,3 @@ private fun ZoomMenu(
 }
 
 private fun SheetTransform.percent(): Int = (zoom * 100f).roundToInt()
-
-/** Long enough to read the number after a pinch settles, short enough not to sit in the way. */
-private const val LINGER_MS = 3_000L

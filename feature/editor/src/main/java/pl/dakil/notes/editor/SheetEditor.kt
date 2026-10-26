@@ -280,6 +280,7 @@ fun SheetEditor(
         ZoomChip(
             transform = transform,
             presets = state.zoomPresets,
+            lingerMs = state.zoomIndicatorSeconds * 1000L,
             pageHeightPx = format.height * ptToPx,
             onAddPreset = viewModel::addZoomPreset,
             onRemovePreset = viewModel::removeZoomPreset,

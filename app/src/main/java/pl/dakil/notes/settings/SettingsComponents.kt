@@ -130,6 +130,8 @@ fun SliderRow(
     format: @Composable (Float) -> String,
     onChange: (Float) -> Unit,
     enabled: Boolean = true,
+    /** Stops between the ends, as `Slider` counts them; 0 is a continuous slider. */
+    steps: Int = 0,
 ) {
     SettingRow(
         title = title,
@@ -140,6 +142,7 @@ fun SliderRow(
                 value = value,
                 onValueChange = onChange,
                 valueRange = range,
+                steps = steps,
                 enabled = enabled,
             )
         },

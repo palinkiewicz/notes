@@ -147,6 +147,8 @@ data class EditorUiState(
     val recentColors: List<Int> = emptyList(),
     /** Zoom levels the user pinned, as whole percentages, ascending. */
     val zoomPresets: List<Int> = emptyList(),
+    /** How long the zoom indicator lingers after a zoom, in seconds; 0 hides it. */
+    val zoomIndicatorSeconds: Int = 3,
     val saveState: SaveState = SaveState.Idle,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -242,6 +244,7 @@ class NoteViewModel(
                         fingerDrawingAvailable = app.fingerDrawingAvailable,
                         recentColors = app.recentColors,
                         zoomPresets = app.zoomPresets,
+                        zoomIndicatorSeconds = app.zoomIndicatorSeconds,
                         measurementUnit = app.measurementUnit,
                         imageInsertMode = app.imageInsertMode,
                     )

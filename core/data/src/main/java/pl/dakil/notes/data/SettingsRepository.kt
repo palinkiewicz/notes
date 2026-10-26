@@ -85,6 +85,9 @@ enum class ImageInsertMode(val key: String) {
     }
 }
 
+/** The far end of the zoom indicator slider, in seconds. */
+const val MAX_ZOOM_INDICATOR_SECONDS = 10
+
 /** Everything the user can configure. Defaults are what a casual note-taker should never touch. */
 data class AppSettings(
     val input: InputConfig = InputConfig(),
@@ -159,6 +162,13 @@ data class AppSettings(
     val recentColors: List<Int> = emptyList(),
     /** Zoom levels the user pinned, as whole percentages, ascending. 100% is always offered. */
     val zoomPresets: List<Int> = emptyList(),
+    /**
+     * How long the zoom indicator lingers after a zoom, in whole seconds; 0 hides it.
+     *
+     * A choice because the chip sits over the top of the page, and someone writing straight after
+     * a pinch has it in the way of the line they are on. A locked zoom shows it regardless.
+     */
+    val zoomIndicatorSeconds: Int = 3,
 )
 
 /**
@@ -226,6 +236,7 @@ class SettingsRepository(context: Context) {
         lastBackupAt = prefs.getLong(KEY_LAST_BACKUP, 0L),
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
+        zoomIndicatorSeconds = prefs.getInt(KEY_ZOOM_INDICATOR, 3).coerceIn(0, MAX_ZOOM_INDICATOR_SECONDS),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
         libraryLayout = LibraryLayout.fromKey(
             prefs.getString(KEY_LIBRARY_LAYOUT, LibraryLayout.CARDS.key) ?: LibraryLayout.CARDS.key
@@ -353,6 +364,10 @@ class SettingsRepository(context: Context) {
         prefs.edit().putString(KEY_ZOOM_PRESETS, updated.joinToString(",")).apply()
     }
 
+    fun setZoomIndicatorSeconds(seconds: Int) = prefs.edit()
+        .putInt(KEY_ZOOM_INDICATOR, seconds.coerceIn(0, MAX_ZOOM_INDICATOR_SECONDS))
+        .apply()
+
     fun removeZoomPreset(percent: Int) {
         val updated = readZoomPresets().filterNot { it == percent }
         prefs.edit().putString(KEY_ZOOM_PRESETS, updated.joinToString(",")).apply()
@@ -464,6 +479,7 @@ class SettingsRepository(context: Context) {
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"
         const val KEY_ZOOM_PRESETS = "ui.zoomPresets"
+        const val KEY_ZOOM_INDICATOR = "ui.zoomIndicatorSeconds"
 
         /** Two rows on a phone; beyond that the row becomes a scroll people do not scroll. */
         const val MAX_RECENT_COLORS = 12

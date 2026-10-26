@@ -36,6 +36,9 @@
     <string name="settings_remember_ink_description">Otwieraj arkusz na stronie i w powiększeniu, na których go zostawiono, także po ponownym uruchomieniu. Gdy wyłączone, nic nie jest zapisywane, a arkusze otwierają się na stronie 1.</string>
     <string name="settings_remember_text">Zapamiętuj miejsce w notatkach tekstowych</string>
     <string name="settings_remember_text_description">Otwieraj notatkę .md przewiniętą tam, gdzie ją zostawiono, także po ponownym uruchomieniu. Gdy wyłączone, nic nie jest zapisywane, a notatki otwierają się od początku.</string>
+    <string name="settings_sheet">Arkusz</string>
+    <string name="settings_zoom_indicator">Wskaźnik powiększenia</string>
+    <string name="settings_zoom_indicator_description">Jak długo procent powiększenia pozostaje na ekranie po powiększaniu. Wyłączony jest ukryty, chyba że powiększenie jest zablokowane.</string>
     <string name="settings_text_notes">Notatki tekstowe</string>
     <string name="settings_pandoc_text_notes">Rozmiary i kolory Pandoc</string>
     <string name="settings_pandoc_text_notes_description">Pozwól notatce .md ustawiać własne rozmiary czcionki i kolory tekstu, zapisywane jako spany Pandoc. Inne edytory Markdown pokażą je jako zwykły tekst. Notatki odręczne zawsze ich używają.</string>

@@ -41,6 +41,7 @@ import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.ImageInsertMode
 import pl.dakil.notes.data.LibraryLayout
+import pl.dakil.notes.data.MAX_ZOOM_INDICATOR_SECONDS
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.DarkThemeOption
@@ -49,6 +50,7 @@ import pl.dakil.notes.ui.components.flatTopAppBarColors
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.theme.colorSchemeFor
 import pl.dakil.notes.ui.theme.resolveDark
+import kotlin.math.roundToInt
 
 /** Everything about how the app looks: its colours, its dark mode, and how it lays notes out. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -165,6 +167,21 @@ fun AppearanceSettingsScreen(
                     settings.setRememberTextPosition(it)
                     if (!it) onForgetPositions(false)
                 },
+            )
+
+            SectionHeader(stringResource(R.string.settings_sheet))
+
+            SliderRow(
+                title = stringResource(R.string.settings_zoom_indicator),
+                summary = stringResource(R.string.settings_zoom_indicator_description),
+                value = current.zoomIndicatorSeconds.toFloat(),
+                range = 0f..MAX_ZOOM_INDICATOR_SECONDS.toFloat(),
+                steps = MAX_ZOOM_INDICATOR_SECONDS - 1,
+                format = {
+                    if (it.roundToInt() == 0) stringResource(R.string.settings_off)
+                    else stringResource(R.string.settings_seconds_x, it.roundToInt())
+                },
+                onChange = { settings.setZoomIndicatorSeconds(it.roundToInt()) },
             )
 
             SectionHeader(stringResource(R.string.settings_text_notes))
