@@ -26,6 +26,13 @@
     <string name="editor_export_pdf">PDF</string>
     <string name="editor_export_png">PNG</string>
     <string name="editor_export_action">Save</string>
+    <string name="editor_export_pages">Pages</string>
+    <string name="editor_export_pages_all">All (e.g. 1, 2, 5-7)</string>
+    <plurals name="editor_export_pages_hint">
+        <item quantity="one">The note has %d page</item>
+        <item quantity="other">The note has %d pages</item>
+    </plurals>
+    <string name="editor_export_pages_invalid">Use page numbers from 1 to %d, like 1, 2, 5-7</string>
     <string name="editor_export_share">Share</string>
     <string name="editor_export_saved">Export saved</string>
     <string name="editor_export_failed">Could not save the export</string>

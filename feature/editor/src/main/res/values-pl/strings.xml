@@ -25,6 +25,15 @@
     <string name="editor_export_pdf">PDF</string>
     <string name="editor_export_png">PNG</string>
     <string name="editor_export_action">Zapisz</string>
+    <string name="editor_export_pages">Strony</string>
+    <string name="editor_export_pages_all">Wszystkie (np. 1, 2, 5-7)</string>
+    <plurals name="editor_export_pages_hint">
+        <item quantity="one">Notatka ma %d stronę</item>
+        <item quantity="few">Notatka ma %d strony</item>
+        <item quantity="many">Notatka ma %d stron</item>
+        <item quantity="other">Notatka ma %d strony</item>
+    </plurals>
+    <string name="editor_export_pages_invalid">Podaj numery stron od 1 do %d, np. 1, 2, 5-7</string>
     <string name="editor_export_share">Udostępnij</string>
     <string name="editor_export_saved">Zapisano eksport</string>
     <string name="editor_export_failed">Nie udało się zapisać eksportu</string>

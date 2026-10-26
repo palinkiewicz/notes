@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor.export
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -31,10 +33,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.model.ExportColorPreset
+import pl.dakil.notes.model.PageSelection
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** Which container an export lands in. Not stored anywhere, so it needs no locale-safe key. */
@@ -54,12 +60,22 @@ enum class ExportAction { SAVE, SHARE }
 fun ExportSheet(
     isInk: Boolean,
     exporting: Boolean,
+    /** How many pages there are to pick from, or null while that is still being worked out. */
+    pageCount: Int?,
     onDismiss: () -> Unit,
-    onExport: (ExportColorPreset, ExportFormat, ExportAction) -> Unit,
+    /** The pages are 0-based and ascending, or null for every page. */
+    onExport: (ExportColorPreset, ExportFormat, ExportAction, pages: List<Int>?) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var preset by remember { mutableStateOf(ExportColorPreset.AS_IS) }
     var format by remember { mutableStateOf(ExportFormat.PDF) }
+    var pagesText by remember { mutableStateOf("") }
+    val pages = pageCount?.let { PageSelection.parse(pagesText, it) }
+    val pagesInvalid = pageCount != null && pages == null
+    val ready = !exporting && pages != null
+    // Blank is "every page", passed on as null so a note that grows a page while the sheet is open
+    // still exports whole.
+    fun export(action: ExportAction) = onExport(preset, format, action, pages.takeIf { pagesText.isNotBlank() })
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -104,6 +120,25 @@ fun ExportSheet(
                 ) { Text(stringResource(R.string.editor_export_png)) }
             }
 
+            SectionLabel(stringResource(R.string.editor_export_pages))
+            OutlinedTextField(
+                value = pagesText,
+                onValueChange = { pagesText = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.editor_export_pages_all)) },
+                isError = pagesInvalid,
+                supportingText = {
+                    when {
+                        pagesInvalid -> Text(stringResource(R.string.editor_export_pages_invalid, pageCount!!))
+                        pageCount != null -> Text(
+                            pluralStringResource(R.plurals.editor_export_pages_hint, pageCount, pageCount),
+                        )
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
+            )
+
             // Saving is the main action, so it gets the width; sharing is the same render handed to
             // another app, and sits beside it as the icon everyone already reads as "share".
             Row(
@@ -115,8 +150,8 @@ fun ExportSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
-                    onClick = { onExport(preset, format, ExportAction.SAVE) },
-                    enabled = !exporting,
+                    onClick = { export(ExportAction.SAVE) },
+                    enabled = ready,
                     modifier = Modifier.weight(1f),
                 ) {
                     if (exporting) {
@@ -130,8 +165,8 @@ fun ExportSheet(
                     }
                 }
                 FilledTonalIconButton(
-                    onClick = { onExport(preset, format, ExportAction.SHARE) },
-                    enabled = !exporting,
+                    onClick = { export(ExportAction.SHARE) },
+                    enabled = ready,
                 ) {
                     Icon(NotesIcons.Share, contentDescription = stringResource(R.string.editor_export_share))
                 }

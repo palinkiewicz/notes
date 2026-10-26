@@ -49,7 +49,8 @@ object InkPageExporter {
     /** PNG export has no fixed coordinate space of its own, unlike a PDF page's points; pick one DPI. */
     private const val PNG_DPI = 150f
 
-    fun exportToPdf(context: Context, sheet: Sheet, preset: ExportColorPreset): File {
+    /** [pages] are 0-based and ascending; see [pl.dakil.notes.model.PageSelection]. */
+    fun exportToPdf(context: Context, sheet: Sheet, preset: ExportColorPreset, pages: List<Int>): File {
         val format = sheet.format
         val fontResolver = createFontFamilyResolver(context)
         val strokeRenderer = StrokeRenderer()
@@ -58,8 +59,9 @@ object InkPageExporter {
         // unlike PNG, which has to pick a resolution first.
         val widthPt = format.width.toInt().coerceAtLeast(1)
         val heightPt = format.height.toInt().coerceAtLeast(1)
-        for (page in 0 until sheet.pageCount()) {
-            val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, page + 1).create()
+        for ((index, page) in pages.withIndex()) {
+            // The PDF's own numbering runs 1..n over what was exported; the content is the page asked for.
+            val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
             val pdfPage = document.startPage(info)
             drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(1f)) {
                 drawPage(sheet, page, format, ptToPx = 1f, preset, strokeRenderer, fontResolver)
@@ -72,7 +74,7 @@ object InkPageExporter {
         return file
     }
 
-    fun exportToPngs(context: Context, sheet: Sheet, preset: ExportColorPreset): List<File> {
+    fun exportToPngs(context: Context, sheet: Sheet, preset: ExportColorPreset, pages: List<Int>): List<File> {
         val format = sheet.format
         val ptToPx = PNG_DPI / 72f
         val fontResolver = createFontFamilyResolver(context)
@@ -80,7 +82,7 @@ object InkPageExporter {
         val widthPx = (format.width * ptToPx).toInt().coerceAtLeast(1)
         val heightPx = (format.height * ptToPx).toInt().coerceAtLeast(1)
         val files = ArrayList<File>()
-        for (page in 0 until sheet.pageCount()) {
+        for (page in pages) {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {

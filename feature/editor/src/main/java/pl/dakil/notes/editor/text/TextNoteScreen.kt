@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import pl.dakil.notes.data.SaveState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
 import pl.dakil.notes.editor.SaveViewOnLeave
@@ -47,6 +48,7 @@ import kotlinx.coroutines.withContext
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.export.ExportSheet
+import pl.dakil.notes.editor.export.TextPageExporter
 import pl.dakil.notes.editor.export.ExportAction
 import pl.dakil.notes.editor.export.rememberExportSaver
 import pl.dakil.notes.editor.export.exportText
@@ -142,16 +144,24 @@ fun TextNoteScreen(
     var exportOutcome by remember { mutableStateOf<Boolean?>(null) }
     val saveExport = rememberExportSaver { exportOutcome = it }
     if (exportOpen) {
+        // Counted once per opening of the sheet, off the main thread: it lays the whole note out.
+        val pageCount by produceState<Int?>(null) {
+            val markdown = text.text.toString()
+            value = withContext(Dispatchers.Default) {
+                runCatching { TextPageExporter.pageCount(context, markdown, state.pandoc) }.getOrDefault(1)
+            }
+        }
         ExportSheet(
             isInk = false,
             exporting = exporting,
+            pageCount = pageCount,
             onDismiss = { if (!exporting) exportOpen = false },
-            onExport = { _, format, action ->
+            onExport = { _, format, action, pages ->
                 val markdown = text.text.toString()
                 exporting = true
                 coroutineScope.launch {
                     val result = withContext(Dispatchers.Default) {
-                        runCatching { exportText(context, markdown, format, state.pandoc) }
+                        runCatching { exportText(context, markdown, format, state.pandoc, pages) }
                     }
                     exporting = false
                     exportOpen = false

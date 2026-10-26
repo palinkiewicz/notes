@@ -41,7 +41,8 @@ object TextPageExporter {
     private const val PNG_DPI = 150f
     private val TEXT_COLOR = Color(0xFF1B1B1F)
 
-    fun exportToPdf(context: Context, markdown: String, attributes: Boolean): File {
+    /** [pages] are 0-based; any past the end of the document are skipped. Null means every page. */
+    fun exportToPdf(context: Context, markdown: String, attributes: Boolean, pages: List<Int>?): File {
         val fontResolver = createFontFamilyResolver(context)
         val ptToPx = 1f
         val paragraph = buildParagraph(markdown, fontResolver, ptToPx, attributes)
@@ -50,8 +51,8 @@ object TextPageExporter {
         val heightPt = PAGE_HEIGHT_PT.toInt()
 
         val document = PdfDocument()
-        for (page in breaks.indices) {
-            val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, page + 1).create()
+        for ((index, page) in selected(breaks, pages).withIndex()) {
+            val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
             val pdfPage = document.startPage(info)
             drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(ptToPx)) {
                 drawPage(paragraph, breaks, page, ptToPx)
@@ -64,7 +65,7 @@ object TextPageExporter {
         return file
     }
 
-    fun exportToPngs(context: Context, markdown: String, attributes: Boolean): List<File> {
+    fun exportToPngs(context: Context, markdown: String, attributes: Boolean, pages: List<Int>?): List<File> {
         val fontResolver = createFontFamilyResolver(context)
         val ptToPx = PNG_DPI / 72f
         val paragraph = buildParagraph(markdown, fontResolver, ptToPx, attributes)
@@ -73,7 +74,7 @@ object TextPageExporter {
         val heightPx = (PAGE_HEIGHT_PT * ptToPx).toInt().coerceAtLeast(1)
 
         val files = ArrayList<File>()
-        for (page in breaks.indices) {
+        for (page in selected(breaks, pages)) {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
@@ -86,6 +87,20 @@ object TextPageExporter {
         }
         return files
     }
+
+    /**
+     * How many pages the note comes to, for the export sheet to check a page selection against.
+     *
+     * Laid out at the PDF's scale. The PNG path lays out the same text at a higher resolution,
+     * which scales every line height alike, so it cuts at the same lines.
+     */
+    fun pageCount(context: Context, markdown: String, attributes: Boolean): Int {
+        val paragraph = buildParagraph(markdown, createFontFamilyResolver(context), 1f, attributes)
+        return pageBreaks(paragraph, contentHeightPx(1f)).size
+    }
+
+    private fun selected(breaks: List<Float>, pages: List<Int>?): List<Int> =
+        pages?.filter { it in breaks.indices } ?: breaks.indices.toList()
 
     private fun exportDir(context: Context): File {
         val dir = context.cacheDir.resolve("exports")

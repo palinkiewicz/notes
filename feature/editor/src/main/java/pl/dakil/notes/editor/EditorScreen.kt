@@ -277,13 +277,14 @@ fun EditorScreen(
         ExportSheet(
             isInk = true,
             exporting = exporting,
+            pageCount = state.note?.sheet?.pageCount(),
             onDismiss = { if (!exporting) exportOpen = false },
-            onExport = { preset, format, action ->
+            onExport = { preset, format, action, pages ->
                 val note = state.note ?: return@ExportSheet
                 exporting = true
                 coroutineScope.launch {
                     val result = withContext(Dispatchers.Default) {
-                        runCatching { exportInk(context, note.sheet, preset, format) }
+                        runCatching { exportInk(context, note.sheet, preset, format, pages) }
                     }
                     exporting = false
                     exportOpen = false

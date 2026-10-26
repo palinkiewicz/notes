@@ -7,12 +7,23 @@ import pl.dakil.notes.model.ExportColorPreset
 import pl.dakil.notes.model.Sheet
 import java.io.File
 
-/** Renders an ink sheet in the chosen [format], applying [preset] to everything but typed text. */
-fun exportInk(context: Context, sheet: Sheet, preset: ExportColorPreset, format: ExportFormat): List<File> =
-    when (format) {
-        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, preset))
-        ExportFormat.PNG -> InkPageExporter.exportToPngs(context, sheet, preset)
+/**
+ * Renders an ink sheet in the chosen [format], applying [preset] to everything but typed text.
+ * [pages] are 0-based; null means every page.
+ */
+fun exportInk(
+    context: Context,
+    sheet: Sheet,
+    preset: ExportColorPreset,
+    format: ExportFormat,
+    pages: List<Int>?,
+): List<File> {
+    val selected = pages?.filter { it < sheet.pageCount() } ?: List(sheet.pageCount()) { it }
+    return when (format) {
+        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, preset, selected))
+        ExportFormat.PNG -> InkPageExporter.exportToPngs(context, sheet, preset, selected)
     }
+}
 
 /**
  * Renders a `.md` note's body in the chosen [format]. There is no colour *preset*: an ink sheet's
@@ -27,10 +38,11 @@ fun exportText(
     markdown: String,
     format: ExportFormat,
     attributes: Boolean,
+    pages: List<Int>?,
 ): List<File> =
     when (format) {
-        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, attributes))
-        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown, attributes)
+        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, attributes, pages))
+        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown, attributes, pages)
     }
 
 /**
