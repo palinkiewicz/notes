@@ -183,6 +183,12 @@ fun AppearanceSettingsScreen(
                 },
                 onChange = { settings.setZoomIndicatorSeconds(it.roundToInt()) },
             )
+            SwitchRow(
+                title = stringResource(R.string.settings_inertial_scroll),
+                summary = stringResource(R.string.settings_inertial_scroll_description),
+                checked = current.inertialScroll,
+                onCheckedChange = settings::setInertialScroll,
+            )
 
             SectionHeader(stringResource(R.string.settings_text_notes))
 

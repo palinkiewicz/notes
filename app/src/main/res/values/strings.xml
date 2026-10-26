@@ -40,6 +40,8 @@
     <string name="settings_remember_text_description">Reopen a .md note scrolled to where you left it, even after a restart. When off, nothing is saved and notes open at the top.</string>
     <string name="settings_sheet">Sheet</string>
     <string name="settings_zoom_indicator">Zoom indicator</string>
+    <string name="settings_inertial_scroll">Inertial scrolling</string>
+    <string name="settings_inertial_scroll_description">Let a swiped sheet keep gliding and slow to a stop. When off, it stops the moment you lift your finger.</string>
     <string name="settings_zoom_indicator_description">How long the zoom percentage stays on screen after zooming. Off keeps it hidden unless zoom is locked.</string>
     <string name="settings_text_notes">Text notes</string>
     <string name="settings_pandoc_text_notes">Pandoc sizes and colours</string>

@@ -160,7 +160,12 @@ fun SheetEditor(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .sheetTransformGestures(transform, scope, ruler = if (state.rulerEnabled) ruler else null),
+            .sheetTransformGestures(
+                transform,
+                scope,
+                ruler = if (state.rulerEnabled) ruler else null,
+                inertia = state.inertialScroll,
+            ),
     ) {
         Layout(
             content = {

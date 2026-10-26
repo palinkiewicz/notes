@@ -169,6 +169,13 @@ data class AppSettings(
      * a pinch has it in the way of the line they are on. A locked zoom shows it regardless.
      */
     val zoomIndicatorSeconds: Int = 3,
+    /**
+     * Whether a swiped sheet keeps gliding after the finger lifts, slowing to a stop.
+     *
+     * Off by default: a page that stops exactly where the finger left it is the one you can start
+     * writing on straight away, without waiting for it or touching it to catch it first.
+     */
+    val inertialScroll: Boolean = false,
 )
 
 /**
@@ -236,6 +243,7 @@ class SettingsRepository(context: Context) {
         lastBackupAt = prefs.getLong(KEY_LAST_BACKUP, 0L),
         recentColors = readRecentColors(),
         zoomPresets = readZoomPresets(),
+        inertialScroll = prefs.getBoolean(KEY_INERTIAL_SCROLL, false),
         zoomIndicatorSeconds = prefs.getInt(KEY_ZOOM_INDICATOR, 3).coerceIn(0, MAX_ZOOM_INDICATOR_SECONDS),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
         libraryLayout = LibraryLayout.fromKey(
@@ -330,6 +338,9 @@ class SettingsRepository(context: Context) {
 
     fun setRememberTextPosition(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_REMEMBER_TEXT, enabled).apply()
+
+    fun setInertialScroll(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_INERTIAL_SCROLL, enabled).apply()
 
     fun setImageInsertMode(mode: ImageInsertMode) =
         prefs.edit().putString(KEY_IMAGE_INSERT_MODE, mode.key).apply()
@@ -475,6 +486,7 @@ class SettingsRepository(context: Context) {
         const val KEY_IMAGE_INSERT_MODE = "ui.imageInsertMode"
         const val KEY_REMEMBER_INK = "view.rememberInk"
         const val KEY_REMEMBER_TEXT = "view.rememberText"
+        const val KEY_INERTIAL_SCROLL = "view.inertialScroll"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"

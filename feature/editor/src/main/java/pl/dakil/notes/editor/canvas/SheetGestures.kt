@@ -40,21 +40,25 @@ import kotlin.math.atan2
  * layered over the slab would be a second claimant to every pinch, which is the arrangement this
  * file exists to avoid. [ruler] is null whenever the tool is off, so nothing here changes shape
  * for the users who never turn it on.
+ *
+ * ### Coasting
+ *
+ * With [inertia] on, a page let go of while moving glides on and slows to a stop. It is a setting,
+ * off by default, because a page that is still moving is one the pen has to catch before it can
+ * write on it.
  */
 fun Modifier.sheetTransformGestures(
     transform: SheetTransform,
     scope: CoroutineScope,
     ruler: RulerState? = null,
-): Modifier = pointerInput(transform, ruler) {
+    inertia: Boolean = false,
+): Modifier = pointerInput(transform, ruler, inertia) {
     val decay: DecayAnimationSpec<Offset> =
         androidx.compose.animation.splineBasedDecay(this)
     var flingJob: Job? = null
     val grabMargin = RULER_GRAB_MARGIN.toPx()
 
     awaitEachGesture {
-        // A touch always stops a coasting page — the universal expectation for scrolling surfaces.
-        flingJob?.cancel()
-
         val tracker = VelocityTracker()
         var pastSlop = false
         var travel = 0f
@@ -66,6 +70,10 @@ fun Modifier.sheetTransformGestures(
         var decided = false
 
         awaitFirstDown(requireUnconsumed = false)
+        // A touch always stops a coasting page — the universal expectation for scrolling surfaces.
+        // Only once a pointer is actually down: `awaitEachGesture` re-enters this block the moment
+        // the last gesture ends, so cancelling any earlier kills the fling that gesture just began.
+        flingJob?.cancel()
 
         while (true) {
             val event = awaitPointerEvent()
@@ -168,7 +176,7 @@ fun Modifier.sheetTransformGestures(
         ruler?.dragging = false
 
         // A ruler is put down where it is let go of; only the page coasts.
-        if (pastSlop && !movingRuler) {
+        if (inertia && pastSlop && !movingRuler) {
             val velocity = tracker.calculateVelocity()
             val v = Offset(velocity.x, velocity.y)
             if (v.getDistance() > MIN_FLING_VELOCITY) {

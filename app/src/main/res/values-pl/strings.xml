@@ -38,6 +38,8 @@
     <string name="settings_remember_text_description">Otwieraj notatkę .md przewiniętą tam, gdzie ją zostawiono, także po ponownym uruchomieniu. Gdy wyłączone, nic nie jest zapisywane, a notatki otwierają się od początku.</string>
     <string name="settings_sheet">Arkusz</string>
     <string name="settings_zoom_indicator">Wskaźnik powiększenia</string>
+    <string name="settings_inertial_scroll">Przewijanie z bezwładnością</string>
+    <string name="settings_inertial_scroll_description">Przesunięty arkusz sunie dalej i stopniowo zwalnia. Gdy wyłączone, zatrzymuje się w chwili podniesienia palca.</string>
     <string name="settings_zoom_indicator_description">Jak długo procent powiększenia pozostaje na ekranie po powiększaniu. Wyłączony jest ukryty, chyba że powiększenie jest zablokowane.</string>
     <string name="settings_text_notes">Notatki tekstowe</string>
     <string name="settings_pandoc_text_notes">Rozmiary i kolory Pandoc</string>
