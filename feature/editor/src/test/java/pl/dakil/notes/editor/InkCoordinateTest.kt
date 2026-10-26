@@ -84,6 +84,25 @@ class InkCoordinateTest {
     }
 
     @Test
+    fun `a stroke begun on the lower page and pushed up into the gap stays on that page`() {
+        // Held at the page above instead, it jumped to the foot of the previous page and painted a
+        // sliver there — a stroke drawn at the top edge of one page showing up on another.
+        val footPx = SheetPainter.documentYToStripPx(format.height, format, ptToPx, paged = true)
+        val inGap = footPx - SheetPainter.PAGE_GAP_PT * ptToPx * 0.5f
+        val y = SheetPainter.stripPxToDocumentY(inGap, format, ptToPx, paged = true, anchorPage = 1)
+        assertEquals(format.height, y, 0f)
+        assertEquals(1, (y / format.height).toInt())
+    }
+
+    @Test
+    fun `a gesture that lands in the gap belongs to the page above it`() {
+        val footPx = SheetPainter.documentYToStripPx(format.height, format, ptToPx, paged = true)
+        val inGap = footPx - SheetPainter.PAGE_GAP_PT * ptToPx * 0.5f
+        assertEquals(0, SheetPainter.stripPageAt(inGap, format, ptToPx, paged = true))
+        assertEquals(1, SheetPainter.stripPageAt(footPx + 1f, format, ptToPx, paged = true))
+    }
+
+    @Test
     fun `dragging down across a page break never moves backwards`() {
         // A selection follows this mapping sample by sample; any step back is the selection
         // jumping back under a pen that only ever moved forward.

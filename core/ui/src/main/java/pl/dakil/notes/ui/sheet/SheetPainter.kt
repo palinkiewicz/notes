@@ -128,14 +128,26 @@ object SheetPainter {
     /**
      * The inverse of [documentYToStripPx], for a pointer.
      *
-     * The gap below a page is desk, not paper, and has no document coordinate of its own. A point
-     * in it is held at the foot of the page above — just inside it — rather than carried on past
-     * the edge. Carried on, it landed in the top band of the *next* page: ink drawn on the desk was
-     * stamped onto that page, a lasso dragged there picked up what was on it, and a selection moved
-     * across the gap ran a gap ahead of the pen and then jumped back as the pen reached the paper.
-     * Held, the mapping never runs backwards, and a drag across the gap simply pauses at the edge.
+     * The gap between two pages is desk, not paper, and has no document coordinate of its own. A
+     * point in it is held at the edge of the page the gesture began on — [anchorPage], or the page
+     * above when there is none — rather than carried on past the edge:
+     *
+     * - Carried on, the gap below a page read as the top band of the next one, so ink drawn on the
+     *   desk was stamped onto that page and a selection dragged across the gap ran a gap ahead of
+     *   the pen and then jumped back.
+     * - Held always at the page above, a stroke begun at the top of a page and pushed up into the
+     *   gap jumped to the foot of the previous one, and painted a sliver there.
+     *
+     * Held at the page it started on, a stroke stays on its own paper however far it overshoots,
+     * and the mapping never runs backwards.
      */
-    fun stripPxToDocumentY(py: Float, format: PageFormat, ptToPx: Float, paged: Boolean): Float {
+    fun stripPxToDocumentY(
+        py: Float,
+        format: PageFormat,
+        ptToPx: Float,
+        paged: Boolean,
+        anchorPage: Int = NO_PAGE,
+    ): Float {
         if (!paged) return py / ptToPx
         val pageHeightPx = format.height * ptToPx
         val gapPx = PAGE_GAP_PT * ptToPx
@@ -144,8 +156,24 @@ object SheetPainter {
         val page = floor(py / stride).toInt().coerceAtLeast(0)
         val y = (py - page * gapPx) / ptToPx
         val foot = (page + 1) * format.height
-        return if (y >= foot) foot.nextDown() else y
+        if (y < foot) return y
+        // In the gap below `page`: the top of the next page when that is where the gesture is
+        // from, otherwise just inside the foot of this one.
+        return if (anchorPage > page) foot else foot.nextDown()
     }
+
+    /**
+     * The page a strip y is on, counting the gap below a page as part of it — the page a gesture
+     * that lands there belongs to. See [stripPxToDocumentY].
+     */
+    fun stripPageAt(py: Float, format: PageFormat, ptToPx: Float, paged: Boolean): Int {
+        val stride = format.height * ptToPx + if (paged) PAGE_GAP_PT * ptToPx else 0f
+        if (stride <= 0f) return 0
+        return floor(py / stride).toInt().coerceAtLeast(0)
+    }
+
+    /** No page in particular: see [stripPxToDocumentY]. */
+    const val NO_PAGE = -1
 
     // ---- Patterns --------------------------------------------------------------------------------
 

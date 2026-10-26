@@ -218,6 +218,7 @@ fun InkOverlay(
         }
 
     val scope = rememberCoroutineScope()
+    val anchor = remember { PageAnchor() }
     val haptics = LocalHapticFeedback.current
     // Re-read through rememberUpdatedState so the running ticker always sees the current tool and
     // settings; it was started at pen-down and outlives any recomposition since.
@@ -301,7 +302,7 @@ fun InkOverlay(
                 }
 
                 val toDoc = { x: Float, y: Float ->
-                    documentPointAt(x, y, ptToPx, zoom(), format, paged)
+                    documentPointAt(x, y, ptToPx, zoom(), format, paged, anchor.page)
                 }
                 handleEvent(
                     event = event,
@@ -321,6 +322,14 @@ fun InkOverlay(
                     config = inputConfig,
                     callbacks = currentCallbacks,
                     toDocument = toDoc,
+                    // The coordinate `pointerInteropFilter` hands over is the strip's, scaled by
+                    // the placement zoom — see `documentPointAt`.
+                    toStripY = { y -> y / zoom().coerceAtLeast(MIN_ZOOM) },
+                    pinPage = { y ->
+                        anchor.page = SheetPainter.stripPageAt(
+                            y / zoom().coerceAtLeast(MIN_ZOOM), format, ptToPx, paged,
+                        )
+                    },
                     // A resting pen wanders by a roughly fixed distance on the glass whatever
                     // the page is magnified to, so the tolerance is a screen distance divided
                     // back out of the zoom — the same reasoning as the marquee's width below.
@@ -480,15 +489,15 @@ fun InkOverlay(
             for (i in 1 until lasso.count) {
                 drawLine(
                     color = color,
-                    start = Offset(lasso.xs[i - 1] * ptToPx, toStripPx(lasso.ys[i - 1])),
-                    end = Offset(lasso.xs[i] * ptToPx, toStripPx(lasso.ys[i])),
+                    start = Offset(lasso.xs[i - 1] * ptToPx, lasso.stripYs[i - 1]),
+                    end = Offset(lasso.xs[i] * ptToPx, lasso.stripYs[i]),
                     strokeWidth = outlineWidth,
                 )
             }
             drawLine(
                 color = color.copy(alpha = 0.4f),
-                start = Offset(lasso.xs[lasso.count - 1] * ptToPx, toStripPx(lasso.ys[lasso.count - 1])),
-                end = Offset(lasso.xs[0] * ptToPx, toStripPx(lasso.ys[0])),
+                start = Offset(lasso.xs[lasso.count - 1] * ptToPx, lasso.stripYs[lasso.count - 1]),
+                end = Offset(lasso.xs[0] * ptToPx, lasso.stripYs[0]),
                 strokeWidth = outlineWidth,
             )
         }
@@ -615,11 +624,13 @@ internal fun documentPointAt(
     zoom: Float,
     format: PageFormat,
     paged: Boolean,
+    /** The page the gesture began on; see [SheetPainter.stripPxToDocumentY]. */
+    anchorPage: Int = SheetPainter.NO_PAGE,
 ): PointF {
     val scale = if (zoom > 0f) zoom else 1f
     return PointF(
         x / (ptToPx * scale),
-        SheetPainter.stripPxToDocumentY(y / scale, format, ptToPx, paged),
+        SheetPainter.stripPxToDocumentY(y / scale, format, ptToPx, paged, anchorPage),
     )
 }
 
@@ -646,6 +657,10 @@ private fun handleEvent(
     config: InputConfig,
     callbacks: InkCallbacks,
     toDocument: (Float, Float) -> PointF,
+    /** A raw pointer y to strip pixels: where on the glass, rather than where on the paper. */
+    toStripY: (Float) -> Float,
+    /** Records the page a gesture lands on, which [toDocument] then keeps it to. */
+    pinPage: (Float) -> Unit,
     dwellTolerance: () -> Float,
     startTicking: () -> Unit,
     invalidate: () -> Unit,
@@ -703,6 +718,7 @@ private fun handleEvent(
 
             when (decision.intent) {
                 is InputIntent.Draw -> {
+                    pinPage(screen.y)
                     val landed = sampleAt(index)
                     guide.release()
                     // Erasing and lassoing along a straightedge is not a thing anyone does, and
@@ -712,8 +728,8 @@ private fun handleEvent(
                     }
                     val sample = guide.snap(landed)
                     beginAction(
-                        builder, lasso, tool, config, sample, selection, controller, reach(),
-                        guide.edge,
+                        builder, lasso, tool, config, sample, toStripY(screen.y), selection,
+                        controller, reach(), guide.edge,
                     )
                     // A stroke drawn against the edge is already the shape it is meant to be;
                     // pausing at the end of a ruled line should not turn it into a rectangle.
@@ -773,7 +789,7 @@ private fun handleEvent(
                         ToolId.LASSO ->
                             if (controller.isMoving) {
                                 controller.moveTo(sample.x, sample.y)
-                            } else if (lasso.add(sample.x, sample.y)) {
+                            } else if (lasso.add(sample.x, sample.y, toStripY(raw.y))) {
                                 redraw = true
                             }
                         // Once a shape has been recognised the pen is no longer drawing: it is
@@ -844,6 +860,8 @@ private fun beginAction(
     tool: ToolSpec,
     config: InputConfig,
     sample: PointerSample,
+    /** Where the pointer is on the glass, in strip pixels; the lasso is drawn there. */
+    stripY: Float,
     selection: Selection?,
     controller: SelectionController,
     reach: Float,
@@ -864,7 +882,7 @@ private fun beginAction(
             val grabbed = selection != null && !controller.isActive &&
                 selection.bounds.inflate(reach).contains(sample.x, sample.y)
             if (grabbed) controller.beginMove(sample.x, sample.y)
-            else lasso.add(sample.x, sample.y)
+            else lasso.add(sample.x, sample.y, stripY)
         }
         ToolId.ERASER_STROKE, ToolId.ERASER_POINT -> {
             builder.reset()
@@ -972,11 +990,20 @@ private const val SELECTION_DASH_PX = 6f
  *  selection's outline still counts as inside it. A size on the glass, never on the page. */
 private val SELECTION_REACH = 10.dp
 
-/** Growable buffer for the lasso outline, in document coordinates. */
+/**
+ * Growable buffer for the lasso outline.
+ *
+ * Kept twice over. [xs]/[ys] are document coordinates, held to the page the loop began on, and are
+ * what the selection is judged by. [stripYs] is where the pointer actually was on the glass, and is
+ * what is drawn: a loop that runs into the gap between pages has to be seen running into it, not
+ * squashed flat against the edge of the paper under a finger that is plainly somewhere else.
+ */
 class LassoBuffer {
     var xs = FloatArray(256)
         private set
     var ys = FloatArray(256)
+        private set
+    var stripYs = FloatArray(256)
         private set
     var count = 0
         private set
@@ -985,15 +1012,30 @@ class LassoBuffer {
         count = 0
     }
 
-    fun add(x: Float, y: Float): Boolean {
-        if (count > 0 && abs(x - xs[count - 1]) < 1f && abs(y - ys[count - 1]) < 1f) return false
+    fun add(x: Float, y: Float, stripY: Float): Boolean {
+        // Judged on the glass, since the document y stands still while the pointer is in a gap.
+        if (count > 0 && abs(x - xs[count - 1]) < 1f && abs(stripY - stripYs[count - 1]) < STRIP_STEP) {
+            return false
+        }
         if (count == xs.size) {
             xs = xs.copyOf(count * 2)
             ys = ys.copyOf(count * 2)
+            stripYs = stripYs.copyOf(count * 2)
         }
         xs[count] = x
         ys[count] = y
+        stripYs[count] = stripY
         count++
         return true
     }
+
+    private companion object {
+        /** About the point the document coordinate is thinned to, in unzoomed strip pixels. */
+        const val STRIP_STEP = 2f
+    }
+}
+
+/** The page the gesture in progress began on; see [SheetPainter.stripPxToDocumentY]. */
+internal class PageAnchor {
+    var page = SheetPainter.NO_PAGE
 }
