@@ -153,6 +153,24 @@ class ShapeRecognizerTest {
         assertEquals(22.9f, angle, 4f)
     }
 
+    @Test
+    fun `a line snapped level, upright or to a diagonal keeps the start the pen came down on`() {
+        // Turning it about its middle moved the start sideways, under a pen already at the other
+        // end. The start is the one point the user placed deliberately; only the far end may move.
+        for ((i, ideal) in listOf(
+            ShapeSpec.Line(40f, 100f, 320f, 112f),
+            ShapeSpec.Line(60f, 60f, 290f, 275f),
+            ShapeSpec.Line(150f, 40f, 160f, 310f),
+        ).withIndex()) {
+            val drawn = handDrawn(ideal, seed = 40 + i)
+            val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Line
+            assertEquals("start x of $ideal", drawn.xs[0], shape.x0, 1e-3f)
+            assertEquals("start y of $ideal", drawn.ys[0], shape.y0, 1e-3f)
+            val angle = kotlin.math.atan2(shape.y1 - shape.y0, shape.x1 - shape.x0).toDegrees()
+            assertEquals("snapped angle of $ideal", 0f, angle - 45f * Math.round(angle / 45f), 1e-3f)
+        }
+    }
+
     // ---- Curves ----------------------------------------------------------------------------
 
     @Test

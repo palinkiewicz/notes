@@ -6,10 +6,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import pl.dakil.notes.ink.DwellTracker
+import pl.dakil.notes.ink.HandleDeadband
 import pl.dakil.notes.ink.ShapeRecognizer
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.dragHandle
+import pl.dakil.notes.ink.handleInto
 import pl.dakil.notes.ink.nearestHandle
 import pl.dakil.notes.ink.outlineInto
 import pl.dakil.notes.ink.toStroke
@@ -18,6 +20,7 @@ import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
+import kotlin.math.hypot
 
 /**
  * The auto-shape gesture: hold the pen still, and the stroke becomes the shape it was meant to be.
@@ -38,6 +41,9 @@ import pl.dakil.notes.model.ToolSpec
 class ShapeController {
 
     private val dwell = DwellTracker()
+
+    /** Keeps a snapped line's end where the snap put it until the pen clearly moves off it. */
+    private val deadband = HandleDeadband()
     private var job: Job? = null
 
     private var handle = 0
@@ -67,6 +73,7 @@ class ShapeController {
     /** Called at pen-down, once the router has decided this pointer is drawing. */
     fun begin(x: Float, y: Float, timeMs: Long) {
         spec = null
+        deadband.release()
         dwell.start(x, y, timeMs, pointIndex = 1)
     }
 
@@ -79,7 +86,14 @@ class ShapeController {
      * Attempts recognition if the pen has been still long enough. True when a shape was found, at
      * which point the stroke under the pen has been replaced and the caller should redraw.
      */
-    fun tick(nowMs: Long, holdMs: Long, builder: StrokeBuilder, toolSpec: ToolSpec): Boolean {
+    fun tick(
+        nowMs: Long,
+        holdMs: Long,
+        builder: StrokeBuilder,
+        toolSpec: ToolSpec,
+        /** How far a still pen may wander, in document points at the current zoom. */
+        tolerance: Float,
+    ): Boolean {
         if (isLive || dwell.attempted || dwell.heldFor(nowMs) < holdMs) return false
         dwell.attempted = true
 
@@ -100,6 +114,21 @@ class ShapeController {
 
         spec = found
         handle = found.nearestHandle(dwell.anchorX, dwell.anchorY)
+        if (found is ShapeSpec.Line) {
+            // Centred on the snapped end, and always wide enough to contain the pen as it rests
+            // now: the snap may have swung the end a few points away from it, and a pen that
+            // starts outside its own margin would undo the snap on its first tremor.
+            val end = FloatArray(2)
+            found.handleInto(handle, end)
+            val miss = hypot(dwell.anchorX - end[0], dwell.anchorY - end[1])
+            deadband.arm(
+                end[0], end[1],
+                length = hypot(found.x1 - found.x0, found.y1 - found.y0),
+                minRadius = miss + tolerance * 2f,
+            )
+        } else {
+            deadband.release()
+        }
         previewWidth = total / n
         tool = toolSpec.tool
         previewColor = toolSpec.effectiveColor
@@ -112,6 +141,7 @@ class ShapeController {
     /** Drags the live shape by the apex the pen is resting on. True when something changed. */
     fun drag(x: Float, y: Float): Boolean {
         val current = spec ?: return false
+        if (!deadband.accept(x, y)) return false
         // Take the handle back from the drag as well as the shape: pulled past the corner it pins,
         // a shape mirrors, and the apex under the pen becomes a different one. Holding the old
         // index would pin the wrong corner on the very next sample.
@@ -129,6 +159,7 @@ class ShapeController {
 
     fun reset() {
         spec = null
+        deadband.release()
         dwell.reset()
         stopTicking()
     }

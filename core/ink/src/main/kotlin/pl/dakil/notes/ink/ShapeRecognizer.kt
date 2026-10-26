@@ -106,7 +106,9 @@ object ShapeRecognizer {
                 best = candidate
             }
         }
-        return best?.let { regularise(it) }
+        // The pen went down at rx[0] — the smoothing passes the first sample through untouched —
+        // so that is where a straightened line has to start, whichever candidate described it.
+        return best?.let { if (it is ShapeSpec.Arc) arc(it, rx[0], ry[0]) else regularise(it) }
     }
 
     // ---- Scoring ---------------------------------------------------------------------------
@@ -673,17 +675,19 @@ object ShapeRecognizer {
             val angle = atan2(spec.y1 - spec.y0, spec.x1 - spec.x0)
             val snapped = snapToEighth(angle)
             if (snapped == angle) spec else {
-                // Rotated about the midpoint so the line stays where it was drawn.
-                val mx = (spec.x0 + spec.x1) * 0.5f
-                val my = (spec.y0 + spec.y1) * 0.5f
-                val half = hypot(spec.x1 - spec.x0, spec.y1 - spec.y0) * 0.5f
-                val ux = cos(snapped) * half
-                val uy = sin(snapped) * half
-                ShapeSpec.Line(mx - ux, my - uy, mx + ux, my + uy)
+                // Rotated about its start, which is where the pen came down and the one point of
+                // the stroke the user placed on purpose. Turning it about the middle instead slid
+                // the start sideways under a pen that was nowhere near it any more. The far end is
+                // the one still under the pen, free to be dragged.
+                val length = hypot(spec.x1 - spec.x0, spec.y1 - spec.y0)
+                ShapeSpec.Line(
+                    spec.x0, spec.y0,
+                    spec.x0 + cos(snapped) * length, spec.y0 + sin(snapped) * length,
+                )
             }
         }
 
-        is ShapeSpec.Arc -> arc(spec)
+        is ShapeSpec.Arc -> arc(spec, Float.NaN, Float.NaN)
 
         is ShapeSpec.Rect -> rectangle(spec.cx, spec.cy, spec.hw, spec.hh, spec.rot)
 
@@ -721,7 +725,7 @@ object ShapeRecognizer {
      * is then snapped to an eighth turn the way a line's direction is, which stands the whole bow
      * upright without touching how deep it is.
      */
-    private fun arc(spec: ShapeSpec.Arc): ShapeSpec {
+    private fun arc(spec: ShapeSpec.Arc, startX: Float, startY: Float): ShapeSpec {
         val ends = FloatArray(2)
         spec.handleInto(0, ends)
         val x0 = ends[0]
@@ -734,7 +738,17 @@ object ShapeRecognizer {
 
         spec.handleInto(1, ends)
         val bow = sagittaOf(x0, y0, x1, y1, ends[0], ends[1])
-        if (abs(bow) <= STRAIGHT_BOW * chord) return regularise(ShapeSpec.Line(x0, y0, x1, y1))
+        if (abs(bow) <= STRAIGHT_BOW * chord) {
+            // Straightened from the drawn start ([startX], [startY]) rather than from the fitted
+            // circle's end near it, which is close but not where the pen landed. The far end is
+            // whichever of the arc's two is further from it.
+            if (startX.isNaN()) return regularise(ShapeSpec.Line(x0, y0, x1, y1))
+            val farFirst = hypot(x0 - startX, y0 - startY) > hypot(x1 - startX, y1 - startY)
+            return regularise(
+                if (farFirst) ShapeSpec.Line(startX, startY, x0, y0)
+                else ShapeSpec.Line(startX, startY, x1, y1),
+            )
+        }
 
         // Sagitta and sweep are interchangeable descriptions of the same bow — s = c·tan(θ/4)/2 —
         // so the snapped sweep is applied by rewriting the depth, leaving the ends where the pen

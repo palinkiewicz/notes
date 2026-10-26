@@ -227,6 +227,7 @@ fun InkOverlay(
             holdMs = inputConfig.autoShapeHoldMs,
             builder = builder,
             toolSpec = currentTool,
+            tolerance = DWELL_TOLERANCE_PT / zoom().coerceAtLeast(MIN_ZOOM),
         )
         if (found) {
             // The stroke has just changed under the user's hand while they are looking at the pen,
