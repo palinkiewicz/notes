@@ -114,18 +114,15 @@ class ShapeController {
 
         spec = found
         handle = found.nearestHandle(dwell.anchorX, dwell.anchorY)
-        if (found is ShapeSpec.Line) {
+        val reach = openEndReach(found)
+        if (reach != null) {
             // Centred on the snapped end, and always wide enough to contain the pen as it rests
             // now: the snap may have swung the end a few points away from it, and a pen that
             // starts outside its own margin would undo the snap on its first tremor.
             val end = FloatArray(2)
             found.handleInto(handle, end)
             val miss = hypot(dwell.anchorX - end[0], dwell.anchorY - end[1])
-            deadband.arm(
-                end[0], end[1],
-                length = hypot(found.x1 - found.x0, found.y1 - found.y0),
-                minRadius = miss + tolerance * 2f,
-            )
+            deadband.arm(end[0], end[1], length = reach, minRadius = miss + tolerance * 2f)
         } else {
             deadband.release()
         }
@@ -136,6 +133,20 @@ class ShapeController {
         previewFilled = toolSpec.fill
         found.outlineInto(outline)
         return true
+    }
+
+    /**
+     * How far apart the two ends of an open shape are, or null for one with no free end to hold —
+     * a closed shape's corners are not where a stroke started and stopped.
+     */
+    private fun openEndReach(spec: ShapeSpec): Float? = when (spec) {
+        is ShapeSpec.Line -> hypot(spec.x1 - spec.x0, spec.y1 - spec.y0)
+        is ShapeSpec.Arc -> if (handle == 1) null else {
+            val a = FloatArray(2).also { spec.handleInto(0, it) }
+            val b = FloatArray(2).also { spec.handleInto(2, it) }
+            hypot(b[0] - a[0], b[1] - a[1])
+        }
+        else -> null
     }
 
     /** Drags the live shape by the apex the pen is resting on. True when something changed. */

@@ -192,6 +192,19 @@ class ShapeRecognizerTest {
     }
 
     @Test
+    fun `an arc keeps the start the pen came down on, whether or not it was levelled`() {
+        // The fitted circle passes near the first point rather than through it, and levelling the
+        // chord about its middle moved the start again. Only the end under the pen may move.
+        for ((i, ideal) in listOf(arc(130f, 172f), arc(130f, 55f), arc(160f, 90f, start = 0.15f)).withIndex()) {
+            val drawn = handDrawn(ideal, endFraction = 1f, seed = 50 + i)
+            val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
+            val start = FloatArray(2).also { shape.handleInto(0, it) }
+            assertEquals("start x of arc $i", drawn.xs[0], start[0], 0.05f)
+            assertEquals("start y of arc $i", drawn.ys[0], start[1], 0.05f)
+        }
+    }
+
+    @Test
     fun `an arc drawn nearly a half turn comes out an exact half turn`() {
         val drawn = handDrawn(arc(130f, 172f), endFraction = 1f, seed = 32)
         val shape = ShapeRecognizer.recognize(drawn.xs, drawn.ys, drawn.count) as ShapeSpec.Arc
@@ -235,8 +248,9 @@ class ShapeRecognizerTest {
         ) as ShapeSpec.Arc
         assertTrue("opposite senses", forward.sweep * backward.sweep < 0f)
         assertEquals(abs(forward.sweep), abs(backward.sweep), 0.05f)
-        assertEquals(forward.cx, backward.cx, 4f)
-        assertEquals(forward.cy, backward.cy, 4f)
+        // The same circle in size, but not to the point in place: each direction pins the end it
+        // started from and levels about it, so the two centres can sit a few points apart.
+        assertEquals(forward.r, backward.r, 4f)
     }
 
     @Test

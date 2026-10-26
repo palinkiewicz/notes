@@ -728,27 +728,33 @@ object ShapeRecognizer {
     private fun arc(spec: ShapeSpec.Arc, startX: Float, startY: Float): ShapeSpec {
         val ends = FloatArray(2)
         spec.handleInto(0, ends)
-        val x0 = ends[0]
-        val y0 = ends[1]
+        var x0 = ends[0]
+        var y0 = ends[1]
         spec.handleInto(2, ends)
-        val x1 = ends[0]
-        val y1 = ends[1]
+        var x1 = ends[0]
+        var y1 = ends[1]
+        spec.handleInto(1, ends)
+        val crownX = ends[0]
+        val crownY = ends[1]
+
+        // The fitted circle's end is close to where the pen came down but not on it, and the
+        // levelling below used to turn the chord about its middle, which moved it further. The
+        // start is the one point of the stroke the user placed on purpose, so it is set back to
+        // exactly that point ([startX], [startY]) and everything after pivots on it.
+        val pinned = !startX.isNaN()
+        if (pinned) {
+            if (hypot(x0 - startX, y0 - startY) > hypot(x1 - startX, y1 - startY)) {
+                x1 = x0.also { x0 = x1 }
+                y1 = y0.also { y0 = y1 }
+            }
+            x0 = startX
+            y0 = startY
+        }
         val chord = hypot(x1 - x0, y1 - y0)
         if (chord < EPSILON) return spec
 
-        spec.handleInto(1, ends)
-        val bow = sagittaOf(x0, y0, x1, y1, ends[0], ends[1])
-        if (abs(bow) <= STRAIGHT_BOW * chord) {
-            // Straightened from the drawn start ([startX], [startY]) rather than from the fitted
-            // circle's end near it, which is close but not where the pen landed. The far end is
-            // whichever of the arc's two is further from it.
-            if (startX.isNaN()) return regularise(ShapeSpec.Line(x0, y0, x1, y1))
-            val farFirst = hypot(x0 - startX, y0 - startY) > hypot(x1 - startX, y1 - startY)
-            return regularise(
-                if (farFirst) ShapeSpec.Line(startX, startY, x0, y0)
-                else ShapeSpec.Line(startX, startY, x1, y1),
-            )
-        }
+        val bow = sagittaOf(x0, y0, x1, y1, crownX, crownY)
+        if (abs(bow) <= STRAIGHT_BOW * chord) return regularise(ShapeSpec.Line(x0, y0, x1, y1))
 
         // Sagitta and sweep are interchangeable descriptions of the same bow — s = c·tan(θ/4)/2 —
         // so the snapped sweep is applied by rewriting the depth, leaving the ends where the pen
@@ -756,15 +762,17 @@ object ShapeRecognizer {
         val sweep = snapSweep(abs(spec.sweep))
         val depth = chord * tan(sweep / 4f) * 0.5f * if (bow < 0f) -1f else 1f
 
+        // Levelled about the start when there is one, so the far end — the one under the pen —
+        // is the only thing that moves.
         val angle = atan2(y1 - y0, x1 - x0)
         val correction = snapToEighth(angle) - angle
-        val mx = (x0 + x1) * 0.5f
-        val my = (y0 + y1) * 0.5f
+        val px = if (pinned) x0 else (x0 + x1) * 0.5f
+        val py = if (pinned) y0 else (y0 + y1) * 0.5f
         val c = cos(correction)
         val sn = sin(correction)
         return arcFromChord(
-            mx + (x0 - mx) * c - (y0 - my) * sn, my + (x0 - mx) * sn + (y0 - my) * c,
-            mx + (x1 - mx) * c - (y1 - my) * sn, my + (x1 - mx) * sn + (y1 - my) * c,
+            px + (x0 - px) * c - (y0 - py) * sn, py + (x0 - px) * sn + (y0 - py) * c,
+            px + (x1 - px) * c - (y1 - py) * sn, py + (x1 - px) * sn + (y1 - py) * c,
             depth,
         )
     }
