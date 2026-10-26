@@ -24,7 +24,38 @@ value class StoreRef(val value: String) {
  * kept in step with its file name by [NoteRepository.rename] — so the name is always the answer,
  * and always the one available without opening the file.
  */
-fun StoreRef.noteTitle(): String = NoteKind.titleOf(value.substringAfterLast('/'))
+fun StoreRef.noteTitle(): String = NoteKind.titleOf(fileName())
+
+/**
+ * The file name this ref ends in.
+ *
+ * A SAF document URI carries its path percent-encoded in one segment —
+ * `…/document/primary%3ADocuments%2FWork%2FPlan.md` — so the name is what follows the last slash
+ * *once decoded*; split before decoding, it was the whole path, and that was the note's title.
+ */
+fun StoreRef.fileName(): String = percentDecoded(value.substringAfterLast('/')).substringAfterLast('/')
+
+/**
+ * [text] with `%XX` escapes decoded as UTF-8. Hand-rolled rather than `URLDecoder`, which also turns
+ * `+` into a space — right for a form, wrong for a file called `C++ notes.md`.
+ */
+internal fun percentDecoded(text: String): String {
+    if ('%' !in text) return text
+    val out = java.io.ByteArrayOutputStream(text.length)
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        val hex = if (c == '%' && i + 2 <= text.lastIndex) text.substring(i + 1, i + 3).toIntOrNull(16) else null
+        if (hex != null) {
+            out.write(hex)
+            i += 3
+        } else {
+            out.write(c.toString().toByteArray(Charsets.UTF_8))
+            i++
+        }
+    }
+    return out.toString("UTF-8")
+}
 
 data class StoreEntry(
     val ref: StoreRef,

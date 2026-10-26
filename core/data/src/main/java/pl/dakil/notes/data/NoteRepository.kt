@@ -338,7 +338,7 @@ class NoteRepository(
     }
 
     private suspend fun indexText(ref: StoreRef, markdown: String, entry: StoreEntry?, path: String) {
-        val name = entry?.name ?: ref.value.substringAfterLast('/')
+        val name = entry?.name ?: ref.fileName()
         val modified = entry?.modifiedAt ?: clock()
         // A `.md` note keeps its tags in YAML frontmatter, because it has no manifest to keep them
         // in and frontmatter is what every other Markdown tool already reads.
@@ -563,7 +563,7 @@ class NoteRepository(
     suspend fun rename(ref: StoreRef, newTitle: String, path: String? = null): Result<StoreRef> = runCatching {
         writeLock.withLock {
             val folder = path ?: index.pathOf(ref)
-            val current = ref.value.substringAfterLast('/')
+            val current = ref.fileName()
             val kind = NoteKind.of(current) ?: NoteKind.INK
             val title = newTitle.sanitizeFileName()
             val moved = store.move(ref, StoreRef("$title.${kind.extension}"))
