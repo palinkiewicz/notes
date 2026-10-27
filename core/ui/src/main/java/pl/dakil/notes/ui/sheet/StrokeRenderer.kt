@@ -156,6 +156,25 @@ class StrokeRenderer {
             if (opacity >= 1f) it else it.copy(alpha = it.alpha * opacity)
         }
         val blend = stroke.blend.toBlendMode()
+
+        // A tap: drawn as the disc it is, not as a line of no length with round caps. The screen
+        // draws the caps of an empty line, but not everything that ends up drawing a page does —
+        // a PDF carries it as a curve from a point to itself, and viewers built on pdfium skip it,
+        // so every dot on the page was missing from the export. A pressure-varying dot is already a
+        // disc by the time the tessellator is done with it.
+        if (!stroke.hasWidthVariation) {
+            val core = stroke.coreBounds
+            if (core.right - core.left <= DOT_EXTENT_PT && core.bottom - core.top <= DOT_EXTENT_PT) {
+                drawCircle(
+                    color = color,
+                    radius = stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f) * 0.5f,
+                    center = Offset((core.left + core.right) * 0.5f, (core.top + core.bottom) * 0.5f),
+                    blendMode = blend,
+                )
+                return
+            }
+        }
+
         val cached = cachedPaths(stroke)
 
         // Under the ink, so the outline is the crisp edge of the mark and the fill merely reaches
@@ -413,3 +432,12 @@ class StrokeRenderer {
         BlendId.MULTIPLY -> BlendMode.Multiply
     }
 }
+
+/**
+ * How long a stroke's centreline may be and still be drawn as a dot, in points.
+ *
+ * A tap is committed with its second point a hundredth of a point from the first, so this is
+ * generous for that and still far below anything a pen could draw on purpose: the circle drawn for
+ * it is out by a fortieth of a point at most.
+ */
+private const val DOT_EXTENT_PT = 0.05f
