@@ -29,13 +29,13 @@ import pl.dakil.notes.data.NoteStore
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
-import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.Sheet
+import pl.dakil.notes.ui.sheet.decodePicture
+import pl.dakil.notes.ui.sheet.pictureKey
 
 /** One level of the folder hierarchy, kept as a stack so "up" is always unambiguous. */
 @Immutable
@@ -496,15 +496,10 @@ class LibraryViewModel(
         val format = sheet.format
         val out = HashMap<String, ImageBitmap>()
         for (image in sheet.blocks.filterIsInstance<ImageBlock>()) {
-            if (image.rect.top >= format.height || image.src in out) continue
+            val key = pictureKey(image)
+            if (image.rect.top >= format.height || key in out) continue
             val wanted = (THUMBNAIL_PAGE_PX * image.rect.width / format.width.coerceAtLeast(1f)).toInt().coerceAtLeast(16)
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(image.bytes, 0, image.bytes.size, bounds)
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= wanted && sample < 64) sample *= 2
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            BitmapFactory.decodeByteArray(image.bytes, 0, image.bytes.size, options)
-                ?.let { out[image.src] = it.asImageBitmap() }
+            decodePicture(image.bytes, image.crop, wanted)?.let { out[key] = it }
         }
         return out
     }

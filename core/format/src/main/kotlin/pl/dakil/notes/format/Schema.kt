@@ -203,7 +203,7 @@ internal object Schema {
     private val INK_BLOCK_KEYS =
         COMMON_BLOCK_KEYS + setOf("name", "visible", "locked", ShapeJson.KEY, FillJson.KEY, CoreJson.KEY)
     private val TEXT_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("flow")
-    private val IMAGE_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("mime", "tint")
+    private val IMAGE_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("mime", "tint", "crop")
 
     /** v1 stored the document text on blocks carrying `flow: "document"`. */
     fun isLegacyFlowText(json: JsonObject): Boolean = json.string("flow", "document") == "document"
@@ -267,6 +267,7 @@ internal object Schema {
                         mimeType = json.string("mime", "image/png"),
                         bytes = bytes,
                         tint = json.string("tint").takeIf { it.isNotEmpty() }?.let { ColorCodec.parse(it) },
+                        crop = readCrop(json.array("crop")),
                     )
                 }
             }
@@ -309,9 +310,11 @@ internal object Schema {
 
             is TextBlock -> withSrc.withDefaults(block.unknown)
 
-            // `tint` only when there is one, so an untinted picture's descriptor never mentions it.
+            // `tint` and `crop` only when there is one, so a picture with neither has a descriptor
+            // that never mentions them.
             is ImageBlock -> withSrc.with("mime", block.mimeType)
                 .let { o -> block.tint?.let { o.with("tint", ColorCodec.toHex(it)) } ?: o }
+                .let { o -> if (block.isCropped) o.with("crop", writeRect(block.crop)) else o }
                 .withDefaults(block.unknown)
 
             // Start from the original descriptor so unknown keys keep their position, then
@@ -339,6 +342,21 @@ internal object Schema {
         if (a == null || a.size < 4) return Rect.ZERO
         fun n(i: Int) = (a[i] as? JsonNumber)?.toFloat() ?: 0f
         return Rect(n(0), n(1), n(2), n(3))
+    }
+
+    /**
+     * A picture's crop, or the whole picture for anything that is not a crop of it: absent, short,
+     * not numbers, outside the picture, or empty. Never a guess at what a damaged one meant — a
+     * picture shown whole is one the user can crop again; one shown as a guess may hide what they
+     * wanted to see.
+     */
+    fun readCrop(a: JsonArray?): Rect {
+        if (a == null || a.size != 4) return ImageBlock.UNCROPPED
+        val n = (0 until 4).map { (a[it] as? JsonNumber)?.toFloat() ?: return ImageBlock.UNCROPPED }
+        val crop = Rect(n[0], n[1], n[2], n[3])
+        val inside = n.all { it.isFinite() } && crop.left >= 0f && crop.top >= 0f &&
+            crop.right <= 1f && crop.bottom <= 1f && !crop.isEmpty
+        return if (inside) crop else ImageBlock.UNCROPPED
     }
 
     fun writeRect(r: Rect): JsonArray =

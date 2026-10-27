@@ -40,6 +40,11 @@ import pl.dakil.notes.ink.handleCount
 import pl.dakil.notes.ink.handleInto
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.ImageCrop
+import pl.dakil.notes.model.MIN_IMAGE_SIDE
+import pl.dakil.notes.model.croppedTo
+import pl.dakil.notes.model.pictureDelta
+import pl.dakil.notes.model.uncroppedRect
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.ShapeSpec
@@ -73,6 +78,12 @@ import kotlin.math.roundToInt
  * rectangle or arc than a box to scale it in. So when the selection is exactly one such stroke the
  * frame gives way to a grip per apex. Anything else — several strokes, or one that was never
  * recognised — gets the frame.
+ *
+ * ### Why a picture being cropped gets grips on its own edges
+ *
+ * A crop is taken along the picture's edges, not the page's, so on a turned picture the frame's
+ * upright box would put the grips at corners the picture does not have. Each drag commits as it is
+ * let go, one undo step like any grip's, which is why leaving crop mode has nothing to apply.
  */
 @Composable
 fun SelectionChrome(
@@ -140,10 +151,58 @@ fun SelectionChrome(
     // SelectionController.grip for why that flips only twice a gesture.
     val rotating = controller.isRotating
 
+    // The picture being cropped, when the selection is in crop mode. Its grips crop it in place of
+    // scaling it, and stand on its own edges — turned with it — rather than on the box round it.
+    val cropImage = remember(sheet, state.documentVersion, selection) {
+        selection.takeIf { it.cropping }?.loneImage?.let { sheet.block(it) as? ImageBlock }
+    }
+
+    /** The picture as the crop grip in hand has it right now. Read at place and draw time only. */
+    fun liveCropped(image: ImageBlock): ImageBlock = controller.liveCrop?.let(image::croppedTo) ?: image
+
+    /** Where [handle] stands on [image]'s own edges, on the glass. */
+    fun cropGripAt(image: ImageBlock, handle: SelectionHandle): Pair<Float, Float> {
+        val (x, y) = handlePosition(image.rect, handle)
+        return screenX(image.transform.mapX(x, y)) to screenY(image.transform.mapY(x, y))
+    }
+
     Layout(
         modifier = modifier,
         content = {
-            if (shape == null) {
+            if (cropImage != null) {
+                val full = cropImage.uncroppedRect()
+                // The least a crop can leave, in fractions of the picture: the size a scale stops at.
+                val minU = (MIN_IMAGE_SIDE / full.width).coerceAtMost(1f)
+                val minV = (MIN_IMAGE_SIDE / full.height).coerceAtMost(1f)
+                val delta = remember { FloatArray(2) }
+                for (handle in FRAME_GRIPS) {
+                    FrameGrip(
+                        description = stringResource(R.string.editor_selection_crop_edge),
+                        modifier = Modifier.layoutId(CropGrip(handle)),
+                        onStart = {
+                            // Where the grip is, in fractions of the picture: the finger is followed
+                            // from there, so the edge under it does not jump to the finger's centre.
+                            val (u, v) = handlePosition(cropImage.crop, handle)
+                            cursor[0] = u
+                            cursor[1] = v
+                            controller.beginCrop(cropImage.crop)
+                        },
+                        onEnd = { controller.endCrop()?.let(viewModel::cropSelectedImage) },
+                    ) { dx, dy ->
+                        cropImage.pictureDelta(toDocument(dx), toDocument(dy), delta)
+                        cursor[0] += delta[0]
+                        cursor[1] += delta[1]
+                        controller.dragCrop(
+                            ImageCrop.resize(
+                                cropImage.crop,
+                                left = handle.movesLeft, top = handle.movesTop,
+                                right = handle.movesRight, bottom = handle.movesBottom,
+                                u = cursor[0], v = cursor[1], minU = minU, minV = minV,
+                            )
+                        )
+                    }
+                }
+            } else if (shape == null) {
                 // Everything but the rotate grip steps aside while the selection turns: the frame
                 // is drawn turned with the ink then, and grips standing on the box round it would
                 // mark corners that are not the selection's.
@@ -229,7 +288,25 @@ fun SelectionChrome(
                 }
             }
 
-            if (!rotating) {
+            if (cropImage != null) {
+                Surface(
+                    modifier = Modifier.layoutId(ActionBar),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shadowElevation = 3.dp,
+                ) {
+                    Row {
+                        // Nothing to apply: every drag of a crop grip was committed as it was let go.
+                        BarButton(NotesIcons.Check, R.string.editor_selection_crop_done, viewModel::finishCrop)
+                        if (cropImage.isCropped) {
+                            BarButton(NotesIcons.Image, R.string.editor_selection_crop_reset) {
+                                viewModel.cropSelectedImage(ImageBlock.UNCROPPED)
+                            }
+                        }
+                    }
+                }
+            } else if (!rotating) {
                 Surface(
                     modifier = Modifier.layoutId(ActionBar),
                     shape = RoundedCornerShape(50),
@@ -248,6 +325,11 @@ fun SelectionChrome(
                         // The way back from the colour button for a picture: its own colours again.
                         if (selection.images.any { (sheet.block(it) as? ImageBlock)?.tint != null }) {
                             BarButton(NotesIcons.Close, R.string.editor_selection_remove_tint, viewModel::clearImageTint)
+                        }
+                        // Only for a picture on its own: a crop of ink, or of a picture and the
+                        // words beside it, is not something one window onto one picture can be.
+                        if (selection.loneImage != null) {
+                            BarButton(NotesIcons.Crop, R.string.editor_selection_crop, viewModel::startCrop)
                         }
                         // Offered only where it means something: a text box has no interior to
                         // paint, and a selection of nothing but boxes would get a button that does
@@ -288,7 +370,21 @@ fun SelectionChrome(
                 // re-places the grips without recomposing a single one of them.
                 @Suppress("UNUSED_EXPRESSION")
                 controller.version
-                val f = frame()
+                // While cropping, the frame is the picture as the crop has it, so the bar rides
+                // above the edge being dragged rather than above where the edge was.
+                val cropped = cropImage?.let(::liveCropped)
+                val f = cropped?.let {
+                    val box = it.worldBounds().inflate(SELECTION_PAD_PT)
+                    Rect(screenX(box.left), screenY(box.top), screenX(box.right), screenY(box.bottom))
+                } ?: frame()
+                // The same "no room, no edge grip" rule as the frame's, measured along the picture's
+                // own edges, which is what the crop grips stand on.
+                val cropRoom = cropped?.let {
+                    val (lx, ly) = cropGripAt(it, SelectionHandle.TOP_LEFT)
+                    val (rx, ry) = cropGripAt(it, SelectionHandle.TOP_RIGHT)
+                    val (bx, by) = cropGripAt(it, SelectionHandle.BOTTOM_LEFT)
+                    kotlin.math.hypot(rx - lx, ry - ly) to kotlin.math.hypot(bx - lx, by - ly)
+                }
                 val live = controller.liveShape ?: shape
                 val out = FloatArray(2)
                 val midX = (f.left + f.right) / 2f
@@ -340,6 +436,14 @@ fun SelectionChrome(
                             if (spec == null || id.index >= spec.handleCount()) continue
                             spec.handleInto(id.index, out)
                             screenX(out[0]) to screenY(out[1])
+                        }
+                        is CropGrip -> {
+                            if (cropped == null || cropRoom == null) continue
+                            val across = id.handle == SelectionHandle.TOP || id.handle == SelectionHandle.BOTTOM
+                            val down = id.handle == SelectionHandle.LEFT || id.handle == SelectionHandle.RIGHT
+                            if (across && cropRoom.first < touchPx * 2f) continue
+                            if (down && cropRoom.second < touchPx * 2f) continue
+                            cropGripAt(cropped, id.handle)
                         }
                         else -> continue
                     }
@@ -511,6 +615,19 @@ private fun TransformReadout(controller: SelectionController, modifier: Modifier
 
 /** Layout id for the grip on apex [index] of a selected shape. */
 private data class ApexId(val index: Int)
+
+/** Layout id for the crop grip at [handle] of a picture being cropped. */
+private data class CropGrip(val handle: SelectionHandle)
+
+// Which of a crop's edges each grip takes hold of: a corner two, an edge one.
+private val SelectionHandle.movesLeft: Boolean
+    get() = this == SelectionHandle.TOP_LEFT || this == SelectionHandle.BOTTOM_LEFT || this == SelectionHandle.LEFT
+private val SelectionHandle.movesTop: Boolean
+    get() = this == SelectionHandle.TOP_LEFT || this == SelectionHandle.TOP_RIGHT || this == SelectionHandle.TOP
+private val SelectionHandle.movesRight: Boolean
+    get() = this == SelectionHandle.TOP_RIGHT || this == SelectionHandle.BOTTOM_RIGHT || this == SelectionHandle.RIGHT
+private val SelectionHandle.movesBottom: Boolean
+    get() = this == SelectionHandle.BOTTOM_LEFT || this == SelectionHandle.BOTTOM_RIGHT || this == SelectionHandle.BOTTOM
 
 /** Layout id for the duplicate/colour/delete bar. */
 private object ActionBar

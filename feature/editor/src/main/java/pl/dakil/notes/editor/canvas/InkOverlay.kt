@@ -346,7 +346,9 @@ fun InkOverlay(
             // The selection's outline, following the live transform so it stays round what it
             // contains while that is being dragged. Like the marquee below it this is UI rather than
             // ink, so its weight and its dashes are divided back out of the placement scale.
-            if (selection != null && controller.liveShape == null) {
+            // Not round a picture being cropped: the box would stand where the picture was before
+            // the drag, and the picture's own edges, bright against what is cut away, say it better.
+            if (selection != null && controller.liveShape == null && !selection.cropping) {
                 val scale = zoom().coerceAtLeast(MIN_ZOOM)
                 val dash = SELECTION_DASH_PX / scale
                 val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
@@ -737,8 +739,10 @@ private fun beginAction(
             // the only thing a pen talks to.
             //
             // Not while a grip is already dragging: that gesture belongs to the chrome, which is a
-            // different subtree, and taking the controller off it mid-drag would strand it.
-            val grabbed = selection != null && !controller.isActive &&
+            // different subtree, and taking the controller off it mid-drag would strand it. Nor
+            // while a picture is being cropped, when a drag would carry it out from under its own
+            // crop grips; a loop drawn there instead selects anew and so ends the crop.
+            val grabbed = selection != null && !selection.cropping && !controller.isActive &&
                 selection.bounds.inflate(reach).contains(sample.x, sample.y)
             if (grabbed) controller.beginMove(sample.x, sample.y)
             else lasso.add(sample.x, sample.y, stripY)

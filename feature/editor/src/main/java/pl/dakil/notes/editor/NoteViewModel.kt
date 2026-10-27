@@ -68,6 +68,7 @@ import pl.dakil.notes.data.ImportedImage
 import pl.dakil.notes.model.carriedBy
 import pl.dakil.notes.model.placedBy
 import pl.dakil.notes.model.translated
+import pl.dakil.notes.model.croppedTo
 import pl.dakil.notes.model.withId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.MeasurementUnit
@@ -81,12 +82,26 @@ data class Selection(
     val bounds: Rect = Rect.ZERO,
     /** Pictures, which are taken whole like text boxes but, unlike them, scale with the handles. */
     val images: Set<BlockId> = emptySet(),
+    /**
+     * Whether [loneImage] is being cropped: its grips crop it rather than scale it.
+     *
+     * Held on the selection rather than beside it, so whatever replaces or drops the selection — a
+     * new lasso, a tap elsewhere, an undo — ends the crop with it, and nothing has to remember to.
+     */
+    val cropping: Boolean = false,
 ) {
     val isEmpty: Boolean get() = strokesByBlock.isEmpty() && textBlocks.isEmpty() && images.isEmpty()
 
     /** Every block taken whole rather than stroke by stroke. */
     val wholeBlocks: Set<BlockId> get() = textBlocks + images
     val strokeCount: Int get() = strokesByBlock.values.sumOf { it.size }
+
+    /**
+     * The picture selected, when a picture is all that is: no ink, no text box, no second picture.
+     * The one selection a crop means something for.
+     */
+    val loneImage: BlockId?
+        get() = if (strokesByBlock.isEmpty() && textBlocks.isEmpty()) images.singleOrNull() else null
 }
 
 /**
@@ -1155,6 +1170,29 @@ class NoteViewModel(
 
     /** Takes the colour filter off every selected picture. */
     fun clearImageTint() = mutateSelection(stroke = { it }, image = { it.copy(tint = null) })
+
+    /** Turns the selection's grips into crop grips, when a lone picture is what is selected. */
+    fun startCrop() {
+        val selection = _state.value.selection ?: return
+        if (_state.value.isReadOnly || selection.loneImage == null) return
+        select(selection.copy(cropping = true))
+    }
+
+    /** Gives the grips back to scaling. Every crop was committed as it was made; nothing is applied here. */
+    fun finishCrop() {
+        val selection = _state.value.selection ?: return
+        select(selection.copy(cropping = false))
+    }
+
+    /**
+     * Shows [crop] of the selected picture, as one undo step — [ImageBlock.UNCROPPED] for all of it.
+     *
+     * Every pixel stays where it is on the page; see [croppedTo].
+     */
+    fun cropSelectedImage(crop: Rect) {
+        if (_state.value.selection?.loneImage == null) return
+        mutateSelection(stroke = { it }, image = { it.croppedTo(crop) })
+    }
 
     /**
      * Fills or empties every selected stroke.

@@ -514,6 +514,14 @@ object NotesIcons {
         )
     }
 
+    /** Two crossed corner brackets, the crop marks a printer trims a page by. */
+    val Crop: ImageVector by lazy {
+        strokedIcon(
+            "Crop",
+            "M7 3 v12.5 a1.5 1.5 0 0 0 1.5 1.5 H21 M3 7 h12.5 a1.5 1.5 0 0 1 1.5 1.5 V21",
+        )
+    }
+
     /** A grid: header row plus two columns. */
     val Table: ImageVector by lazy {
         strokedIcon(

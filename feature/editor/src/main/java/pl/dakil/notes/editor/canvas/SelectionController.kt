@@ -9,6 +9,7 @@ import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.dragHandle
 import pl.dakil.notes.ink.outlineInto
 import pl.dakil.notes.model.Affine
+import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.ShapeSpec
 
 /**
@@ -49,6 +50,13 @@ class SelectionController {
 
     /** The shape being reshaped by an apex grip, or null when this is an ordinary transform. */
     var liveShape: ShapeSpec? = null
+        private set
+
+    /**
+     * The crop a crop grip has dragged a lone picture to so far, or null when nothing is being
+     * cropped. In fractions of the picture, as [pl.dakil.notes.model.ImageBlock.crop] is.
+     */
+    var liveCrop: Rect? = null
         private set
 
     /** The live shape's centreline, valid while [liveShape] is set. */
@@ -176,6 +184,35 @@ class SelectionController {
         return out
     }
 
+    // ---- Crop ------------------------------------------------------------------------------------
+
+    /** Starts a crop grip's drag from the picture's [crop] as it stands. */
+    fun beginCrop(crop: Rect) {
+        active = true
+        isMoving = false
+        grip = null
+        live = Affine.IDENTITY
+        liveShape = null
+        liveCrop = crop
+        moved = false
+        version++
+    }
+
+    /** Replaces the crop outright; the grip works out the whole of it from where the finger is. */
+    fun dragCrop(crop: Rect) {
+        if (liveCrop == null || crop == liveCrop) return
+        moved = true
+        liveCrop = crop
+        version++
+    }
+
+    /** The crop to commit, or null when the grip never moved. */
+    fun endCrop(): Rect? {
+        val out = if (moved) liveCrop else null
+        cancel()
+        return out
+    }
+
     fun cancel() {
         active = false
         isMoving = false
@@ -183,6 +220,7 @@ class SelectionController {
         moved = false
         live = Affine.IDENTITY
         liveShape = null
+        liveCrop = null
         version++
     }
 }

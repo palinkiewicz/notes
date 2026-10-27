@@ -171,6 +171,10 @@
     <string name="editor_selection_colour">Kolor zaznaczenia</string>
     <string name="editor_selection_inside_colour">Kolor wnętrza markera</string>
     <string name="editor_selection_remove_tint">Usuń filtr koloru</string>
+    <string name="editor_selection_crop">Przytnij</string>
+    <string name="editor_selection_crop_done">Zakończ przycinanie</string>
+    <string name="editor_selection_crop_reset">Pokaż cały obraz</string>
+    <string name="editor_selection_crop_edge">Krawędź przycięcia</string>
     <string name="editor_selection_fill">Wypełnij zaznaczenie</string>
     <string name="editor_selection_unfill">Usuń wypełnienie</string>
     <string name="editor_selection_delete">Usuń zaznaczenie</string>

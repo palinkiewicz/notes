@@ -43,6 +43,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.Rect
+import pl.dakil.notes.ui.sheet.decodePicture
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToInt
@@ -145,8 +148,18 @@ internal object ImageLoader {
         return IntSize(bounds.outWidth, bounds.outHeight).also { sizes.put(key, it) }
     }
 
-    suspend fun bitmap(url: String, widthPx: Int, source: ImageSource): ImageBitmap? {
-        val key = "$widthPx|${keyOf(url)}"
+    /**
+     * The picture at [url], sampled down to roughly [widthPx] wide — only the part [crop] shows of
+     * it, which is all that is decoded and all that is cached.
+     */
+    suspend fun bitmap(
+        url: String,
+        widthPx: Int,
+        crop: Rect = ImageBlock.UNCROPPED,
+        source: ImageSource,
+    ): ImageBitmap? {
+        val cropKey = if (crop == ImageBlock.UNCROPPED) "" else "${crop.left},${crop.top},${crop.right},${crop.bottom}|"
+        val key = "$widthPx|$cropKey${keyOf(url)}"
         bitmaps.get(key)?.let { return it }
         var owner = false
         val flight = synchronized(flights) {
@@ -162,7 +175,7 @@ internal object ImageLoader {
             withContext(NonCancellable) {
                 val decoded = try {
                     val bytes = source.bytes(url)
-                    if (bytes == null) null else withContext(Dispatchers.Default) { decode(bytes, widthPx) }
+                    if (bytes == null) null else withContext(Dispatchers.Default) { decodePicture(bytes, crop, widthPx) }
                 } catch (_: Exception) {
                     null
                 }
@@ -175,21 +188,7 @@ internal object ImageLoader {
     }
 
     /** Decodes [bytes] sampled down to roughly [widthPx] wide, or whole when no width is given. */
-    fun decode(bytes: ByteArray, widthPx: Int): ImageBitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = if (widthPx > 0) sampleFor(bounds.outWidth, widthPx) else 1
-        }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
-    }
-
-    /** The largest power of two that keeps the decoded width at or above [width]. */
-    private fun sampleFor(sourceWidth: Int, width: Int): Int {
-        var sample = 1
-        while (sourceWidth / (sample * 2) >= width && sample < 64) sample *= 2
-        return sample
-    }
+    fun decode(bytes: ByteArray, widthPx: Int): ImageBitmap? = decodePicture(bytes, ImageBlock.UNCROPPED, widthPx)
 }
 
 /**
@@ -342,7 +341,7 @@ fun BoxScope.MarkdownImage(
     // when the size arrived without changing the width, which is why a new picture stayed a tile.
     LaunchedEffect(url, size.width, known) {
         images.measure(url)
-        if (images.sizeOf(url) != null) bitmap = ImageLoader.bitmap(url, images.displaySize(url).width, images.source)
+        if (images.sizeOf(url) != null) bitmap = ImageLoader.bitmap(url, images.displaySize(url).width, source = images.source)
     }
 
     val at = image.offset.coerceIn(0, layout.layoutInput.text.length)

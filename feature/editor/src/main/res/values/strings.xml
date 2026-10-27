@@ -169,6 +169,10 @@
     <string name="editor_selection_colour">Selection colour</string>
     <string name="editor_selection_inside_colour">Marker inside colour</string>
     <string name="editor_selection_remove_tint">Remove colour filter</string>
+    <string name="editor_selection_crop">Crop</string>
+    <string name="editor_selection_crop_done">Done cropping</string>
+    <string name="editor_selection_crop_reset">Show whole picture</string>
+    <string name="editor_selection_crop_edge">Crop edge</string>
     <string name="editor_selection_fill">Fill selection</string>
     <string name="editor_selection_unfill">Remove fill</string>
     <string name="editor_selection_delete">Delete selection</string>

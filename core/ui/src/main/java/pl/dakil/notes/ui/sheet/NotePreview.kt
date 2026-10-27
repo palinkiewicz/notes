@@ -53,7 +53,7 @@ fun InkNotePreview(
     sheet: Sheet,
     modifier: Modifier = Modifier,
     /**
-     * The decoded pictures, by [ImageBlock.src]. Decoding is the caller's: it is too slow for a
+     * The decoded pictures, by [pictureKey]. Decoding is the caller's: it is too slow for a
      * draw pass, and the caller knows how small a thumbnail can afford to decode them. A picture
      * with no bitmap yet is drawn as a plain tile in its place.
      */
@@ -100,7 +100,7 @@ fun InkNotePreview(
                     when {
                         RenderLayer.IMAGES in members -> for (block in sheet.blocks) {
                             if (block !is ImageBlock || block.rect.top >= format.height) continue
-                            drawImageBlock(block, images[block.src], ptToPx)
+                            drawImageBlock(block, images[pictureKey(block)], ptToPx)
                         }
 
                         RenderLayer.TEXT in members -> for (block in paintOrder) {
@@ -124,6 +124,18 @@ fun InkNotePreview(
             }
         }
     }
+}
+
+/**
+ * What a decoded picture is known by in a map of them: its source, and its crop when it has one.
+ *
+ * A bitmap holds only the part a crop shows — see [decodePicture] — so two blocks showing one
+ * picture cropped two ways are two bitmaps.
+ */
+fun pictureKey(block: ImageBlock): String {
+    if (!block.isCropped) return block.src
+    val c = block.crop
+    return "${block.src}#${c.left},${c.top},${c.right},${c.bottom}"
 }
 
 /** One picture in its frame, or a plain tile where it is still being decoded. */

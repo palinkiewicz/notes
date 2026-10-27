@@ -154,14 +154,27 @@ data class ImageBlock(
      * taking the colour off gives back the original picture.
      */
     val tint: Int? = null,
+    /**
+     * The part of the picture that is shown, as fractions of its own width and height — [UNCROPPED]
+     * for all of it — stretched to fill [rect].
+     *
+     * A window onto the pixels, never a cut through them, for the reason [tint] is a filter: [bytes]
+     * stay what was imported, so the crop can be widened again later. Fractions rather than pixels,
+     * so the answer does not depend on how far a decode was sampled down.
+     */
+    val crop: Rect = UNCROPPED,
 ) : Block {
+
+    val isCropped: Boolean get() = crop != UNCROPPED
+
     // By [src] rather than by the bytes: the name is derived from the content, and comparing a
     // photograph byte for byte on every equality check would be paid on every edit to the sheet.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ImageBlock) return false
         return id == other.id && z == other.z && rect == other.rect && transform == other.transform &&
-            unknown == other.unknown && src == other.src && mimeType == other.mimeType && tint == other.tint
+            unknown == other.unknown && src == other.src && mimeType == other.mimeType && tint == other.tint &&
+            crop == other.crop
     }
 
     override fun hashCode(): Int {
@@ -171,7 +184,13 @@ data class ImageBlock(
         h = 31 * h + transform.hashCode()
         h = 31 * h + src.hashCode()
         h = 31 * h + (tint ?: 0)
+        h = 31 * h + crop.hashCode()
         return h
+    }
+
+    companion object {
+        /** The whole picture. */
+        val UNCROPPED = Rect(0f, 0f, 1f, 1f)
     }
 }
 
@@ -376,6 +395,66 @@ fun ImageBlock.placedBy(matrix: Affine): ImageBlock {
 
 /** The smallest a picture can be scaled to, in points: small enough to tuck away, big enough to grab. */
 const val MIN_IMAGE_SIDE = 12f
+
+/**
+ * Where the whole picture would be, cut-away parts and all, in the same unturned space as [rect].
+ *
+ * Read off the crop: the part shown fills [rect], so the whole is that much larger, and starts that
+ * far before it.
+ */
+fun ImageBlock.uncroppedRect(): Rect {
+    val fullW = rect.width / crop.width
+    val fullH = rect.height / crop.height
+    val left = rect.left - crop.left * fullW
+    val top = rect.top - crop.top * fullH
+    return Rect(left, top, left + fullW, top + fullH)
+}
+
+/**
+ * The same picture showing [crop] of itself, with every pixel still shown where it was on the page.
+ *
+ * So a crop takes away from the edges and moves nothing: the rect shrinks or grows round the part
+ * shown, and the corner it is turned about moves with it. Held to [MIN_IMAGE_SIDE] on the page, the
+ * rule a scale is held to, so a crop cannot leave a picture too small to take hold of.
+ */
+fun ImageBlock.croppedTo(crop: Rect): ImageBlock {
+    val full = uncroppedRect()
+    val minU = (MIN_IMAGE_SIDE / full.width).coerceAtMost(1f)
+    val minV = (MIN_IMAGE_SIDE / full.height).coerceAtMost(1f)
+    val wanted = ImageCrop.clamped(crop, minU, minV)
+    if (wanted == this.crop) return this
+
+    val left = full.left + wanted.left * full.width
+    val top = full.top + wanted.top * full.height
+    val at = frame()
+    // The new corner's offset from the old one, along the picture's own axes, carried onto the page.
+    val u = left - rect.left
+    val v = top - rect.top
+    val (rect, transform) = framed(
+        at.left + at.a * u + at.c * v, at.top + at.b * u + at.d * v,
+        wanted.width * full.width, wanted.height * full.height,
+        at.a, at.b, at.c, at.d,
+    )
+    return copy(rect = rect, transform = transform, crop = wanted)
+}
+
+/**
+ * How far a move of ([dx], [dy]) on the page goes across and down the whole picture, as fractions
+ * of it, written into [out].
+ *
+ * Along the picture's own axes, so a grip on a turned or mirrored picture drags the edge it is on.
+ */
+fun ImageBlock.pictureDelta(dx: Float, dy: Float, out: FloatArray) {
+    val full = uncroppedRect()
+    val det = transform.a * transform.d - transform.b * transform.c
+    if (det == 0f || full.width <= 0f || full.height <= 0f) {
+        out[0] = 0f
+        out[1] = 0f
+        return
+    }
+    out[0] = (transform.d * dx - transform.c * dy) / det / full.width
+    out[1] = (-transform.b * dx + transform.a * dy) / det / full.height
+}
 
 /**
  * A block whose `type` this build does not know — written by a newer version of the app, or by

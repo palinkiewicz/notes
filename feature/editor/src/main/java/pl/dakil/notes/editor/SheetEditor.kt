@@ -439,6 +439,7 @@ private fun SheetLayers(
             ptToPx = ptToPx,
             paged = paged,
             selected = state.selection?.images.orEmpty(),
+            cropping = state.selection?.takeIf { it.cropping }?.loneImage,
             controller = selectionController,
             modifier = Modifier.matchParentSize().zIndex(z(order.levelOf(RenderLayer.IMAGES))).graphicsLayer(),
         )

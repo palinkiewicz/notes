@@ -4,13 +4,13 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.RenderOrder
 import androidx.compose.ui.geometry.Offset
 import pl.dakil.notes.model.frame
+import pl.dakil.notes.ui.sheet.decodePicture
 import pl.dakil.notes.ui.sheet.imageTintFilter
 import pl.dakil.notes.ui.sheet.inBlockFrame
 import kotlin.math.roundToInt
@@ -207,7 +207,8 @@ object InkPageExporter {
                 val at = block.frame()
                 val width = (r.width * ptToPx).roundToInt().coerceAtLeast(1)
                 val height = (r.height * ptToPx).roundToInt().coerceAtLeast(1)
-                val bitmap = ImageLoader.decode(block.bytes, width) ?: continue
+                // Only the part the crop shows is decoded, at the size it prints.
+                val bitmap = decodePicture(block.bytes, block.crop, width) ?: continue
                 inBlockFrame(at, at.left * ptToPx, (at.top - pageTop) * ptToPx) {
                     drawImage(
                         image = bitmap,

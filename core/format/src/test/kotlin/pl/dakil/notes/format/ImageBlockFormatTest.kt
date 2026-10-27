@@ -9,6 +9,8 @@ import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.Rect
+import pl.dakil.notes.model.json.JsonArray
+import pl.dakil.notes.model.json.JsonString
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -133,5 +135,47 @@ class ImageBlockFormatTest {
         val skewed = image("p1").copy(transform = pl.dakil.notes.model.Affine(-1f, 0.2f, 0.3f, 1f, 50f, 7f))
         val back = roundTrip(noteWith(skewed)).sheet.blocks.filterIsInstance<ImageBlock>().single()
         assertEquals(skewed.transform, back.transform)
+    }
+
+    @Test
+    fun `a crop survives a save, and the pixels stay the original`() {
+        // A crop is a window onto the picture, not a cut through it: what was cut away has to still
+        // be in the file, or widening the crop again would have nothing to show.
+        val cropped = image("p1").copy(crop = Rect(0.1f, 0.25f, 0.75f, 0.9f))
+        val back = roundTrip(noteWith(cropped)).sheet.blocks.filterIsInstance<ImageBlock>().single()
+        assertEquals(Rect(0.1f, 0.25f, 0.75f, 0.9f), back.crop)
+        assertArrayEquals(pixels, back.bytes)
+    }
+
+    @Test
+    fun `an uncropped picture's descriptor does not mention a crop`() {
+        // So a note with pictures nobody cropped is byte-identical to one written before crops existed.
+        assertEquals(null, Schema.writeBlock(image("p1")) { "x" }.get("crop"))
+    }
+
+    @Test
+    fun `saving an unchanged note with a cropped picture twice produces identical bytes`() {
+        val first = DakNoteWriter.toByteArray(noteWith(image("p1").copy(crop = Rect(0.1f, 0.2f, 0.3f, 0.4f))))
+        val second = DakNoteWriter.toByteArray(DakNoteReader.read(ByteArrayInputStream(first)))
+        assertArrayEquals(first, second)
+    }
+
+    @Test
+    fun `a crop that is not a crop of the picture reads as the whole picture`() {
+        // Shown whole, a damaged crop is one the user can simply crop again; a guess at what it
+        // meant could hide the part of the picture they wanted.
+        val damaged = listOf(
+            JsonArray.ofFloats(listOf(0.1f, 0.2f, 0.3f)),
+            JsonArray.ofFloats(listOf(-0.1f, 0f, 0.5f, 0.5f)),
+            JsonArray.ofFloats(listOf(0f, 0f, 1.5f, 1f)),
+            JsonArray.ofFloats(listOf(0.6f, 0f, 0.4f, 1f)),
+            JsonArray.ofStrings(listOf("a", "b", "c", "d")),
+            JsonArray(listOf(JsonString("0"))),
+        )
+        for (crop in damaged) {
+            val descriptor = Schema.writeBlock(image("p1")) { "media/x.png" }.with("crop", crop)
+            val block = Schema.readBlock(descriptor) { pixels } as ImageBlock
+            assertEquals(ImageBlock.UNCROPPED, block.crop)
+        }
     }
 }
