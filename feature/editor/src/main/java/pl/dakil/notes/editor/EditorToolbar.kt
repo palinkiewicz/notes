@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
@@ -70,6 +71,9 @@ import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.ui.color.ColorSwatch
+import pl.dakil.notes.ui.color.SaveColorMenuItem
+import pl.dakil.notes.ui.color.SavedColorMenuItems
+import pl.dakil.notes.ui.color.SavedPalette
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -94,6 +98,8 @@ fun EditorToolbar(
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
+    /** What a long-press on an unsaved colour saves into; null offers no saving. */
+    palette: SavedPalette? = null,
     /**
      * Whether the formatting bar is stacked above this one.
      *
@@ -122,6 +128,7 @@ fun EditorToolbar(
                 onSelectImageTool = onSelectImageTool,
                 onUpdateTool = onUpdateTool,
                 onOpenColorPicker = onOpenColorPicker,
+                palette = palette,
                 onOpenOptions = { optionsFor = it },
             )
         }
@@ -146,6 +153,7 @@ fun EditorToolbar(
             spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool),
             recentColors = state.recentColors,
             savedColors = state.savedColors,
+            palette = palette,
             onSpecChange = onUpdateTool,
             onOpenPicker = {
                 optionsFor = null
@@ -169,6 +177,7 @@ fun EditorToolRail(
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
+    palette: SavedPalette? = null,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
 
@@ -183,6 +192,7 @@ fun EditorToolRail(
             onSelectImageTool = onSelectImageTool,
             onUpdateTool = onUpdateTool,
             onOpenColorPicker = onOpenColorPicker,
+            palette = palette,
             onOpenOptions = { optionsFor = it },
         )
         FillToggle(state = state, onPopupChange = onPopupChange, onUpdateTool = onUpdateTool)
@@ -202,6 +212,7 @@ fun EditorToolRail(
             spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool),
             recentColors = state.recentColors,
             savedColors = state.savedColors,
+            palette = palette,
             onSpecChange = onUpdateTool,
             onOpenPicker = {
                 optionsFor = null
@@ -227,6 +238,7 @@ private fun ToolControls(
     onSelectImageTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onOpenColorPicker: (ToolId) -> Unit,
+    palette: SavedPalette?,
     onOpenOptions: (ToolId) -> Unit,
 ) {
     val active = state.tool.tool
@@ -297,6 +309,7 @@ private fun ToolControls(
             onOpenChange = { onPopupChange(if (it) ToolPopup.COLOR else null) },
             onUpdateTool = onUpdateTool,
             onOpenPicker = onOpenColorPicker,
+            palette = palette,
         )
     }
 
@@ -526,8 +539,12 @@ private fun ColorButton(
     onOpenChange: (Boolean) -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onOpenPicker: (ToolId) -> Unit,
+    palette: SavedPalette?,
 ) {
     val spec = state.tool
+    // The save menu is a window of its own, so a tap on it is a tap outside the row; while it is
+    // up, that must not count as dismissing the row it was opened from.
+    var saveMenuOpen by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -545,7 +562,10 @@ private fun ColorButton(
         )
 
         if (open) {
-            InlineSelector(placement = placement, onDismiss = { onOpenChange(false) }) {
+            InlineSelector(
+                placement = placement,
+                onDismiss = { if (!saveMenuOpen) onOpenChange(false) },
+            ) {
                 // Presets keep the tool's own opacity; a saved or recent colour carries its own
                 // alpha, because that is what was mixed and kept.
                 for (color in quickColors(state.savedColors)) {
@@ -556,6 +576,9 @@ private fun ColorButton(
                             onUpdateTool(spec.copy(color = pickQuick(color, spec.color, state.savedColors)))
                             onOpenChange(false)
                         },
+                        palette = palette,
+                        saved = state.savedColors.isNotEmpty(),
+                        onMenuOpenChange = { saveMenuOpen = it },
                     )
                 }
                 if (state.recentColors.isNotEmpty()) GroupDivider()
@@ -567,6 +590,8 @@ private fun ColorButton(
                             onUpdateTool(spec.copy(color = color))
                             onOpenChange(false)
                         },
+                        palette = palette,
+                        onMenuOpenChange = { saveMenuOpen = it },
                     )
                 }
                 SelectorItem(
@@ -834,16 +859,44 @@ internal fun SelectorItem(
  *
  * Selection is the ring and a little more size rather than a tick over the colour: at this size the
  * swatch has room to be a colour or to be a control, and the colour is the thing being chosen.
+ *
+ * With a [palette], a long-press opens the same menu as in the full picker: arranging a [saved]
+ * colour, or saving any other.
  */
 @Composable
-private fun SwatchItem(color: Int, selected: Boolean, onClick: () -> Unit) {
+private fun SwatchItem(
+    color: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    palette: SavedPalette? = null,
+    saved: Boolean = false,
+    onMenuOpenChange: (Boolean) -> Unit = {},
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    fun setMenuOpen(open: Boolean) {
+        menuOpen = open
+        onMenuOpenChange(open)
+    }
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .then(
+                if (palette != null) {
+                    @OptIn(ExperimentalFoundationApi::class)
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = { setMenuOpen(true) })
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                }
+            ),
         contentAlignment = Alignment.Center,
     ) {
+        if (palette != null) {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { setMenuOpen(false) }) {
+                if (saved) SavedColorMenuItems(color, palette) { setMenuOpen(false) }
+                else SaveColorMenuItem(color, palette) { setMenuOpen(false) }
+            }
+        }
         Surface(
             modifier = Modifier.size(if (selected) 32.dp else 28.dp),
             shape = CircleShape,
@@ -889,6 +942,7 @@ private fun ToolOptionsSheet(
     spec: ToolSpec,
     recentColors: List<Int>,
     savedColors: List<Int>,
+    palette: SavedPalette?,
     onSpecChange: (ToolSpec) -> Unit,
     onOpenPicker: () -> Unit,
     onDismiss: () -> Unit,
@@ -902,7 +956,8 @@ private fun ToolOptionsSheet(
                 // Colour plus five sliders does not fit a phone in landscape, and a control you
                 // cannot reach is the same as one that does not exist.
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
+                // No side gutter here: each row carries [OptionsGutter] itself, so the colour row
+                // can scroll to the edge of the sheet.
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -911,7 +966,7 @@ private fun ToolOptionsSheet(
                     TOOL_ENTRIES.firstOrNull { it.tool == spec.tool }?.label ?: R.string.editor_tool,
                 ),
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 8.dp),
+                modifier = Modifier.padding(horizontal = OptionsGutter).padding(bottom = 8.dp),
             )
 
             if (spec.tool.isDrawing) {
@@ -919,6 +974,7 @@ private fun ToolOptionsSheet(
                     selected = spec.color,
                     recents = recentColors,
                     saved = savedColors,
+                    palette = palette,
                     onSelect = { onSpecChange(spec.copy(color = it)) },
                     onOpenPicker = onOpenPicker,
                 )
@@ -966,7 +1022,7 @@ private fun LabelledSlider(
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
 ) {
-    Column {
+    Column(Modifier.padding(horizontal = OptionsGutter)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.labelLarge)
             Text(
@@ -996,32 +1052,41 @@ private fun ColorSection(
     selected: Int,
     recents: List<Int>,
     saved: List<Int>,
+    palette: SavedPalette?,
     onSelect: (Int) -> Unit,
     onOpenPicker: () -> Unit,
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
-        Text(stringResource(R.string.editor_colour), style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = stringResource(R.string.editor_colour),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = OptionsGutter),
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(vertical = 8.dp),
+                // Inside the scroll, so it is the content that starts inset, not the viewport.
+                .padding(horizontal = OptionsGutter, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (color in quickColors(saved)) {
-                ColorSwatch(
+                SavableSwatch(
                     color = color,
                     selected = (color and 0x00FFFFFF) == (selected and 0x00FFFFFF),
                     onClick = { onSelect(pickQuick(color, selected, saved)) },
+                    palette = palette,
+                    saved = saved.isNotEmpty(),
                 )
             }
             if (recents.isNotEmpty()) GroupDivider(height = 28.dp)
             for (color in recents) {
-                ColorSwatch(
+                SavableSwatch(
                     color = color,
                     selected = (color and 0x00FFFFFF) == (selected and 0x00FFFFFF),
                     onClick = { onSelect(color) },
+                    palette = palette,
                 )
             }
             // Opens the full picker; shows the current colour so it doubles as the state readout.
@@ -1044,6 +1109,35 @@ private fun ColorSection(
         }
     }
 }
+
+/** A [ColorSwatch] whose long-press menu, given a [palette], arranges a [saved] one or saves it. */
+@Composable
+private fun SavableSwatch(
+    color: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    palette: SavedPalette?,
+    saved: Boolean = false,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        ColorSwatch(
+            color = color,
+            selected = selected,
+            onClick = onClick,
+            onLongClick = palette?.let { { menuOpen = true } },
+        )
+        if (palette != null) {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (saved) SavedColorMenuItems(color, palette) { menuOpen = false }
+                else SaveColorMenuItem(color, palette) { menuOpen = false }
+            }
+        }
+    }
+}
+
+/** The tool sheet's side margin, carried by each row rather than the sheet; see [ToolOptionsSheet]. */
+private val OptionsGutter = 24.dp
 
 private data class ToolEntry(
     val tool: ToolId,

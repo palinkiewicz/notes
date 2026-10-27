@@ -52,6 +52,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
@@ -97,7 +98,14 @@ fun ColorPicker(
     presets: IntArray = ColorCodec.INK_PRESETS,
     recents: List<Int> = emptyList(),
     palette: SavedPalette? = null,
+    /**
+     * Horizontal padding for everything but the swatch rows, which run to the edges and carry it
+     * inside instead — so a colour scrolls all the way to the edge of the sheet rather than
+     * vanishing a gutter's width short of it.
+     */
+    horizontalPadding: Dp = 0.dp,
 ) {
+    val padded = Modifier.padding(horizontal = horizontalPadding)
     val hsv = remember(initial) { ColorCodec.toHsv(initial) }
     var hue by remember { mutableFloatStateOf(hsv[0]) }
     var saturation by remember { mutableFloatStateOf(hsv[1]) }
@@ -129,6 +137,7 @@ fun ColorPicker(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
         SaturationValueField(
+            modifier = padded,
             hue = hue,
             saturation = saturation,
             value = value,
@@ -139,10 +148,11 @@ fun ColorPicker(
             },
         )
 
-        HueSlider(hue = hue, onChange = { hue = it; applyHsv() })
+        HueSlider(modifier = padded, hue = hue, onChange = { hue = it; applyHsv() })
 
         if (showAlpha) {
             AlphaSlider(
+                modifier = padded,
                 color = ColorCodec.fromHsv(hue, saturation, value, 255),
                 alpha = alpha,
                 onChange = { alpha = it; applyHsv() },
@@ -150,6 +160,7 @@ fun ColorPicker(
         }
 
         Row(
+            modifier = padded,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -191,7 +202,8 @@ fun ColorPicker(
                 colors = palette.colors,
                 selected = current,
                 onSelect = ::adopt,
-                menu = { color, dismiss -> SavedSwatchMenu(color, palette, dismiss) },
+                horizontalPadding = horizontalPadding,
+                menu = { color, dismiss -> SavedColorMenuItems(color, palette, dismiss) },
             )
         }
 
@@ -201,6 +213,7 @@ fun ColorPicker(
                 colors = presets.toList(),
                 selected = current,
                 onSelect = ::adopt,
+                horizontalPadding = horizontalPadding,
                 menu = palette?.let { saveMenu(it) },
             )
         }
@@ -211,6 +224,7 @@ fun ColorPicker(
                 colors = recents,
                 selected = current,
                 onSelect = ::adopt,
+                horizontalPadding = horizontalPadding,
                 menu = palette?.let { saveMenu(it) },
             )
         }
@@ -221,6 +235,7 @@ fun ColorPicker(
                 text = stringResource(R.string.ui_color_saved_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = padded,
             )
         }
     }
@@ -258,6 +273,15 @@ private fun SaveToggle(current: Int, palette: SavedPalette) {
 
 /** Long-press menu on a preset or a recent: the one thing to do with it is keep it. */
 private fun saveMenu(palette: SavedPalette): @Composable (Int, () -> Unit) -> Unit = { color, dismiss ->
+    SaveColorMenuItem(color, palette, dismiss)
+}
+
+/**
+ * The "Save colour" entry of a swatch's long-press menu, for every picker that offers colours it
+ * did not save: one wording for "already saved" and "palette full" wherever it is asked.
+ */
+@Composable
+fun SaveColorMenuItem(color: Int, palette: SavedPalette, dismiss: () -> Unit) {
     val saved = color in palette.colors
     DropdownMenuItem(
         text = {
@@ -287,15 +311,17 @@ private fun saveMenu(palette: SavedPalette): @Composable (Int, () -> Unit) -> Un
  * until proven otherwise. Two taps is slower than a drag, but it is never the wrong one.
  */
 @Composable
-private fun SavedSwatchMenu(color: Int, palette: SavedPalette, dismiss: () -> Unit) {
+fun SavedColorMenuItems(color: Int, palette: SavedPalette, dismiss: () -> Unit) {
     val index = palette.colors.indexOf(color)
     DropdownMenuItem(
         text = { Text(stringResource(R.string.ui_color_move_earlier)) },
+        leadingIcon = { Icon(NotesIcons.MoveEarlier, contentDescription = null) },
         enabled = index > 0,
         onClick = { palette.onMove(color, -1); dismiss() },
     )
     DropdownMenuItem(
         text = { Text(stringResource(R.string.ui_color_move_later)) },
+        leadingIcon = { Icon(NotesIcons.MoveLater, contentDescription = null) },
         enabled = index in 0 until palette.colors.lastIndex,
         onClick = { palette.onMove(color, 1); dismiss() },
     )
@@ -312,6 +338,7 @@ private fun SwatchRow(
     colors: List<Int>,
     selected: Int,
     onSelect: (Int) -> Unit,
+    horizontalPadding: Dp,
     menu: (@Composable (color: Int, dismiss: () -> Unit) -> Unit)? = null,
 ) {
     Column {
@@ -319,12 +346,14 @@ private fun SwatchRow(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 6.dp),
+            modifier = Modifier.padding(horizontal = horizontalPadding).padding(bottom = 6.dp),
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberScrollState())
+                // Inside the scroll, so it is the content that starts inset, not the viewport.
+                .padding(horizontal = horizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             for (color in colors) {
@@ -353,6 +382,10 @@ private fun SwatchRow(
  *
  * The check mark flips between black and white by luminance, because the user can pick pure white
  * and pure black and a fixed mark would vanish on one of them.
+ *
+ * The fill is inset by half the ring's width, so its edge lies under the ring rather than on the
+ * ring's outer edge. Two anti-aliased edges on the same pixels let the chequerboard's white show
+ * through between them as a pale fringe.
  */
 @Composable
 fun ColorSwatch(
@@ -363,18 +396,11 @@ fun ColorSwatch(
     size: androidx.compose.ui.unit.Dp = 36.dp,
     onLongClick: (() -> Unit)? = null,
 ) {
+    val ring = if (selected) 3.dp else 1.dp
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .checkerboard()
-            .background(Color(color), CircleShape)
-            .border(
-                width = if (selected) 3.dp else 1.dp,
-                color = if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outlineVariant,
-                shape = CircleShape,
-            )
             .then(
                 when {
                     onClick != null && onLongClick != null ->
@@ -383,7 +409,17 @@ fun ColorSwatch(
                     onClick != null -> Modifier.clickable(onClick = onClick)
                     else -> Modifier
                 }
-            ),
+            )
+            .border(
+                width = ring,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outlineVariant,
+                shape = CircleShape,
+            )
+            .padding(ring / 2)
+            .clip(CircleShape)
+            .checkerboard()
+            .background(Color(color)),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
@@ -400,6 +436,7 @@ fun ColorSwatch(
 /** The saturation/value square for the current hue. */
 @Composable
 private fun SaturationValueField(
+    modifier: Modifier,
     hue: Float,
     saturation: Float,
     value: Float,
@@ -416,7 +453,7 @@ private fun SaturationValueField(
     }
 
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1.6f)
             .clip(RoundedCornerShape(12.dp))
@@ -447,7 +484,7 @@ private fun SaturationValueField(
 }
 
 @Composable
-private fun HueSlider(hue: Float, onChange: (Float) -> Unit) {
+private fun HueSlider(modifier: Modifier, hue: Float, onChange: (Float) -> Unit) {
     var width by remember { mutableFloatStateOf(0f) }
 
     fun report(x: Float) {
@@ -456,7 +493,7 @@ private fun HueSlider(hue: Float, onChange: (Float) -> Unit) {
     }
 
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(36.dp)
             .clip(RoundedCornerShape(18.dp))
@@ -484,7 +521,7 @@ private fun HueSlider(hue: Float, onChange: (Float) -> Unit) {
 }
 
 @Composable
-private fun AlphaSlider(color: Int, alpha: Int, onChange: (Int) -> Unit) {
+private fun AlphaSlider(modifier: Modifier, color: Int, alpha: Int, onChange: (Int) -> Unit) {
     var width by remember { mutableFloatStateOf(0f) }
 
     fun report(x: Float) {
@@ -493,7 +530,7 @@ private fun AlphaSlider(color: Int, alpha: Int, onChange: (Int) -> Unit) {
     }
 
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(36.dp)
             .clip(RoundedCornerShape(18.dp))

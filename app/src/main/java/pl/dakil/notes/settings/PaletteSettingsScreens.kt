@@ -211,11 +211,13 @@ private fun SavedColorTile(
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.settings_move_earlier)) },
+                    leadingIcon = { Icon(NotesIcons.MoveEarlier, contentDescription = null) },
                     enabled = index > 0,
                     onClick = { menuOpen = false; onMove(-1) },
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.settings_move_later)) },
+                    leadingIcon = { Icon(NotesIcons.MoveLater, contentDescription = null) },
                     enabled = index < count - 1,
                     onClick = { menuOpen = false; onMove(1) },
                 )

@@ -61,12 +61,11 @@ fun ColorPickerSheet(
             Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = SheetGutter),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -100,10 +99,13 @@ fun ColorPickerSheet(
                 presets = presets,
                 recents = recents,
                 palette = palette,
+                horizontalPadding = SheetGutter,
             )
         }
     }
 }
+
+private val SheetGutter = 24.dp
 
 /**
  * A labelled row that shows a colour and opens the picker when tapped.

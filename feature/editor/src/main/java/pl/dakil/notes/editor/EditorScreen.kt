@@ -451,6 +451,7 @@ fun EditorScreen(
                         onToggleFingerDrawing = viewModel::setFingerDrawing,
                         onToggleRuler = viewModel::setRuler,
                         onOpenColorPicker = { editingPen = it },
+                        palette = rememberSavedPalette(state.savedColors, viewModel),
                         compact = state.editingTextBlock != null,
                     )
                 }
@@ -508,6 +509,7 @@ fun EditorScreen(
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
                             onToggleRuler = viewModel::setRuler,
                             onOpenColorPicker = { editingPen = it },
+                            palette = rememberSavedPalette(state.savedColors, viewModel),
                         )
                     }
                     SheetEditor(

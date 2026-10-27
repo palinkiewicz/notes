@@ -245,6 +245,16 @@ object NotesIcons {
         strokedIcon("MoveDown", "M12 4 v15 M5.5 12.5 L12 19 L18.5 12.5")
     }
 
+    /** Move a colour one place towards the start of its row; mirrors with the row in RTL. */
+    val MoveEarlier: ImageVector by lazy {
+        strokedIcon("MoveEarlier", "M20 12 h-15 M11.5 5.5 L5 12 L11.5 18.5", autoMirror = true)
+    }
+
+    /** Move a colour one place towards the end of its row. */
+    val MoveLater: ImageVector by lazy {
+        strokedIcon("MoveLater", "M4 12 h15 M12.5 5.5 L19 12 L12.5 18.5", autoMirror = true)
+    }
+
     val PageSetup: ImageVector by lazy {
         strokedIcon(
             "PageSetup",
@@ -523,13 +533,14 @@ object NotesIcons {
         "M3 6.5 a1.5 1.5 0 0 1 1.5 -1.5 h4.5 l2 2.5 h8 a1.5 1.5 0 0 1 1.5 1.5 " +
             "v9 a1.5 1.5 0 0 1 -1.5 1.5 h-15 a1.5 1.5 0 0 1 -1.5 -1.5 Z"
 
-    private fun strokedIcon(name: String, pathData: String): ImageVector =
+    private fun strokedIcon(name: String, pathData: String, autoMirror: Boolean = false): ImageVector =
         ImageVector.Builder(
             name = name,
             defaultWidth = 24.dp,
             defaultHeight = 24.dp,
             viewportWidth = 24f,
             viewportHeight = 24f,
+            autoMirror = autoMirror,
         ).apply {
             addPath(
                 pathData = PathParser().parsePathString(pathData).toNodes(),
