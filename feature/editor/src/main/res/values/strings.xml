@@ -55,6 +55,11 @@
     <string name="editor_tool_fountain">Fountain</string>
     <string name="editor_tool_pencil">Pencil</string>
     <string name="editor_tool_highlighter">Highlighter</string>
+    <string name="editor_tool_marker">Outline marker</string>
+    <string name="editor_outline_colour">Outline colour</string>
+    <string name="editor_inside_colour">Inside colour</string>
+    <string name="editor_outline_thickness">Outline thickness</string>
+    <string name="editor_swap_colours">Swap outline and inside colours</string>
     <string name="editor_tool_erase_stroke">Erase stroke</string>
     <string name="editor_tool_erase_area">Erase area</string>
     <string name="editor_tool_select">Select</string>
@@ -159,6 +164,7 @@
     <string name="editor_selection_apex">Move shape corner</string>
     <string name="editor_selection_duplicate">Duplicate selection</string>
     <string name="editor_selection_colour">Selection colour</string>
+    <string name="editor_selection_inside_colour">Marker inside colour</string>
     <string name="editor_selection_remove_tint">Remove colour filter</string>
     <string name="editor_selection_fill">Fill selection</string>
     <string name="editor_selection_unfill">Remove fill</string>

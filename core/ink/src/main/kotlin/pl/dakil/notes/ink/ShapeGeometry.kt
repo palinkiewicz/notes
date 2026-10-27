@@ -3,6 +3,7 @@ package pl.dakil.notes.ink
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StrokeCore
 import pl.dakil.notes.model.ToolId
 import kotlin.math.abs
 import kotlin.math.acos
@@ -303,6 +304,7 @@ fun ShapeSpec.toStroke(
     blend: BlendId,
     into: StrokeOutline = StrokeOutline(),
     filled: Boolean = false,
+    core: StrokeCore? = null,
 ): Stroke {
     outlineInto(into)
     val n = into.count
@@ -314,7 +316,7 @@ fun ShapeSpec.toStroke(
     }
     // No width factors: a snapped shape is drawn at one weight, which also means the renderer skips
     // tessellation and hands it straight to the platform stroker.
-    return Stroke(tool, color, width, blend, xs, ys, shape = this, filled = filled)
+    return Stroke(tool, color, width, blend, xs, ys, shape = this, filled = filled, core = core)
 }
 
 /**

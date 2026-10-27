@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StrokeCore
 import pl.dakil.notes.model.ToolId
 
 class EraserGeometryTest {
@@ -119,6 +120,21 @@ class EraserGeometryTest {
         val fragments = PathSplitter.erase(filled, cx = 50f, cy = 0f, radius = 5f)
         assertEquals(2, fragments.size)
         for (fragment in fragments) assertTrue("the fill goes with the ink", !fragment.filled)
+    }
+
+    @Test
+    fun `erasing part of a marker stroke leaves marker ink either side`() {
+        // Unlike a fill, the inside has no region to leak across the gap: it follows the line, so a
+        // fragment that dropped it would turn into a plain thick line of the outline colour.
+        val core = StrokeCore(0xFFFFFFFF.toInt(), 0.2f)
+        val marker = Stroke(
+            ToolId.MARKER, -16777216, 8f, BlendId.NORMAL,
+            FloatArray(101) { it.toFloat() }, FloatArray(101),
+            core = core,
+        )
+        val fragments = PathSplitter.erase(marker, cx = 50f, cy = 0f, radius = 5f)
+        assertEquals(2, fragments.size)
+        for (fragment in fragments) assertEquals(core, fragment.core)
     }
 
     @Test

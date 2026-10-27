@@ -18,6 +18,7 @@ import pl.dakil.notes.ink.toStroke
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StrokeCore
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import kotlin.math.hypot
@@ -59,6 +60,10 @@ class ShapeController {
 
     /** Whether the tool that drew the stroke fills what it encloses. See `Stroke.filled`. */
     var previewFilled: Boolean = false
+        private set
+
+    /** The inside of a two-tone marker shape, or null. See `Stroke.core`. */
+    var previewCore: StrokeCore? = null
         private set
 
     /** The live shape, or null while the user is still drawing an ordinary stroke. */
@@ -131,6 +136,7 @@ class ShapeController {
         previewColor = toolSpec.effectiveColor
         previewBlend = toolSpec.blend
         previewFilled = toolSpec.fill
+        previewCore = toolSpec.core
         found.outlineInto(outline)
         return true
     }
@@ -166,7 +172,7 @@ class ShapeController {
 
     /** The stroke to commit at pen-up, or null when no shape was recognised. */
     fun commit(): Stroke? =
-        spec?.toStroke(tool, previewColor, previewWidth, previewBlend, outline, previewFilled)
+        spec?.toStroke(tool, previewColor, previewWidth, previewBlend, outline, previewFilled, previewCore)
 
     fun reset() {
         spec = null

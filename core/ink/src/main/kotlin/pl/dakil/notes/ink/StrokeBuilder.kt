@@ -163,6 +163,7 @@ class StrokeBuilder : WidthedPath {
             tilts = if (anyTilt) tilts.copyOf(count) else null,
             times = times.copyOf(count),
             filled = spec.fill,
+            core = spec.core,
         )
     }
 

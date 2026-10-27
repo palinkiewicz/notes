@@ -56,6 +56,11 @@
     <string name="editor_tool_fountain">Wieczne</string>
     <string name="editor_tool_pencil">Ołówek</string>
     <string name="editor_tool_highlighter">Zakreślacz</string>
+    <string name="editor_tool_marker">Marker konturowy</string>
+    <string name="editor_outline_colour">Kolor konturu</string>
+    <string name="editor_inside_colour">Kolor wnętrza</string>
+    <string name="editor_outline_thickness">Grubość konturu</string>
+    <string name="editor_swap_colours">Zamień kolor konturu i wnętrza</string>
     <string name="editor_tool_erase_stroke">Wymaż pociągnięcie</string>
     <string name="editor_tool_erase_area">Wymaż obszar</string>
     <string name="editor_tool_select">Zaznacz</string>
@@ -161,6 +166,7 @@
     <string name="editor_selection_apex">Przesuń wierzchołek kształtu</string>
     <string name="editor_selection_duplicate">Duplikuj zaznaczenie</string>
     <string name="editor_selection_colour">Kolor zaznaczenia</string>
+    <string name="editor_selection_inside_colour">Kolor wnętrza markera</string>
     <string name="editor_selection_remove_tint">Usuń filtr koloru</string>
     <string name="editor_selection_fill">Wypełnij zaznaczenie</string>
     <string name="editor_selection_unfill">Usuń wypełnienie</string>

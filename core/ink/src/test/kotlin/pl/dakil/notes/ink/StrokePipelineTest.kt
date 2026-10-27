@@ -36,6 +36,31 @@ class StrokePipelineTest {
         return builder.finish(null)!!
     }
 
+    // ---- Outline marker ------------------------------------------------------------------------
+
+    @Test
+    fun `the marker bakes its inside into every stroke it draws`() {
+        // Like the fill flag: the stroke is a record of what was drawn, so changing the marker's
+        // inside colour later must not reach back into ink already on the page.
+        val spec = ToolSpec.MARKER.copy(insideColor = 0xFFFFFFFF.toInt(), rim = 0.3f)
+        val stroke = drawLine(spec)
+        assertEquals(ToolId.MARKER, stroke.tool)
+        assertEquals(0xFFFFFFFF.toInt(), stroke.core?.color)
+        assertEquals(0.3f, stroke.core!!.rim, 0f)
+    }
+
+    @Test
+    fun `the marker draws at one width whatever the pressure`() {
+        // A taper would pinch the outline to nothing at the ends of every word.
+        val stroke = drawLine(ToolSpec.MARKER, pressure = { if (it % 2 == 0) 0.1f else 1f })
+        assertTrue(!stroke.hasWidthVariation)
+    }
+
+    @Test
+    fun `an ordinary pen draws in one colour`() {
+        assertNull(drawLine(ToolSpec.PEN).core)
+    }
+
     // ---- Pressure curve ------------------------------------------------------------------------
 
     @Test

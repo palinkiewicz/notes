@@ -1,9 +1,12 @@
 package pl.dakil.notes.ui.sheet
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -17,7 +20,10 @@ import androidx.compose.ui.graphics.Matrix
 import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StrokeCore
+import pl.dakil.notes.model.WidthedPath
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
+import pl.dakil.notes.model.Rect as ModelRect
 
 /**
  * Draws vector strokes into a [DrawScope].
@@ -35,6 +41,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
  * `HitTester.pointInPolygon` decides a lasso by, so the region painted in is the region the app
  * already calls the inside of that loop — a doodle that crosses itself fills the way selecting it
  * would. It is drawn first and the ink over it, so the outline keeps its own weight at the edge.
+ *
+ * A stroke with a [Stroke.core] — the two-tone marker — is drawn twice along the same centreline:
+ * its own colour at full width, then the inside colour narrower by the rim on each side. Where the
+ * stroke crosses itself the second pass covers the first's edge, so a word written in one movement
+ * reads as one outlined shape, which is what the felt-tip version does too. When either colour is
+ * translucent the two passes go into one layer with the inside drawn [BlendMode.Src], so the inside
+ * *replaces* the outline under it rather than compositing over it, and the layer then lands on the
+ * page once.
  *
  * ### Why committed strokes are cached
  *
@@ -84,7 +98,7 @@ class StrokeRenderer {
      * Held together rather than in two caches so that one eviction policy governs both and a
      * stroke can never be left holding half of what it needs to be drawn.
      */
-    private class StrokePaths(val ink: Path, val fill: Path?)
+    private class StrokePaths(val ink: Path, val fill: Path?, val inside: Path?)
 
     /** Drops every cached path. For switching documents, where none of them can be reused. */
     fun clearCache() = cache.clear()
@@ -152,10 +166,11 @@ class StrokeRenderer {
     private fun DrawScope.drawCachedStroke(stroke: Stroke, opacity: Float) {
         if (stroke.pointCount == 0) return
 
-        val color = Color(stroke.color).let {
-            if (opacity >= 1f) it else it.copy(alpha = it.alpha * opacity)
-        }
+        val color = Color(stroke.color).faded(opacity)
+        val inside = stroke.core?.let { Color(it.color).faded(opacity) }
+        val insideFactor = stroke.core?.insideFactor ?: 1f
         val blend = stroke.blend.toBlendMode()
+        val flatWidth = stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f)
 
         // A tap: drawn as the disc it is, not as a line of no length with round caps. The screen
         // draws the caps of an empty line, but not everything that ends up drawing a page does —
@@ -165,12 +180,13 @@ class StrokeRenderer {
         if (!stroke.hasWidthVariation) {
             val core = stroke.coreBounds
             if (core.right - core.left <= DOT_EXTENT_PT && core.bottom - core.top <= DOT_EXTENT_PT) {
-                drawCircle(
-                    color = color,
-                    radius = stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f) * 0.5f,
-                    center = Offset((core.left + core.right) * 0.5f, (core.top + core.bottom) * 0.5f),
-                    blendMode = blend,
-                )
+                val center = Offset((core.left + core.right) * 0.5f, (core.top + core.bottom) * 0.5f)
+                twoTone(stroke.bounds, color, inside, blend) { outerBlend, insideBlend ->
+                    drawCircle(color, flatWidth * 0.5f, center, blendMode = outerBlend)
+                    if (inside != null) {
+                        drawCircle(inside, flatWidth * 0.5f * insideFactor, center, blendMode = insideBlend)
+                    }
+                }
                 return
             }
         }
@@ -179,23 +195,63 @@ class StrokeRenderer {
 
         // Under the ink, so the outline is the crisp edge of the mark and the fill merely reaches
         // to the middle of it. Painting it over the ink would thin every stroke by half its width.
-        cached.fill?.let { drawPath(it, color, style = Fill, blendMode = blend) }
+        // A two-tone stroke fills with its inside, so a closed marker shape is one colour within
+        // its outline.
+        cached.fill?.let { drawPath(it, inside ?: color, style = Fill, blendMode = blend) }
 
-        if (stroke.hasWidthVariation) {
-            drawPath(cached.ink, color, style = Fill, blendMode = blend)
-        } else {
-            drawPath(
-                path = cached.ink,
-                color = color,
-                style = DrawStroke(
-                    width = stroke.width * (stroke.widthFactors?.firstOrNull() ?: 1f),
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                ),
-                blendMode = blend,
-            )
+        twoTone(stroke.bounds, color, inside, blend) { outerBlend, insideBlend ->
+            val insidePath = cached.inside
+            if (stroke.hasWidthVariation) {
+                drawPath(cached.ink, color, style = Fill, blendMode = outerBlend)
+                if (inside != null && insidePath != null) {
+                    drawPath(insidePath, inside, style = Fill, blendMode = insideBlend)
+                }
+            } else {
+                drawPath(cached.ink, color, style = roundStroke(flatWidth), blendMode = outerBlend)
+                if (inside != null) {
+                    drawPath(cached.ink, inside, style = roundStroke(flatWidth * insideFactor), blendMode = insideBlend)
+                }
+            }
         }
     }
+
+    /**
+     * Runs [draw] for one stroke, inside its own layer when it is two-tone and translucent.
+     *
+     * [draw] is handed the blend modes for the outline pass and the inside pass. Straight onto the
+     * page both are the stroke's own blend — right for a one-colour stroke, and for an opaque marker
+     * too, whose inside covers the outline exactly however it is composited. In a layer the outline
+     * goes down plainly and the inside with [BlendMode.Src], so a translucent inside *replaces* the
+     * outline under it instead of tinting it; the layer then lands once with the stroke's blend,
+     * which is what keeps a see-through marker one wash of colour.
+     */
+    private inline fun DrawScope.twoTone(
+        bounds: ModelRect,
+        outline: Color,
+        inside: Color?,
+        blend: BlendMode,
+        draw: DrawScope.(outerBlend: BlendMode, insideBlend: BlendMode) -> Unit,
+    ) {
+        if (inside == null || (outline.alpha >= 1f && inside.alpha >= 1f)) {
+            draw(blend, blend)
+            return
+        }
+        drawIntoCanvas { canvas ->
+            canvas.saveLayer(
+                Rect(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                layerPaint.also { it.blendMode = blend },
+            )
+            draw(BlendMode.SrcOver, BlendMode.Src)
+            canvas.restore()
+        }
+    }
+
+    /** The paint a translucent marker's layer is composited with; only its blend ever changes. */
+    private val layerPaint = Paint()
+
+    private fun Color.faded(opacity: Float): Color = if (opacity >= 1f) this else copy(alpha = alpha * opacity)
+
+    private fun roundStroke(width: Float) = DrawStroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
     /** The stroke's geometry in document points, built on first sight and kept. */
     private fun cachedPaths(stroke: Stroke): StrokePaths {
@@ -216,9 +272,25 @@ class StrokeRenderer {
         val fill = if (!stroke.filled || stroke.pointCount < MIN_FILL_POINTS) null else {
             Path().also { layInterior(it, stroke.pointCount, { i -> stroke.xs[i] }, { i -> stroke.ys[i] }) }
         }
-        val paths = StrokePaths(built, fill)
+        // A tapering marker needs its inside tessellated in its own right: the inside of a taper is
+        // a narrower taper, not the same outline drawn smaller. A constant-width one strokes the
+        // centreline it already has.
+        val core = stroke.core
+        val inside = if (core == null || !stroke.hasWidthVariation) null else {
+            Tessellator.tessellate(ScaledWidth(stroke, core.insideFactor), outline)
+            Path().also { layOutline(it) }
+        }
+        val paths = StrokePaths(built, fill, inside)
         cache[stroke] = paths
         return paths
+    }
+
+    /** [path] with every width multiplied by [factor]: the inside of a two-tone stroke. */
+    private class ScaledWidth(private val path: WidthedPath, private val factor: Float) : WidthedPath {
+        override val pointCount: Int get() = path.pointCount
+        override fun pointX(i: Int): Float = path.pointX(i)
+        override fun pointY(i: Int): Float = path.pointY(i)
+        override fun pointWidth(i: Int): Float = path.pointWidth(i) * factor
     }
 
     /**
@@ -241,15 +313,21 @@ class StrokeRenderer {
         if (n == 0) return
 
         val color = Color(builder.color)
+        val core = builder.toolSpec.core
+        val inside = core?.let { Color(it.color) }
+        val insideFactor = core?.insideFactor ?: 1f
         val blend = builder.blend.toBlendMode()
+        // The whole canvas: only a translucent marker uses a layer at all, and the clip in force
+        // already trims it to the page being drawn.
+        val layerBounds = ModelRect(0f, 0f, size.width, size.height)
 
         if (n == 1) {
-            drawCircle(
-                color = color,
-                radius = builder.widthAt(0) * 0.5f * ptToPx,
-                center = Offset(builder.x(0) * ptToPx, toStripPx(builder.y(0))),
-                blendMode = blend,
-            )
+            val center = Offset(builder.x(0) * ptToPx, toStripPx(builder.y(0)))
+            val radius = builder.widthAt(0) * 0.5f * ptToPx
+            twoTone(layerBounds, color, inside, blend) { outerBlend, insideBlend ->
+                drawCircle(color, radius, center, blendMode = outerBlend)
+                if (inside != null) drawCircle(inside, radius * insideFactor, center, blendMode = insideBlend)
+            }
             return
         }
 
@@ -259,32 +337,38 @@ class StrokeRenderer {
         if (builder.toolSpec.fill && n >= MIN_FILL_POINTS) {
             fillPath.reset()
             layInterior(fillPath, n, { builder.x(it) * ptToPx }, { toStripPx(builder.y(it)) })
-            drawPath(fillPath, color, style = Fill, blendMode = blend)
+            drawPath(fillPath, inside ?: color, style = Fill, blendMode = blend)
         }
 
         if (builder.hasWidthVariation) {
             Tessellator.tessellate(builder, outline)
             path.reset()
             layOutline(path, ptToPx, toStripPx)
-            drawPath(path, color, style = Fill, blendMode = blend)
+            twoTone(layerBounds, color, inside, blend) { outerBlend, insideBlend ->
+                drawPath(path, color, style = Fill, blendMode = outerBlend)
+                if (inside != null) {
+                    // The fill scratch is free again by now: its interior has already been drawn.
+                    Tessellator.tessellate(ScaledWidth(builder, insideFactor), outline)
+                    fillPath.reset()
+                    layOutline(fillPath, ptToPx, toStripPx)
+                    drawPath(fillPath, inside, style = Fill, blendMode = insideBlend)
+                }
+            }
             return
         }
 
         path.reset()
         path.moveTo(builder.x(0) * ptToPx, toStripPx(builder.y(0)))
         path.appendSmoothed(n, { builder.x(it) * ptToPx }, { toStripPx(builder.y(it)) })
-        drawPath(
-            path = path,
-            color = color,
-            style = DrawStroke(
-                // The flat factor, not the nominal width: a tool that thins by speed alone holds
-                // one width for the whole stroke, and it is not necessarily the one on the slider.
-                width = builder.widthAt(0) * ptToPx,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-            blendMode = blend,
-        )
+        // The flat factor, not the nominal width: a tool that thins by speed alone holds one width
+        // for the whole stroke, and it is not necessarily the one on the slider.
+        val width = builder.widthAt(0) * ptToPx
+        twoTone(layerBounds, color, inside, blend) { outerBlend, insideBlend ->
+            drawPath(path, color, style = roundStroke(width), blendMode = outerBlend)
+            if (inside != null) {
+                drawPath(path, inside, style = roundStroke(width * insideFactor), blendMode = insideBlend)
+            }
+        }
     }
 
     /**
@@ -303,27 +387,28 @@ class StrokeRenderer {
         color: Int,
         blend: BlendId,
         filled: Boolean = false,
+        core: StrokeCore? = null,
     ) {
         val n = outline.count
         if (n < 2) return
+        val outlineColor = Color(color)
+        val inside = core?.let { Color(it.color) }
+        val mode = blend.toBlendMode()
         if (filled && n >= MIN_FILL_POINTS) {
             fillPath.reset()
             layInterior(fillPath, n, { outline.x(it) * ptToPx }, { toStripPx(outline.y(it)) })
-            drawPath(fillPath, Color(color), style = Fill, blendMode = blend.toBlendMode())
+            drawPath(fillPath, inside ?: outlineColor, style = Fill, blendMode = mode)
         }
         path.reset()
         path.moveTo(outline.x(0) * ptToPx, toStripPx(outline.y(0)))
         path.appendSmoothed(n, { outline.x(it) * ptToPx }, { toStripPx(outline.y(it)) })
-        drawPath(
-            path = path,
-            color = Color(color),
-            style = DrawStroke(
-                width = width * ptToPx,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-            blendMode = blend.toBlendMode(),
-        )
+        val px = width * ptToPx
+        twoTone(ModelRect(0f, 0f, size.width, size.height), outlineColor, inside, mode) { outerBlend, insideBlend ->
+            drawPath(path, outlineColor, style = roundStroke(px), blendMode = outerBlend)
+            if (inside != null && core != null) {
+                drawPath(path, inside, style = roundStroke(px * core.insideFactor), blendMode = insideBlend)
+            }
+        }
     }
 
     /**

@@ -149,6 +149,35 @@ class StrokeClipTest {
     }
 
     @Test
+    fun `a marker stroke keeps its inside on both sides of a cut`() {
+        // The inside is drawn along the line, so each piece is still two-tone marker ink — losing it
+        // would turn the half of a word below a page break into a solid line of the outline colour.
+        val core = StrokeCore(0xFFFFFFFF.toInt(), 0.2f)
+        val s = Stroke(
+            ToolId.MARKER, -16777216, 8f, BlendId.NORMAL,
+            xs = floatArrayOf(0f, 0f, 0f), ys = floatArrayOf(50f, 150f, 60f),
+            core = core,
+        )
+        val pieces = s.clippedToBand(0f, 100f)
+        assertTrue(pieces.isNotEmpty())
+        for (piece in pieces) assertEquals(core, piece.core)
+    }
+
+    @Test
+    fun `a marker stroke keeps its inside when moved, scaled or recoloured`() {
+        // The rim is a share of the width, so a scaled marker keeps its proportions untouched.
+        val core = StrokeCore(0xFFFFFFFF.toInt(), 0.2f)
+        val s = Stroke(
+            ToolId.MARKER, -16777216, 8f, BlendId.NORMAL,
+            xs = floatArrayOf(0f, 30f, 60f), ys = floatArrayOf(0f, 10f, 0f),
+            core = core,
+        )
+        assertEquals(core, s.transformed(Affine(2f, 0f, 0f, 2f, 5f, 5f)).core)
+        assertEquals(core, s.withStyle(color = 0xFFC0392B.toInt()).core)
+        assertEquals(core, s.withFill(true).core)
+    }
+
+    @Test
     fun `style is carried onto every piece`() {
         val s = Stroke(
             ToolId.HIGHLIGHTER, 0x66FFE14D, 16f, BlendId.MULTIPLY,

@@ -88,6 +88,23 @@ object NotesIcons {
         )
     }
 
+    /**
+     * Outline marker: a bullet-tip barrel over the hollow capsule it draws — a line with an edge
+     * and a middle, which is the one thing that tells this pen from the others in the row.
+     */
+    val Marker: ImageVector by lazy {
+        strokedIcon(
+            "Marker",
+            "M15.5 2.5 L20.5 7.5 L12 16 L7 11 Z M7 11 L4.5 16 L7 18.5 L12 16 " +
+                "M11.5 19 H20 a1.75 1.75 0 0 1 0 3.5 H11.5 a1.75 1.75 0 0 1 0 -3.5 Z",
+        )
+    }
+
+    /** Two arrows passing each other: exchange the two things either side of it. */
+    val Swap: ImageVector by lazy {
+        strokedIcon("Swap", "M4 8.5 H18 M14.5 5 L18 8.5 L14.5 12 M20 15.5 H6 M9.5 12 L6 15.5 L9.5 19")
+    }
+
     /** Stroke eraser: the classic wedge block. */
     val EraserStroke: ImageVector by lazy {
         strokedIcon("EraserStroke", "M7.5 20.5 L3 16 L13 6 L19 12 L14.5 16.5 Z M9.5 20.5 L20.5 20.5")

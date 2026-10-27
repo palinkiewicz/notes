@@ -62,8 +62,12 @@ data class ToolState(
             .with(SPEED, spec.speedInfluence)
             .with(ERASER_RADIUS, spec.eraserRadius)
             .with(FILL, spec.fill)
+            .let { if (spec.tool == ToolId.MARKER) it.with(INSIDE, spec.insideColor).with(RIM, spec.rim) else it }
 
         private fun readSpec(default: ToolSpec, obj: JsonObject): ToolSpec = default.copy(
+            insideColor = obj.int(INSIDE, default.insideColor),
+            rim = obj.float(RIM, default.rim).takeIf { it.isFinite() }
+                ?.coerceIn(StrokeCore.RIM_MIN, StrokeCore.RIM_MAX) ?: default.rim,
             color = obj.int(COLOR, default.color),
             width = obj.positive(WIDTH, default.width),
             opacity = obj.fraction(OPACITY, default.opacity),
@@ -92,5 +96,7 @@ data class ToolState(
         private const val SPEED = "speed"
         private const val ERASER_RADIUS = "eraserRadius"
         private const val FILL = "fill"
+        private const val INSIDE = "inside"
+        private const val RIM = "rim"
     }
 }

@@ -94,7 +94,7 @@ fun EditorScreen(
     var exportOpen by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var moreMenuOpen by remember { mutableStateOf(false) }
-    var editingPen by remember { mutableStateOf<ToolId?>(null) }
+    var editingPen by remember { mutableStateOf<Pair<ToolId, InkTarget>?>(null) }
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
     // Held here rather than in the toolbar: the sheet and the app bar close it too.
     var toolPopup by remember { mutableStateOf<ToolPopup?>(null) }
@@ -180,15 +180,15 @@ fun EditorScreen(
     }
 
     // Pen colour, applied live so the swatch and the next stroke follow the drag.
-    editingPen?.let { tool ->
+    editingPen?.let { (tool, target) ->
         val spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool)
         ColorPickerSheet(
-            title = stringResource(R.string.editor_pen_colour),
-            initial = spec.color,
+            title = stringResource(target.label(tool)),
+            initial = spec.colorOf(target),
             presets = ColorCodec.INK_PRESETS,
             recents = state.recentColors,
             palette = rememberSavedPalette(state.savedColors, viewModel),
-            onColorChange = { viewModel.setToolColor(tool, it) },
+            onColorChange = { viewModel.setToolColor(tool, it, target) },
             onCommit = { viewModel.rememberColor(it) },
             onDismiss = { editingPen = null },
         )
@@ -450,7 +450,7 @@ fun EditorScreen(
                         onUpdateTool = viewModel::updateTool,
                         onToggleFingerDrawing = viewModel::setFingerDrawing,
                         onToggleRuler = viewModel::setRuler,
-                        onOpenColorPicker = { editingPen = it },
+                        onOpenColorPicker = { tool, target -> editingPen = tool to target },
                         palette = rememberSavedPalette(state.savedColors, viewModel),
                         compact = state.editingTextBlock != null,
                     )
@@ -508,7 +508,7 @@ fun EditorScreen(
                             onUpdateTool = viewModel::updateTool,
                             onToggleFingerDrawing = viewModel::setFingerDrawing,
                             onToggleRuler = viewModel::setRuler,
-                            onOpenColorPicker = { editingPen = it },
+                            onOpenColorPicker = { tool, target -> editingPen = tool to target },
                             palette = rememberSavedPalette(state.savedColors, viewModel),
                         )
                     }

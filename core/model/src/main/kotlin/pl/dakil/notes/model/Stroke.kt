@@ -17,9 +17,13 @@ enum class ToolId(
     HIGHLIGHTER("highlighter"),
     ERASER_STROKE("eraserStroke"),
     ERASER_POINT("eraserPoint"),
-    LASSO("lasso");
+    LASSO("lasso"),
 
-    val isDrawing: Boolean get() = this == PEN || this == FOUNTAIN_PEN || this == PENCIL || this == HIGHLIGHTER
+    /** A thick two-tone marker: an outline in the stroke's colour round an inside of its own. */
+    MARKER("marker");
+
+    val isDrawing: Boolean
+        get() = this == PEN || this == FOUNTAIN_PEN || this == PENCIL || this == HIGHLIGHTER || this == MARKER
 
     val isEraser: Boolean get() = this == ERASER_STROKE || this == ERASER_POINT
 
@@ -99,6 +103,14 @@ class Stroke(
      * this in the physical world looks like.
      */
     val filled: Boolean = false,
+    /**
+     * The inside of a two-tone marker stroke, or null for ordinary single-colour ink.
+     *
+     * [color] stays the outline, so everything that only knows one colour — recolouring, an older
+     * build reading the note — still sees the edge of the mark, which is the part that carries its
+     * shape. Like [shape], this is metadata riding beside the geometry rather than part of it.
+     */
+    val core: StrokeCore? = null,
 ) : WidthedPath {
     init {
         require(xs.size == ys.size) { "Stroke coordinate arrays must be the same length" }
@@ -169,15 +181,19 @@ class Stroke(
 
     /** Returns a copy sharing the point arrays, used by recolour and tool-change edits. */
     fun withStyle(color: Int = this.color, width: Float = this.width, blend: BlendId = this.blend): Stroke =
-        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled, core)
 
     /** Returns a copy carrying [shape], sharing the point arrays. Used when loading a note. */
     fun withShape(shape: ShapeSpec?): Stroke =
-        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled, core)
 
     /** Returns a copy filled or unfilled, sharing the point arrays. Used by the selection bar. */
     fun withFill(filled: Boolean): Stroke =
-        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled, core)
+
+    /** Returns a copy with a different inside, or none, sharing the point arrays. */
+    fun withCore(core: StrokeCore?): Stroke =
+        Stroke(tool, color, width, blend, xs, ys, widthFactors, tilts, times, shape, filled, core)
 
     /** Returns a copy with every point mapped through [m]. Used by lasso move/scale/rotate. */
     fun transformed(m: Affine): Stroke {
@@ -197,7 +213,7 @@ class Stroke(
         // than a shape that lies.
         return Stroke(
             tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times,
-            shape?.transformedBy(m), filled,
+            shape?.transformedBy(m), filled, core,
         )
     }
 
@@ -245,7 +261,7 @@ class Stroke(
             factor?.let { floatArrayOf(it, it) },
             tilts?.let { floatArrayOf(it.first(), it.last()) },
             times?.let { intArrayOf(it.first(), it.last()) },
-            null, filled,
+            null, filled, this.core,
         )
     }
 
@@ -359,6 +375,8 @@ class Stroke(
             // document — the piece is what that page was already showing, and each half of a filled
             // circle closed by the cut is exactly the half-disc that was painted there.
             filled = source.filled,
+            // So does the inside: it belongs to every point of the mark, not to the mark as a whole.
+            core = source.core,
         )
 
         /** Longest side of the piece's bounding box, in points. */
@@ -383,6 +401,31 @@ class Stroke(
 
         /** Below this the width is flat enough that tessellating it would buy nothing. */
         const val WIDTH_FLAT_TOLERANCE = 1e-3f
+    }
+}
+
+/**
+ * The inner ink of a two-tone marker stroke.
+ *
+ * The stroke is drawn twice along one centreline: in its own colour at full width, then in [color]
+ * at what is left once [rim] has been taken off each side. [rim] is a share of the width rather
+ * than a length, so scaling a selection keeps the stroke's proportions without touching this.
+ */
+data class StrokeCore(
+    /** Packed ARGB. */
+    val color: Int,
+    /** The outline on each side, as a fraction of the stroke's width; see [RIM_MIN]..[RIM_MAX]. */
+    val rim: Float,
+) {
+    /** The share of the stroke's width the inside is drawn at. */
+    val insideFactor: Float get() = 1f - 2f * rim.coerceIn(RIM_MIN, RIM_MAX)
+
+    companion object {
+        /** Below this the outline is a hairline that vanishes at low zoom. */
+        const val RIM_MIN = 0.06f
+
+        /** Above this the inside is a thread down the middle and the marker is just a thick pen. */
+        const val RIM_MAX = 0.4f
     }
 }
 

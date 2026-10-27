@@ -226,4 +226,7 @@ object InkPageExporter {
 }
 
 private fun Stroke.recolored(preset: ExportColorPreset): Stroke =
-    Stroke(tool, preset.apply(color), width, blend, xs, ys, widthFactors, tilts, times, shape, filled)
+    Stroke(
+        tool, preset.apply(color), width, blend, xs, ys, widthFactors, tilts, times, shape, filled,
+        core?.let { it.copy(color = preset.apply(it.color)) },
+    )

@@ -115,6 +115,9 @@ object PathSplitter {
             // gap the eraser just made and paint the hole straight back in. An eraser that appears
             // to do nothing is worse than one that takes the fill with the outline.
             filled = false,
+            // The inside does survive: it is drawn along the line, not across the gap, so a
+            // fragment of marker ink is still marker ink.
+            core = stroke.core,
         )
     }
 

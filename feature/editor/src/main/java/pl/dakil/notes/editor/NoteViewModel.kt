@@ -493,10 +493,13 @@ class NoteViewModel(
         }
     }
 
-    fun setToolColor(tool: ToolId, argb: Int) {
+    fun setToolColor(tool: ToolId, argb: Int, target: InkTarget = InkTarget.OUTLINE) {
         _state.update { current ->
-            val spec = (current.toolPresets.firstOrNull { it.tool == tool }
-                ?: ToolSpec.defaultFor(tool)).copy(color = argb)
+            val preset = current.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool)
+            val spec = when (target) {
+                InkTarget.OUTLINE -> preset.copy(color = argb)
+                InkTarget.INSIDE -> preset.copy(insideColor = argb)
+            }
             current.copy(
                 tool = if (current.tool.tool == tool) spec else current.tool,
                 toolPresets = current.toolPresets.map { if (it.tool == tool) spec else it },
@@ -1119,6 +1122,16 @@ class NoteViewModel(
         image = { it.copy(tint = color) },
     )
 
+    /**
+     * Recolours the inside of every selected two-tone stroke, leaving its outline as it was.
+     *
+     * Strokes without an inside are passed over rather than given one: this is the second colour of
+     * a marker, and turning a pen line into a marker line is not what a colour button is for.
+     */
+    fun recolorSelectionInside(color: Int) = mutateSelection(
+        stroke = { s -> s.core?.let { s.withCore(it.copy(color = color)) } ?: s },
+    )
+
     /** Takes the colour filter off every selected picture. */
     fun clearImageTint() = mutateSelection(stroke = { it }, image = { it.copy(tint = null) })
 
@@ -1183,7 +1196,8 @@ class NoteViewModel(
         val index = entry.value.singleOrNull() ?: return
         val block = sheet.block(entry.key) as? InkBlock ?: return
         val old = block.strokes.getOrNull(index) ?: return
-        val replacement = spec.toStroke(old.tool, old.color, old.width, old.blend, filled = old.filled)
+        val replacement =
+            spec.toStroke(old.tool, old.color, old.width, old.blend, filled = old.filled, core = old.core)
 
         commitEdit(
             Edit.ReplaceBlock(

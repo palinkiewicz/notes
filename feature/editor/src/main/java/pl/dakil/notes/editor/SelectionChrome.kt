@@ -1,9 +1,14 @@
 package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -13,7 +18,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
@@ -83,7 +91,13 @@ fun SelectionChrome(
     val format = sheet.format
     val density = LocalDensity.current
     val handlePx = with(density) { HandleSize.toPx() }
-    var pickingColor by remember { mutableStateOf(false) }
+    // Which colour the picker is open on, if it is: the outline (every stroke's one colour) or the
+    // inside of the selected marker ink.
+    var pickingColor by remember { mutableStateOf<InkTarget?>(null) }
+
+    // The first selected marker stroke's inside colour, or null when the selection has no marker
+    // ink — in which case there is no inside to offer a button for.
+    val insideColor = remember(sheet, state.documentVersion, selection) { selectionInside(sheet, selection) }
 
     // The recognised shape under the selection, if a lone one is what is selected. Asked once per
     // edit rather than per frame: the answer can only change when the document does.
@@ -225,7 +239,12 @@ fun SelectionChrome(
                 ) {
                     Row {
                         BarButton(NotesIcons.Copy, R.string.editor_selection_duplicate, viewModel::duplicateSelection)
-                        BarButton(NotesIcons.Palette, R.string.editor_selection_colour) { pickingColor = true }
+                        BarButton(NotesIcons.Palette, R.string.editor_selection_colour) {
+                            pickingColor = InkTarget.OUTLINE
+                        }
+                        if (insideColor != null) {
+                            InsideColorButton(insideColor) { pickingColor = InkTarget.INSIDE }
+                        }
                         // The way back from the colour button for a picture: its own colours again.
                         if (selection.images.any { (sheet.block(it) as? ImageBlock)?.tint != null }) {
                             BarButton(NotesIcons.Close, R.string.editor_selection_remove_tint, viewModel::clearImageTint)
@@ -337,21 +356,51 @@ fun SelectionChrome(
     // rewrites every stroke in it, and a multi-layer selection commits as an Edit.Batch, which
     // does not merge — so a live preview would push one unmergeable edit per frame of the drag and
     // bury the rest of the history under it.
-    if (pickingColor) {
+    pickingColor?.let { target ->
+        val inside = target == InkTarget.INSIDE
         ColorPickerSheet(
-            title = stringResource(R.string.editor_selection_colour),
-            initial = selectionColor(sheet, selection),
+            title = stringResource(
+                if (inside) R.string.editor_selection_inside_colour else R.string.editor_selection_colour,
+            ),
+            initial = if (inside) insideColor ?: selectionColor(sheet, selection) else selectionColor(sheet, selection),
             presets = ColorCodec.INK_PRESETS,
             recents = state.recentColors,
             palette = rememberSavedPalette(state.savedColors, viewModel),
             onColorChange = {},
             onCommit = {
-                viewModel.recolorSelection(it)
+                if (inside) viewModel.recolorSelectionInside(it) else viewModel.recolorSelection(it)
                 viewModel.rememberColor(it)
             },
-            onDismiss = { pickingColor = false },
+            onDismiss = { pickingColor = null },
         )
     }
+}
+
+/**
+ * The selection bar's way to the inside colour of marker ink: the colour itself in a ring, the same
+ * face the toolbar's inside button wears, so the two read as one control in two places.
+ */
+@Composable
+private fun InsideColorButton(color: Int, onClick: () -> Unit) {
+    val description = stringResource(R.string.editor_selection_inside_colour)
+    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
+        Surface(
+            modifier = Modifier.size(22.dp),
+            shape = CircleShape,
+            color = Color(color),
+            border = BorderStroke(2.5.dp, LocalContentColor.current),
+            content = {},
+        )
+    }
+}
+
+/** The inside colour of the first selected two-tone stroke, or null when none has one. */
+private fun selectionInside(sheet: Sheet, selection: Selection): Int? {
+    for ((blockId, indices) in selection.strokesByBlock) {
+        val block = sheet.block(blockId) as? InkBlock ?: continue
+        for (i in indices) block.strokes.getOrNull(i)?.core?.let { return it.color }
+    }
+    return null
 }
 
 /**

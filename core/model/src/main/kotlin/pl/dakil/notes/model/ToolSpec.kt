@@ -50,13 +50,25 @@ data class ToolSpec(
      * like the rest of the tool's state: turning it off later must not empty shapes already drawn.
      */
     val fill: Boolean = false,
+    /**
+     * The marker's inside colour, packed ARGB; [color] is its outline. Every tool carries one so a
+     * spec is one shape, but only [ToolId.MARKER] draws with it — see [core].
+     */
+    val insideColor: Int = 0xFFD68910L.toInt(),
+    /** The marker's outline on each side, as a share of [width]. See [StrokeCore.rim]. */
+    val rim: Float = 0.2f,
 ) {
-    val effectiveColor: Int
-        get() {
-            if (opacity >= 1f) return color
-            val a = ((color ushr 24) and 0xFF) * opacity.coerceIn(0f, 1f)
-            return (a.roundToInt() shl 24) or (color and 0x00FFFFFF)
-        }
+    val effectiveColor: Int get() = withOpacity(color)
+
+    /** The inside of every stroke this tool draws, or null for a tool that draws in one colour. */
+    val core: StrokeCore?
+        get() = if (tool == ToolId.MARKER) StrokeCore(withOpacity(insideColor), rim) else null
+
+    private fun withOpacity(argb: Int): Int {
+        if (opacity >= 1f) return argb
+        val a = ((argb ushr 24) and 0xFF) * opacity.coerceIn(0f, 1f)
+        return (a.roundToInt() shl 24) or (argb and 0x00FFFFFF)
+    }
 
     companion object {
         /**
@@ -105,11 +117,23 @@ data class ToolSpec(
             pressureInfluence = 0f,
         )
 
+        /**
+         * Thick and constant-width, like a felt tip: the outline only reads as an outline if it is
+         * the same weight all the way round, and a pressure taper would pinch it to nothing at the
+         * ends. Pressure can still be turned up in its sheet for anyone who wants it.
+         */
+        val MARKER = ToolSpec(
+            tool = ToolId.MARKER,
+            width = 8f,
+            smoothing = 0.6f,
+            pressureInfluence = 0f,
+        )
+
         val ERASER_STROKE = ToolSpec(tool = ToolId.ERASER_STROKE, eraserRadius = 10f)
         val ERASER_POINT = ToolSpec(tool = ToolId.ERASER_POINT, eraserRadius = 8f)
         val LASSO = ToolSpec(tool = ToolId.LASSO)
 
-        val DEFAULTS = listOf(PEN, FOUNTAIN_PEN, PENCIL, HIGHLIGHTER, ERASER_STROKE, ERASER_POINT, LASSO)
+        val DEFAULTS = listOf(PEN, FOUNTAIN_PEN, PENCIL, HIGHLIGHTER, MARKER, ERASER_STROKE, ERASER_POINT, LASSO)
 
         fun defaultFor(tool: ToolId): ToolSpec = DEFAULTS.first { it.tool == tool }
     }

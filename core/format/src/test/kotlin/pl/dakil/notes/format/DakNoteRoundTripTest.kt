@@ -20,6 +20,7 @@ import pl.dakil.notes.model.PatternType
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StrokeCore
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ViewMode
@@ -616,6 +617,61 @@ class DakNoteRoundTripTest {
     @Test
     fun `saving a note that contains a filled stroke twice produces identical bytes`() {
         val first = DakNoteWriter.toByteArray(noteWithFill())
+        val second = DakNoteWriter.toByteArray(DakNoteReader.read(ByteArrayInputStream(first)))
+        assertArrayEquals(first, second)
+    }
+
+    // ---- Two-tone marker strokes ------------------------------------------------------------------
+
+    /** A note whose ink layer holds its plain strokes and one outline-marker stroke after them. */
+    private fun noteWithMarker(): Note {
+        val note = sampleNote()
+        val ink = note.sheet.inkLayers().single()
+        val marker = Stroke(
+            ToolId.MARKER, 0xFF1B1B1F.toInt(), 8f, BlendId.NORMAL,
+            floatArrayOf(100f, 140f, 180f, 220f), floatArrayOf(100f, 120f, 100f, 120f),
+            core = StrokeCore(0x80D68910.toInt(), 0.25f),
+        )
+        return note.copy(sheet = note.sheet.copy(blocks = listOf(ink.copy(strokes = ink.strokes + marker))))
+    }
+
+    @Test
+    fun `a marker stroke keeps its tool, inside colour and outline thickness through a round trip`() {
+        // The inside colour is translucent on purpose: its alpha byte has to survive the hex too.
+        val strokes = roundTrip(noteWithMarker()).sheet.inkLayers().single().strokes
+        assertEquals(ToolId.MARKER, strokes.last().tool)
+        assertEquals(StrokeCore(0x80D68910.toInt(), 0.25f), strokes.last().core)
+        assertNull("plain ink must not acquire an inside", strokes.first().core)
+    }
+
+    @Test
+    fun `a note with no marker ink is written exactly as it was before the marker existed`() {
+        val descriptor = inkDescriptorOf(DakNoteWriter.toByteArray(sampleNote()))
+        assertFalse("cores", "cores" in descriptor)
+    }
+
+    @Test
+    fun `an inside record naming a stroke of the wrong length is discarded`() {
+        // The same index guard as fills: an older build that erased a stroke shifts every later
+        // index, and a pen line must not come back as a marker on that build's say-so.
+        val entries = entriesOf(DakNoteWriter.toByteArray(noteWithMarker()))
+        val sheet = JsonReader.parseObject(entries["sheet.json"]!!.toString(Charsets.UTF_8))
+        val patched = (sheet.array("blocks")!!.items).map { item ->
+            val o = item as JsonObject
+            val cores = o.array("cores") ?: return@map o
+            o.with("cores", JsonArray(cores.items.map { (it as JsonObject).with("i", 0) }))
+        }
+        entries["sheet.json"] = JsonWriter.write(sheet.with("blocks", JsonArray(patched)))
+            .toByteArray(Charsets.UTF_8)
+
+        val strokes = DakNoteReader.read(ByteArrayInputStream(zipOf(entries)))
+            .sheet.inkLayers().single().strokes
+        assertNull("stroke 0 is three points long, the record claims four", strokes[0].core)
+    }
+
+    @Test
+    fun `saving a note that contains marker ink twice produces identical bytes`() {
+        val first = DakNoteWriter.toByteArray(noteWithMarker())
         val second = DakNoteWriter.toByteArray(DakNoteReader.read(ByteArrayInputStream(first)))
         assertArrayEquals(first, second)
     }

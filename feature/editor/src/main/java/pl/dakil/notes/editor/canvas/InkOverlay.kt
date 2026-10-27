@@ -390,12 +390,13 @@ fun InkOverlay(
                 }
                 if (reshaping != null) drawShapePreview(
                     controller.outline, ptToPx, toStripPx,
-                    reshaping.width, reshaping.color, reshaping.blend, reshaping.filled,
+                    reshaping.width, reshaping.color, reshaping.blend, reshaping.filled, reshaping.core,
                 )
                 if (wet) drawWetStroke(builder, ptToPx, toStripPx)
                 if (live != null) drawShapePreview(
                     shape.outline, ptToPx, toStripPx,
                     shape.previewWidth, shape.previewColor, shape.previewBlend, shape.previewFilled,
+                    shape.previewCore,
                 )
             } else {
                 // One clipped pass per page. A stroke drawn across a page break is a single
@@ -432,6 +433,7 @@ fun InkOverlay(
                         if (reshaping != null) drawShapePreview(
                             controller.outline, ptToPx, toStripPx,
                             reshaping.width, reshaping.color, reshaping.blend, reshaping.filled,
+                            reshaping.core,
                         )
                         // Culled by the same band the committed strokes are, and for a sharper
                         // reason: the wet stroke is tessellated on every frame, so drawing it once
@@ -442,7 +444,7 @@ fun InkOverlay(
                         if (live != null) drawShapePreview(
                             shape.outline, ptToPx, toStripPx,
                             shape.previewWidth, shape.previewColor, shape.previewBlend,
-                            shape.previewFilled,
+                            shape.previewFilled, shape.previewCore,
                         )
                     }
                 }

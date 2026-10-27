@@ -27,6 +27,46 @@ class ToolStateTest {
     }
 
     @Test
+    fun `the marker's inside colour and outline thickness come back as they were left`() {
+        val state = ToolState(
+            presets = ToolSpec.DEFAULTS.map {
+                if (it.tool == ToolId.MARKER) it.copy(insideColor = 0xFFFFFFFF.toInt(), rim = 0.3f) else it
+            },
+            lastDrawing = ToolId.MARKER,
+        )
+
+        assertEquals(state, ToolState.decode(state.encode()))
+    }
+
+    @Test
+    fun `tools saved before the marker existed still decode, with the marker at its defaults`() {
+        // What every existing install has on disk the first time it runs a build with the marker.
+        val state = ToolState.decode("""{"lastDrawing":"pen","tools":[{"tool":"pen","color":-1}]}""")
+        assertEquals(ToolSpec.MARKER, state.spec(ToolId.MARKER))
+    }
+
+    @Test
+    fun `an outline thickness out of range is clamped rather than drawing no inside at all`() {
+        // A rim of a half or more would leave the inside nothing to be drawn in.
+        val state = ToolState.decode("""{"tools":[{"tool":"marker","rim":0.9}]}""")
+        assertEquals(StrokeCore.RIM_MAX, state.spec(ToolId.MARKER).rim, 0f)
+    }
+
+    @Test
+    fun `only the marker draws with an inside`() {
+        assertEquals(null, ToolSpec.PEN.core)
+        assertEquals(StrokeCore(ToolSpec.MARKER.insideColor, ToolSpec.MARKER.rim), ToolSpec.MARKER.core)
+    }
+
+    @Test
+    fun `opacity reaches the marker's inside as well as its outline`() {
+        // Otherwise a half-faded marker would have a solid middle in a ghostly edge.
+        val faded = ToolSpec.MARKER.copy(opacity = 0.5f)
+        assertEquals(0x80, faded.core!!.color ushr 24)
+        assertEquals(0x80, faded.effectiveColor ushr 24)
+    }
+
+    @Test
     fun `saving the same tools twice writes the same text`() {
         val state = ToolState(presets = ToolSpec.DEFAULTS.map { it.copy(opacity = 0.75f) })
         assertEquals(state.encode(), ToolState.decode(state.encode()).encode())

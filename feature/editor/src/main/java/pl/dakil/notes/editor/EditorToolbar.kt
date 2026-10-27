@@ -2,6 +2,7 @@ package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -28,6 +29,7 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -47,7 +49,16 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -66,7 +77,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import java.util.Locale
+import kotlin.math.roundToInt
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.model.StrokeCore
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ColorCodec
@@ -97,7 +110,7 @@ fun EditorToolbar(
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
-    onOpenColorPicker: (ToolId) -> Unit,
+    onOpenColorPicker: (ToolId, InkTarget) -> Unit,
     /** What a long-press on an unsaved colour saves into; null offers no saving. */
     palette: SavedPalette? = null,
     /**
@@ -155,9 +168,9 @@ fun EditorToolbar(
             savedColors = state.savedColors,
             palette = palette,
             onSpecChange = onUpdateTool,
-            onOpenPicker = {
+            onOpenPicker = { target ->
                 optionsFor = null
-                onOpenColorPicker(tool)
+                onOpenColorPicker(tool, target)
             },
             onDismiss = { optionsFor = null },
         )
@@ -176,7 +189,7 @@ fun EditorToolRail(
     onUpdateTool: (ToolSpec) -> Unit,
     onToggleFingerDrawing: (Boolean) -> Unit,
     onToggleRuler: (Boolean) -> Unit,
-    onOpenColorPicker: (ToolId) -> Unit,
+    onOpenColorPicker: (ToolId, InkTarget) -> Unit,
     palette: SavedPalette? = null,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
@@ -214,9 +227,9 @@ fun EditorToolRail(
             savedColors = state.savedColors,
             palette = palette,
             onSpecChange = onUpdateTool,
-            onOpenPicker = {
+            onOpenPicker = { target ->
                 optionsFor = null
-                onOpenColorPicker(tool)
+                onOpenColorPicker(tool, target)
             },
             onDismiss = { optionsFor = null },
         )
@@ -237,7 +250,7 @@ private fun ToolControls(
     onSelectTextTool: () -> Unit,
     onSelectImageTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
-    onOpenColorPicker: (ToolId) -> Unit,
+    onOpenColorPicker: (ToolId, InkTarget) -> Unit,
     palette: SavedPalette?,
     onOpenOptions: (ToolId) -> Unit,
 ) {
@@ -302,15 +315,22 @@ private fun ToolControls(
     )
 
     if (drawing) {
-        ColorButton(
-            state = state,
-            placement = placement,
-            open = openPopup == ToolPopup.COLOR,
-            onOpenChange = { onPopupChange(if (it) ToolPopup.COLOR else null) },
-            onUpdateTool = onUpdateTool,
-            onOpenPicker = onOpenColorPicker,
-            palette = palette,
-        )
+        // The marker gets one button per ink, each drawn as the part of the stroke it sets — a
+        // hollow ring for the outline, a disc for the inside — so the pair explains itself and
+        // either colour is one tap away. Every other pen has one colour and one button.
+        val targets = if (active == ToolId.MARKER) MARKER_TARGETS else PEN_TARGETS
+        for ((target, popup) in targets) {
+            ColorButton(
+                state = state,
+                target = target,
+                placement = placement,
+                open = openPopup == popup,
+                onOpenChange = { onPopupChange(if (it) popup else null) },
+                onUpdateTool = onUpdateTool,
+                onOpenPicker = onOpenColorPicker,
+                palette = palette,
+            )
+        }
     }
 
     if (drawing || erasing) {
@@ -406,7 +426,13 @@ private fun RulerToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
  * Hoisted out of the bar because closing one is not the bar's business alone: a tap on the sheet or
  * the app bar closes it too, and switching between two of them has to be a single tap.
  */
-enum class ToolPopup { TOOLS, ERASERS, COLOR, SIZE }
+enum class ToolPopup { TOOLS, ERASERS, COLOR, INSIDE_COLOR, SIZE }
+
+/**
+ * Which of a pen's colours is being chosen. Every pen has an [OUTLINE] — for a one-colour pen that
+ * is simply its colour — and only the marker has an [INSIDE] as well. See `Stroke.core`.
+ */
+enum class InkTarget { OUTLINE, INSIDE }
 
 /**
  * Closes an open selector on the next press anywhere in [this], without taking that press.
@@ -526,22 +552,25 @@ private fun VariantButton(
 }
 
 /**
- * The ink colour, shown as the colour.
+ * One of the pen's colours, shown as the colour.
  *
- * A plain filled circle with a hairline ring: the swatch has to read as the ink itself, and any
- * heavier outline reads as a control drawn around a colour instead.
+ * For an ordinary pen, a plain filled circle with a hairline ring: the swatch has to read as the ink
+ * itself, and any heavier outline reads as a control drawn around a colour instead. For the
+ * marker's two inks, see [InkSwatch].
  */
 @Composable
 private fun ColorButton(
     state: EditorUiState,
+    target: InkTarget,
     placement: PopupPlacement,
     open: Boolean,
     onOpenChange: (Boolean) -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
-    onOpenPicker: (ToolId) -> Unit,
+    onOpenPicker: (ToolId, InkTarget) -> Unit,
     palette: SavedPalette?,
 ) {
     val spec = state.tool
+    val current = spec.colorOf(target)
     // The save menu is a window of its own, so a tap on it is a tap outside the row; while it is
     // up, that must not count as dismissing the row it was opened from.
     var saveMenuOpen by remember { mutableStateOf(false) }
@@ -550,16 +579,10 @@ private fun ColorButton(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable { onOpenChange(!open) },
+            .clickable(onClickLabel = stringResource(target.label(spec.tool))) { onOpenChange(!open) },
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            modifier = Modifier.size(26.dp),
-            shape = CircleShape,
-            color = Color(spec.effectiveColor),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            content = {},
-        )
+        InkSwatch(spec = spec, target = target)
 
         if (open) {
             InlineSelector(
@@ -568,12 +591,12 @@ private fun ColorButton(
             ) {
                 // Presets keep the tool's own opacity; a saved or recent colour carries its own
                 // alpha, because that is what was mixed and kept.
-                for (color in quickColors(state.savedColors)) {
+                for (color in quickColors(state.savedColors, target)) {
                     SwatchItem(
                         color = color,
-                        selected = (color and 0x00FFFFFF) == (spec.color and 0x00FFFFFF),
+                        selected = (color and 0x00FFFFFF) == (current and 0x00FFFFFF),
                         onClick = {
-                            onUpdateTool(spec.copy(color = pickQuick(color, spec.color, state.savedColors)))
+                            onUpdateTool(spec.withColor(target, pickQuick(color, current, state.savedColors)))
                             onOpenChange(false)
                         },
                         palette = palette,
@@ -585,9 +608,9 @@ private fun ColorButton(
                 for (color in state.recentColors) {
                     SwatchItem(
                         color = color,
-                        selected = (color and 0x00FFFFFF) == (spec.color and 0x00FFFFFF),
+                        selected = (color and 0x00FFFFFF) == (current and 0x00FFFFFF),
                         onClick = {
-                            onUpdateTool(spec.copy(color = color))
+                            onUpdateTool(spec.withColor(target, color))
                             onOpenChange(false)
                         },
                         palette = palette,
@@ -600,13 +623,78 @@ private fun ColorButton(
                     selected = false,
                     onClick = {
                         onOpenChange(false)
-                        onOpenPicker(spec.tool)
+                        onOpenPicker(spec.tool, target)
                     },
                 )
             }
         }
     }
 }
+
+/**
+ * The face of a colour button: the ink drawn as the part of the stroke it colours.
+ *
+ * A one-colour pen shows a plain disc. The marker's outline shows as a thick ring with the paper
+ * showing through the middle, and its inside as a disc inside a thin ring of the outline colour —
+ * a cross-section of the stroke with the other ink pushed to the side. Side by side the pair reads
+ * as "this is the edge, that is the middle" without a word, and each one still shows the other ink
+ * faintly enough to tell which marker it belongs to.
+ */
+@Composable
+private fun InkSwatch(spec: ToolSpec, target: InkTarget) {
+    val hairline = MaterialTheme.colorScheme.outlineVariant
+    when {
+        spec.tool != ToolId.MARKER -> Surface(
+            modifier = Modifier.size(26.dp),
+            shape = CircleShape,
+            color = Color(spec.effectiveColor),
+            border = BorderStroke(1.dp, hairline),
+            content = {},
+        )
+
+        target == InkTarget.OUTLINE -> Box(
+            Modifier
+                .size(26.dp)
+                .border(1.dp, hairline, CircleShape)
+                .padding(1.dp)
+                .border(6.dp, Color(spec.effectiveColor), CircleShape),
+        )
+
+        else -> Surface(
+            modifier = Modifier.size(26.dp),
+            shape = CircleShape,
+            color = Color(spec.core?.color ?: spec.insideColor),
+            border = BorderStroke(2.5.dp, Color(spec.effectiveColor)),
+            content = {},
+        )
+    }
+}
+
+/** The colour [target] names on this spec. */
+internal fun ToolSpec.colorOf(target: InkTarget): Int = when (target) {
+    InkTarget.OUTLINE -> color
+    InkTarget.INSIDE -> insideColor
+}
+
+/** This spec with [target]'s colour set to [argb]. */
+internal fun ToolSpec.withColor(target: InkTarget, argb: Int): ToolSpec = when (target) {
+    InkTarget.OUTLINE -> copy(color = argb)
+    InkTarget.INSIDE -> copy(insideColor = argb)
+}
+
+/**
+ * What to call [this] colour of [tool]: a one-colour pen's outline is just its colour, and saying
+ * "outline" there would invent a distinction that pen does not have.
+ */
+@StringRes
+internal fun InkTarget.label(tool: ToolId): Int = when {
+    tool != ToolId.MARKER -> R.string.editor_pen_colour
+    this == InkTarget.OUTLINE -> R.string.editor_outline_colour
+    else -> R.string.editor_inside_colour
+}
+
+private val PEN_TARGETS = listOf(InkTarget.OUTLINE to ToolPopup.COLOR)
+private val MARKER_TARGETS = PEN_TARGETS + (InkTarget.INSIDE to ToolPopup.INSIDE_COLOR)
 
 /**
  * The stroke width — or, for the erasers, the eraser radius — as the number it is.
@@ -918,7 +1006,15 @@ private fun SwatchItem(
  * row they choose from, and eight colours they did not pick in front of it would push it off a
  * phone's width. The presets are still in the full picker, a save away from coming back.
  */
-internal fun quickColors(saved: List<Int>): List<Int> = saved.ifEmpty { ColorCodec.INK_PRESETS.toList() }
+internal fun quickColors(saved: List<Int>, target: InkTarget = InkTarget.OUTLINE): List<Int> =
+    saved.ifEmpty {
+        // The ink presets are all dark enough to write with, which is right for an edge; the middle
+        // of a marker is where white earns a place, because a white inside is bubble lettering.
+        if (target == InkTarget.INSIDE) ColorCodec.INK_PRESETS.toList() + WHITE
+        else ColorCodec.INK_PRESETS.toList()
+    }
+
+private const val WHITE = 0xFFFFFFFF.toInt()
 
 /** A preset takes the tool's own opacity; a saved colour is exactly what was kept. */
 internal fun pickQuick(color: Int, current: Int, saved: List<Int>): Int =
@@ -944,7 +1040,7 @@ private fun ToolOptionsSheet(
     savedColors: List<Int>,
     palette: SavedPalette?,
     onSpecChange: (ToolSpec) -> Unit,
-    onOpenPicker: () -> Unit,
+    onOpenPicker: (InkTarget) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
@@ -970,17 +1066,39 @@ private fun ToolOptionsSheet(
             )
 
             if (spec.tool.isDrawing) {
-                ColorSection(
-                    selected = spec.color,
-                    recents = recentColors,
-                    saved = savedColors,
-                    palette = palette,
-                    onSelect = { onSpecChange(spec.copy(color = it)) },
-                    onOpenPicker = onOpenPicker,
-                )
+                val marker = spec.tool == ToolId.MARKER
+                if (marker) {
+                    MarkerPreview(spec = spec, onSwap = {
+                        onSpecChange(spec.copy(color = spec.insideColor, insideColor = spec.color))
+                    })
+                }
+                for (target in if (marker) InkTarget.entries else listOf(InkTarget.OUTLINE)) {
+                    ColorSection(
+                        title = stringResource(if (marker) target.label(spec.tool) else R.string.editor_colour),
+                        target = target,
+                        selected = spec.colorOf(target),
+                        recents = recentColors,
+                        saved = savedColors,
+                        palette = palette,
+                        onSelect = { onSpecChange(spec.withColor(target, it)) },
+                        onOpenPicker = { onOpenPicker(target) },
+                    )
+                }
 
                 LabelledSlider(stringResource(R.string.editor_width), spec.width, WIDTH_RANGE) {
                     onSpecChange(spec.copy(width = it))
+                }
+                if (marker) {
+                    LabelledSlider(
+                        label = stringResource(R.string.editor_outline_thickness),
+                        value = spec.rim,
+                        range = StrokeCore.RIM_MIN..StrokeCore.RIM_MAX,
+                        // A share of the width is what it is, and a percentage is how people read
+                        // one; 0.2 would look like a length in points next to the width above it.
+                        format = { String.format(Locale.getDefault(), "%d%%", (it * 100f).roundToInt()) },
+                    ) {
+                        onSpecChange(spec.copy(rim = it))
+                    }
                 }
                 LabelledSlider(stringResource(R.string.editor_opacity), spec.opacity, 0.05f..1f) {
                     onSpecChange(spec.copy(opacity = it))
@@ -1020,17 +1138,18 @@ private fun LabelledSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
+    // Both separators, like `MeasurementUnit.format`: a comma is what most of Europe gets back
+    // from `String.format`, and trimming only the point leaves it stranded.
+    format: (Float) -> String = {
+        String.format(Locale.getDefault(), "%.2f", it).trimEnd('0').trimEnd('.', ',')
+    },
     onChange: (Float) -> Unit,
 ) {
     Column(Modifier.padding(horizontal = OptionsGutter)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.labelLarge)
             Text(
-                // Both separators, like `MeasurementUnit.format`: a comma is what most of Europe
-                // gets back from `String.format`, and trimming only the point leaves it stranded.
-                text = String.format(Locale.getDefault(), "%.2f", value)
-                    .trimEnd('0')
-                    .trimEnd('.', ','),
+                text = format(value),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1049,6 +1168,8 @@ private fun LabelledSlider(
  */
 @Composable
 private fun ColorSection(
+    title: String,
+    target: InkTarget,
     selected: Int,
     recents: List<Int>,
     saved: List<Int>,
@@ -1058,7 +1179,7 @@ private fun ColorSection(
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
         Text(
-            text = stringResource(R.string.editor_colour),
+            text = title,
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = OptionsGutter),
         )
@@ -1071,7 +1192,7 @@ private fun ColorSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            for (color in quickColors(saved)) {
+            for (color in quickColors(saved, target)) {
                 SavableSwatch(
                     color = color,
                     selected = (color and 0x00FFFFFF) == (selected and 0x00FFFFFF),
@@ -1109,6 +1230,76 @@ private fun ColorSection(
         }
     }
 }
+
+/**
+ * A sample of what the marker draws, at its real colours, width and outline, with the button that
+ * swaps the two inks beside it.
+ *
+ * Two colours and a thickness are three settings whose meaning is entirely in how they combine, so
+ * the sheet shows the combination rather than leaving it to be found out on the page. Drawn on
+ * paper white whatever the theme, because that is what the ink will be seen on.
+ */
+@Composable
+private fun MarkerPreview(spec: ToolSpec, onSwap: () -> Unit) {
+    val outline = Color(spec.effectiveColor)
+    val core = spec.core ?: return
+    val inside = Color(core.color)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OptionsGutter)
+            .padding(bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Canvas(
+            modifier = Modifier
+                .weight(1f)
+                .height(64.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .background(Color(PREVIEW_PAPER))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium),
+        ) {
+            // The width at roughly the size it is drawn at 100 % zoom, capped so the thickest
+            // marker still leaves the curve some room to be a curve.
+            val width = (spec.width * PREVIEW_PT_TO_DP).dp.toPx().coerceAtMost(size.height * 0.45f)
+            val pad = width / 2f + 12.dp.toPx()
+            val wave = Path().apply {
+                moveTo(pad, size.height * 0.62f)
+                cubicTo(
+                    size.width * 0.35f, size.height * 0.05f,
+                    size.width * 0.65f, size.height * 0.95f,
+                    size.width - pad, size.height * 0.38f,
+                )
+            }
+            fun ink(color: Color, w: Float, blend: BlendMode) = drawPath(
+                wave, color, style = Stroke(w, cap = StrokeCap.Round, join = StrokeJoin.Round), blendMode = blend,
+            )
+            // The same rule as the page: a translucent marker is one layer with its inside replacing
+            // the outline, so the preview cannot promise a look the page will not deliver.
+            if (outline.alpha >= 1f && inside.alpha >= 1f) {
+                ink(outline, width, BlendMode.SrcOver)
+                ink(inside, width * core.insideFactor, BlendMode.SrcOver)
+            } else {
+                drawIntoCanvas { canvas ->
+                    canvas.saveLayer(Rect(Offset.Zero, size), Paint())
+                    ink(outline, width, BlendMode.SrcOver)
+                    ink(inside, width * core.insideFactor, BlendMode.Src)
+                    canvas.restore()
+                }
+            }
+        }
+        FilledTonalIconButton(onClick = onSwap) {
+            Icon(NotesIcons.Swap, contentDescription = stringResource(R.string.editor_swap_colours))
+        }
+    }
+}
+
+/** What the marker preview is drawn on: the default paper, not the app's surface. */
+private const val PREVIEW_PAPER = 0xFFFFFDF8L
+
+/** Points to dp in the preview: a point is 1/72 in, a dp 1/160 in, so about 2.2, rounded down. */
+private const val PREVIEW_PT_TO_DP = 2f
 
 /** A [ColorSwatch] whose long-press menu, given a [palette], arranges a [saved] one or saves it. */
 @Composable
@@ -1150,6 +1341,7 @@ private val DRAWING_TOOLS = listOf(
     ToolEntry(ToolId.FOUNTAIN_PEN, R.string.editor_tool_fountain, NotesIcons.FountainPen),
     ToolEntry(ToolId.PENCIL, R.string.editor_tool_pencil, NotesIcons.Pencil),
     ToolEntry(ToolId.HIGHLIGHTER, R.string.editor_tool_highlighter, NotesIcons.Highlighter),
+    ToolEntry(ToolId.MARKER, R.string.editor_tool_marker, NotesIcons.Marker),
 )
 
 private val ERASER_TOOLS = listOf(
