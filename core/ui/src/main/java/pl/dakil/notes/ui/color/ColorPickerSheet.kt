@@ -44,6 +44,7 @@ fun ColorPickerSheet(
     showAlpha: Boolean = true,
     presets: IntArray = ColorCodec.INK_PRESETS,
     recents: List<Int> = emptyList(),
+    palette: SavedPalette? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val original = remember { initial }
@@ -98,6 +99,7 @@ fun ColorPickerSheet(
                 showAlpha = showAlpha,
                 presets = presets,
                 recents = recents,
+                palette = palette,
             )
         }
     }

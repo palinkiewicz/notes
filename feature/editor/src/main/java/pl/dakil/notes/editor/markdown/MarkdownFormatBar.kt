@@ -83,6 +83,8 @@ fun MarkdownFormatBar(
     modifier: Modifier = Modifier,
     /** Whether this document may set its own sizes and colours. See [MdStyle.SIZE]. */
     attributes: Boolean = false,
+    /** The user's saved palette, which replaces the presets in the colour popup once it exists. */
+    savedColors: List<Int> = emptyList(),
     /**
      * Whether another bar stands below this one.
      *
@@ -116,6 +118,7 @@ fun MarkdownFormatBar(
                 onInsertImage = onInsertImage,
                 onInsertImageLink = onInsertImageLink,
                 attributes = attributes,
+                savedColors = savedColors,
             )
         }
     }
@@ -138,6 +141,8 @@ fun MarkdownFormatRail(
     modifier: Modifier = Modifier,
     /** Whether this document may set its own sizes and colours. See [MdStyle.SIZE]. */
     attributes: Boolean = false,
+    /** The user's saved palette, which replaces the presets in the colour popup once it exists. */
+    savedColors: List<Int> = emptyList(),
 ) {
     NavigationRail(modifier = modifier) {
         Column(
@@ -157,6 +162,7 @@ fun MarkdownFormatRail(
                 onInsertImage = onInsertImage,
                 onInsertImageLink = onInsertImageLink,
                 attributes = attributes,
+                savedColors = savedColors,
             )
         }
     }
@@ -183,6 +189,7 @@ private fun FormatControls(
      */
     onInsertImageLink: (() -> Unit)? = null,
     attributes: Boolean,
+    savedColors: List<Int>,
 ) {
     val source = state.text.toString()
     val selection = state.selection
@@ -300,6 +307,7 @@ private fun FormatControls(
                 InlineSelector(placement = placement, onDismiss = { onPopupChange(null) }) {
                     TextColorChoices(
                         selected = color,
+                        choices = savedColors.ifEmpty { TEXT_COLORS },
                         onSelect = {
                             onPopupChange(null)
                             state.applyColor(pending, it)
@@ -495,7 +503,7 @@ private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Uni
  * the tag is ordinary text.
  */
 @Composable
-private fun TextColorChoices(selected: Int?, onSelect: (Int?) -> Unit) {
+private fun TextColorChoices(selected: Int?, choices: List<Int>, onSelect: (Int?) -> Unit) {
     // "Default" first: it is the way out, and the way out belongs where the thumb lands.
     Box(
         modifier = Modifier
@@ -516,7 +524,7 @@ private fun TextColorChoices(selected: Int?, onSelect: (Int?) -> Unit) {
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    for (choice in TEXT_COLORS) {
+    for (choice in choices) {
         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             ColorSwatch(
                 color = choice,

@@ -36,6 +36,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -143,6 +145,7 @@ fun EditorToolbar(
         ToolOptionsSheet(
             spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool),
             recentColors = state.recentColors,
+            savedColors = state.savedColors,
             onSpecChange = onUpdateTool,
             onOpenPicker = {
                 optionsFor = null
@@ -198,6 +201,7 @@ fun EditorToolRail(
         ToolOptionsSheet(
             spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool),
             recentColors = state.recentColors,
+            savedColors = state.savedColors,
             onSpecChange = onUpdateTool,
             onOpenPicker = {
                 optionsFor = null
@@ -542,19 +546,19 @@ private fun ColorButton(
 
         if (open) {
             InlineSelector(placement = placement, onDismiss = { onOpenChange(false) }) {
-                // Presets keep the tool's own opacity; a recent colour carries its own alpha,
-                // because that is what was mixed and saved.
-                for (color in ColorCodec.INK_PRESETS) {
+                // Presets keep the tool's own opacity; a saved or recent colour carries its own
+                // alpha, because that is what was mixed and kept.
+                for (color in quickColors(state.savedColors)) {
                     SwatchItem(
                         color = color,
                         selected = (color and 0x00FFFFFF) == (spec.color and 0x00FFFFFF),
                         onClick = {
-                            val alpha = ColorCodec.alpha(spec.color)
-                            onUpdateTool(spec.copy(color = ColorCodec.withAlpha(color, alpha)))
+                            onUpdateTool(spec.copy(color = pickQuick(color, spec.color, state.savedColors)))
                             onOpenChange(false)
                         },
                     )
                 }
+                if (state.recentColors.isNotEmpty()) GroupDivider()
                 for (color in state.recentColors) {
                     SwatchItem(
                         color = color,
@@ -854,6 +858,28 @@ private fun SwatchItem(color: Int, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * What a quick colour row leads with: the user's saved palette once there is one, else the presets.
+ *
+ * Replacing rather than adding to the presets: someone who built a palette built it to be the
+ * row they choose from, and eight colours they did not pick in front of it would push it off a
+ * phone's width. The presets are still in the full picker, a save away from coming back.
+ */
+internal fun quickColors(saved: List<Int>): List<Int> = saved.ifEmpty { ColorCodec.INK_PRESETS.toList() }
+
+/** A preset takes the tool's own opacity; a saved colour is exactly what was kept. */
+internal fun pickQuick(color: Int, current: Int, saved: List<Int>): Int =
+    if (saved.isNotEmpty()) color else ColorCodec.withAlpha(color, ColorCodec.alpha(current))
+
+/** The line between what the user keeps and what the app remembered for them. */
+@Composable
+internal fun GroupDivider(height: Dp = 24.dp) {
+    VerticalDivider(
+        modifier = Modifier.height(height).padding(horizontal = 4.dp),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
 private val WIDTH_RANGE = 0.5f..20f
 private val ERASER_RANGE = 2f..32f
 
@@ -862,6 +888,7 @@ private val ERASER_RANGE = 2f..32f
 private fun ToolOptionsSheet(
     spec: ToolSpec,
     recentColors: List<Int>,
+    savedColors: List<Int>,
     onSpecChange: (ToolSpec) -> Unit,
     onOpenPicker: () -> Unit,
     onDismiss: () -> Unit,
@@ -891,6 +918,7 @@ private fun ToolOptionsSheet(
                 ColorSection(
                     selected = spec.color,
                     recents = recentColors,
+                    saved = savedColors,
                     onSelect = { onSpecChange(spec.copy(color = it)) },
                     onOpenPicker = onOpenPicker,
                 )
@@ -956,7 +984,8 @@ private fun LabelledSlider(
 }
 
 /**
- * Pen colour: presets, the user's recent mixes, and a full picker.
+ * Pen colour: the user's saved palette (or the presets, until there is one), recent mixes, and a
+ * full picker.
  *
  * The presets are ink colours, not Material scheme colours — pen colour is document content. It has
  * to mean the same thing on every device and still be that colour when the note is reopened years
@@ -966,6 +995,7 @@ private fun LabelledSlider(
 private fun ColorSection(
     selected: Int,
     recents: List<Int>,
+    saved: List<Int>,
     onSelect: (Int) -> Unit,
     onOpenPicker: () -> Unit,
 ) {
@@ -979,13 +1009,14 @@ private fun ColorSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            for (color in ColorCodec.INK_PRESETS) {
+            for (color in quickColors(saved)) {
                 ColorSwatch(
                     color = color,
                     selected = (color and 0x00FFFFFF) == (selected and 0x00FFFFFF),
-                    onClick = { onSelect(ColorCodec.withAlpha(color, ColorCodec.alpha(selected))) },
+                    onClick = { onSelect(pickQuick(color, selected, saved)) },
                 )
             }
+            if (recents.isNotEmpty()) GroupDivider(height = 28.dp)
             for (color in recents) {
                 ColorSwatch(
                     color = color,

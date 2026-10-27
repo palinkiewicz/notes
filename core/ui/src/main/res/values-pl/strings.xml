@@ -22,5 +22,19 @@
     <string name="ui_color_hex">Hex</string>
     <string name="ui_color_presets">Standardowe</string>
     <string name="ui_color_recent">Ostatnie</string>
+    <string name="ui_color_saved">Zapisane</string>
+    <string name="ui_color_save">Zapisz kolor</string>
+    <string name="ui_color_unsave">Usuń z zapisanych</string>
+    <string name="ui_color_already_saved">Już zapisany</string>
+    <string name="ui_color_saved_hint">Dotknij zakładki, aby zapisać kolor. Zapisane kolory zostają na miejscu i zastępują standardowe na pasku narzędzi.</string>
+    <string name="ui_color_move_earlier">Przesuń wcześniej</string>
+    <string name="ui_color_move_later">Przesuń dalej</string>
+    <string name="ui_color_remove">Usuń</string>
+    <plurals name="ui_color_palette_full">
+        <item quantity="one">Paleta pełna (%d kolor)</item>
+        <item quantity="few">Paleta pełna (%d kolory)</item>
+        <item quantity="many">Paleta pełna (%d kolorów)</item>
+        <item quantity="other">Paleta pełna (%d koloru)</item>
+    </plurals>
 
 </resources>

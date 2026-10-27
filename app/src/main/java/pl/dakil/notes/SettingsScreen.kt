@@ -20,6 +20,8 @@ import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.settings.AppearanceSettingsScreen
+import pl.dakil.notes.settings.PaperThemesScreen
+import pl.dakil.notes.settings.SavedColorsScreen
 import pl.dakil.notes.settings.InputSettingsScreen
 import pl.dakil.notes.settings.BackupSettingsScreen
 import pl.dakil.notes.settings.BackupSyncViewModel
@@ -34,7 +36,24 @@ import pl.dakil.notes.ui.motion.pushScreen
 import pl.dakil.notes.ui.motion.screenTransitionGround
 
 /** The pages of the settings section. The root is the index; the rest are pushed over it. */
-private enum class SettingsPage { ROOT, APPEARANCE, INPUT, STORAGE, BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV }
+private enum class SettingsPage {
+    ROOT, APPEARANCE, INPUT, STORAGE, BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV, PAPER_THEMES, SAVED_COLORS;
+
+    /** Where back goes. The two palette screens open from Appearance and return to it. */
+    val parent: SettingsPage
+        get() = when (this) {
+            PAPER_THEMES, SAVED_COLORS -> APPEARANCE
+            else -> ROOT
+        }
+
+    /** How far down the stack, so going back animates as going back. */
+    val depth: Int
+        get() = when (this) {
+            ROOT -> 0
+            SYNC_DRIVE, SYNC_WEBDAV, PAPER_THEMES, SAVED_COLORS -> 2
+            else -> 1
+        }
+}
 
 /**
  * The power-user surface.
@@ -69,12 +88,12 @@ fun SettingsScreen(
     // Registered deeper than the shell's "back returns to the library" handler, and back handlers
     // run innermost first, so this one takes the gesture while a subscreen is open and yields it at
     // the root without the two needing to know about each other.
-    BackHandler(enabled = page != SettingsPage.ROOT) { page = SettingsPage.ROOT }
+    BackHandler(enabled = page != SettingsPage.ROOT) { page = page.parent }
 
     AnimatedContent(
         targetState = page,
         modifier = Modifier.screenTransitionGround(),
-        transitionSpec = { pushScreen(forward = targetState != SettingsPage.ROOT) },
+        transitionSpec = { pushScreen(forward = targetState.depth > initialState.depth) },
         label = "settingsPage",
     ) { target ->
         Box(Modifier.fillMaxSize().then(blockInputWhileExiting())) {
@@ -91,7 +110,21 @@ fun SettingsScreen(
                     current = current,
                     settings = settings,
                     onForgetPositions = viewStates::clear,
+                    onOpenPaperThemes = { page = SettingsPage.PAPER_THEMES },
+                    onOpenSavedColors = { page = SettingsPage.SAVED_COLORS },
                     onNavigateBack = { page = SettingsPage.ROOT },
+                )
+
+                SettingsPage.PAPER_THEMES -> PaperThemesScreen(
+                    current = current,
+                    settings = settings,
+                    onNavigateBack = { page = SettingsPage.APPEARANCE },
+                )
+
+                SettingsPage.SAVED_COLORS -> SavedColorsScreen(
+                    current = current,
+                    settings = settings,
+                    onNavigateBack = { page = SettingsPage.APPEARANCE },
                 )
 
                 SettingsPage.INPUT -> InputSettingsScreen(

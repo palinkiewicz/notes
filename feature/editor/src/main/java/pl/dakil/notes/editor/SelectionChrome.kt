@@ -310,6 +310,7 @@ fun SelectionChrome(
             initial = selectionColor(sheet, selection),
             presets = ColorCodec.INK_PRESETS,
             recents = state.recentColors,
+            palette = rememberSavedPalette(state.savedColors, viewModel),
             onColorChange = {},
             onCommit = {
                 viewModel.recolorSelection(it)

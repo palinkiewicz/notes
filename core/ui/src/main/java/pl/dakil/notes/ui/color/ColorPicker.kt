@@ -3,7 +3,9 @@ package pl.dakil.notes.ui.color
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -19,11 +21,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -49,8 +56,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
 import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.model.ColorPalette
 import pl.dakil.notes.ui.R
 import pl.dakil.notes.ui.icons.NotesIcons
+
+/**
+ * The user's saved colours and what can be done to them, for a picker that offers the palette.
+ *
+ * One object rather than four parameters because every picker in the app takes all of it or none:
+ * a picker that could show the palette but not save to it would be the confusing case.
+ */
+@Immutable
+class SavedPalette(
+    val colors: List<Int>,
+    val onSave: (Int) -> Unit,
+    val onRemove: (Int) -> Unit,
+    /** Moves a saved colour by this many places, negative being earlier. */
+    val onMove: (Int, Int) -> Unit,
+) {
+    val isFull: Boolean get() = colors.size >= ColorPalette.MAX_SAVED
+}
 
 /**
  * A hue / saturation-value / alpha colour picker.
@@ -71,6 +96,7 @@ fun ColorPicker(
     showAlpha: Boolean = true,
     presets: IntArray = ColorCodec.INK_PRESETS,
     recents: List<Int> = emptyList(),
+    palette: SavedPalette? = null,
 ) {
     val hsv = remember(initial) { ColorCodec.toHsv(initial) }
     var hue by remember { mutableFloatStateOf(hsv[0]) }
@@ -153,7 +179,19 @@ fun ColorPicker(
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     capitalization = KeyboardCapitalization.Characters,
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
+            )
+            if (palette != null) SaveToggle(current = current, palette = palette)
+        }
+
+        // Saved first: it is the row the user built, and the one they came back for.
+        if (palette != null && palette.colors.isNotEmpty()) {
+            SwatchRow(
+                label = stringResource(R.string.ui_color_saved),
+                colors = palette.colors,
+                selected = current,
+                onSelect = ::adopt,
+                menu = { color, dismiss -> SavedSwatchMenu(color, palette, dismiss) },
             )
         }
 
@@ -163,6 +201,7 @@ fun ColorPicker(
                 colors = presets.toList(),
                 selected = current,
                 onSelect = ::adopt,
+                menu = palette?.let { saveMenu(it) },
             )
         }
 
@@ -172,9 +211,99 @@ fun ColorPicker(
                 colors = recents,
                 selected = current,
                 onSelect = ::adopt,
+                menu = palette?.let { saveMenu(it) },
+            )
+        }
+
+        if (palette != null && palette.colors.isEmpty()) {
+            // The first time, nothing on screen says the palette exists; this is the one hint.
+            Text(
+                text = stringResource(R.string.ui_color_saved_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
+}
+
+/**
+ * Saves or unsaves the colour being mixed — where the user is looking when they decide to keep it.
+ *
+ * Filled when the exact colour, alpha included, is already saved, so the same button reads as the
+ * state and as the way to change it. On a full palette an unsaved colour cannot be added, and the
+ * button says so rather than quietly dropping an older colour.
+ */
+@Composable
+private fun SaveToggle(current: Int, palette: SavedPalette) {
+    val saved = current in palette.colors
+    val enabled = saved || !palette.isFull
+    IconButton(
+        onClick = { if (saved) palette.onRemove(current) else palette.onSave(current) },
+        enabled = enabled,
+    ) {
+        Icon(
+            imageVector = if (saved) NotesIcons.BookmarkFilled else NotesIcons.Bookmark,
+            contentDescription = when {
+                saved -> stringResource(R.string.ui_color_unsave)
+                enabled -> stringResource(R.string.ui_color_save)
+                else -> pluralStringResource(
+                    R.plurals.ui_color_palette_full, ColorPalette.MAX_SAVED, ColorPalette.MAX_SAVED,
+                )
+            },
+            tint = if (saved) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Long-press menu on a preset or a recent: the one thing to do with it is keep it. */
+private fun saveMenu(palette: SavedPalette): @Composable (Int, () -> Unit) -> Unit = { color, dismiss ->
+    val saved = color in palette.colors
+    DropdownMenuItem(
+        text = {
+            Text(
+                when {
+                    saved -> stringResource(R.string.ui_color_already_saved)
+                    palette.isFull -> pluralStringResource(
+                        R.plurals.ui_color_palette_full, ColorPalette.MAX_SAVED, ColorPalette.MAX_SAVED,
+                    )
+                    else -> stringResource(R.string.ui_color_save)
+                }
+            )
+        },
+        leadingIcon = { Icon(NotesIcons.Bookmark, contentDescription = null) },
+        enabled = !saved && !palette.isFull,
+        onClick = {
+            palette.onSave(color)
+            dismiss()
+        },
+    )
+}
+
+/**
+ * Long-press menu on a saved colour.
+ *
+ * Moving by menu rather than by drag: the row scrolls sideways, and a drag along it is a scroll
+ * until proven otherwise. Two taps is slower than a drag, but it is never the wrong one.
+ */
+@Composable
+private fun SavedSwatchMenu(color: Int, palette: SavedPalette, dismiss: () -> Unit) {
+    val index = palette.colors.indexOf(color)
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.ui_color_move_earlier)) },
+        enabled = index > 0,
+        onClick = { palette.onMove(color, -1); dismiss() },
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.ui_color_move_later)) },
+        enabled = index in 0 until palette.colors.lastIndex,
+        onClick = { palette.onMove(color, 1); dismiss() },
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.ui_color_remove)) },
+        leadingIcon = { Icon(NotesIcons.Delete, contentDescription = null) },
+        onClick = { palette.onRemove(color); dismiss() },
+    )
 }
 
 @Composable
@@ -183,6 +312,7 @@ private fun SwatchRow(
     colors: List<Int>,
     selected: Int,
     onSelect: (Int) -> Unit,
+    menu: (@Composable (color: Int, dismiss: () -> Unit) -> Unit)? = null,
 ) {
     Column {
         Text(
@@ -198,12 +328,21 @@ private fun SwatchRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             for (color in colors) {
-                ColorSwatch(
-                    color = color,
-                    // Compare RGB only: a swatch is the same colour at any opacity.
-                    selected = (color and 0x00FFFFFF) == (selected and 0x00FFFFFF),
-                    onClick = { onSelect(color) },
-                )
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    ColorSwatch(
+                        color = color,
+                        // Compare RGB only: a swatch is the same colour at any opacity.
+                        selected = (color and 0x00FFFFFF) == (selected and 0x00FFFFFF),
+                        onClick = { onSelect(color) },
+                        onLongClick = menu?.let { { menuOpen = true } },
+                    )
+                    if (menu != null) {
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            menu(color) { menuOpen = false }
+                        }
+                    }
+                }
             }
         }
     }
@@ -222,6 +361,7 @@ fun ColorSwatch(
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = 36.dp,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -235,7 +375,15 @@ fun ColorSwatch(
                 else MaterialTheme.colorScheme.outlineVariant,
                 shape = CircleShape,
             )
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+            .then(
+                when {
+                    onClick != null && onLongClick != null ->
+                        @OptIn(ExperimentalFoundationApi::class)
+                        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                    onClick != null -> Modifier.clickable(onClick = onClick)
+                    else -> Modifier
+                }
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {

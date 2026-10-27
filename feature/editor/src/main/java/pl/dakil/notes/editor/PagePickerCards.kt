@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -178,11 +179,12 @@ private fun PatternCard(
         margins = PageMargins.NONE,
     )
 
-    Box(
-        Modifier
+    PaperPreview(
+        background = preview.background,
+        pageSize = pageSize,
+        modifier = Modifier
             .size(width = 96.dp, height = 128.dp)
             .clip(shape)
-            .background(Color(background.color))
             .border(
                 width = if (selected) 2.dp else 1.dp,
                 color = if (selected) scheme.primary else scheme.outlineVariant,
@@ -190,17 +192,6 @@ private fun PatternCard(
             )
             .clickable(onClick = onClick),
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            if (type != PatternType.NONE) {
-                drawPattern(
-                    format = preview,
-                    ptToPx = size.width / PREVIEW_CROP_PT,
-                    pageTopPx = 0f,
-                    pageHeightPx = size.height,
-                    zoom = 1f,
-                )
-            }
-        }
         Text(
             text = type.label(),
             style = MaterialTheme.typography.labelMedium,
@@ -213,6 +204,36 @@ private fun PatternCard(
                 .background(scheme.surface.copy(alpha = 0.85f))
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         )
+    }
+}
+
+/**
+ * A crop of real paper: the colour and the rules exactly as the sheet paints them.
+ *
+ * Shared by the pattern cards and the theme cards, so a theme can never preview differently from
+ * the page it would make. [content] sits on top, for a label or a badge.
+ */
+@Composable
+fun PaperPreview(
+    background: PageBackground,
+    pageSize: PageSize,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit = {},
+) {
+    val format = PageFormat(size = pageSize, background = background, margins = PageMargins.NONE)
+    Box(modifier.background(Color(background.color))) {
+        Canvas(Modifier.fillMaxSize()) {
+            if (background.pattern.type != PatternType.NONE) {
+                drawPattern(
+                    format = format,
+                    ptToPx = size.width / PREVIEW_CROP_PT,
+                    pageTopPx = 0f,
+                    pageHeightPx = size.height,
+                    zoom = 1f,
+                )
+            }
+        }
+        content()
     }
 }
 

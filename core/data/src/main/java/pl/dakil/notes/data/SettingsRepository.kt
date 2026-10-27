@@ -7,14 +7,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.map
+import pl.dakil.notes.format.PaperThemeCodec
 import pl.dakil.notes.model.AppColorTheme
+import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.model.ColorPalette
 import pl.dakil.notes.model.DarkThemeOption
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageBackground
-import pl.dakil.notes.model.PagePattern
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.MeasurementUnit
-import pl.dakil.notes.model.PatternType
+import pl.dakil.notes.model.PaperTheme
+import pl.dakil.notes.model.PaperThemes
 import pl.dakil.notes.model.PressureCurve
 import pl.dakil.notes.model.ViewMode
 import java.util.Locale
@@ -107,7 +110,10 @@ data class AppSettings(
     val pureBlack: Boolean = false,
     val toolbarPosition: ToolbarPosition = ToolbarPosition.BOTTOM,
     val defaultPageSize: PageSize = PageSize.A4,
-    val defaultBackground: PageBackground = PageBackground.DEFAULT,
+    /** Paper themes the user saved, in the order they arranged them. */
+    val paperThemes: List<PaperTheme> = emptyList(),
+    /** The [PaperTheme.id] new notes are made with; null, or a deleted theme, is the plain default. */
+    val defaultPaperThemeId: String? = null,
     val libraryRoot: String? = null,
 
     // ---- Backup and sync. Secrets are not here: they live in `TokenStore`, sealed by the keystore.
@@ -160,6 +166,11 @@ data class AppSettings(
     val measurementUnit: MeasurementUnit = localeDefaultUnit(),
     /** Most-recently-used custom colours, newest first. Shared by every picker in the app. */
     val recentColors: List<Int> = emptyList(),
+    /**
+     * Colours the user saved, in their order. Never evicted to make room — see [ColorPalette].
+     * Shared by every picker for the same reason recents are.
+     */
+    val savedColors: List<Int> = emptyList(),
     /** Zoom levels the user pinned, as whole percentages, ascending. 100% is always offered. */
     val zoomPresets: List<Int> = emptyList(),
     /**
@@ -183,7 +194,12 @@ data class AppSettings(
      * The tools themselves are kept outside this class, see [SettingsRepository.readToolState].
      */
     val rememberTools: Boolean = true,
-)
+) {
+    /** The paper new notes are made with: the default theme's, or the plain default. */
+    val defaultBackground: PageBackground
+        get() = paperThemes.firstOrNull { it.id == defaultPaperThemeId }?.background
+            ?: PageBackground.DEFAULT
+}
 
 /**
  * Persists [AppSettings].
@@ -230,7 +246,8 @@ class SettingsRepository(context: Context) {
         toolbarPosition = ToolbarPosition.entries
             .getOrElse(prefs.getInt(KEY_TOOLBAR_POSITION, 0)) { ToolbarPosition.BOTTOM },
         defaultPageSize = readPageSize(),
-        defaultBackground = readBackground(),
+        paperThemes = PaperThemeCodec.decode(prefs.getString(KEY_PAPER_THEMES, null)),
+        defaultPaperThemeId = prefs.getString(KEY_DEFAULT_PAPER_THEME, null),
         libraryRoot = prefs.getString(KEY_LIBRARY_ROOT, null),
         backupEnabled = prefs.getBoolean(KEY_BACKUP_ENABLED, false),
         backupDestination = prefs.getString(KEY_BACKUP_DESTINATION, null),
@@ -249,6 +266,7 @@ class SettingsRepository(context: Context) {
         lastSyncAt = prefs.getLong(KEY_LAST_SYNC, 0L),
         lastBackupAt = prefs.getLong(KEY_LAST_BACKUP, 0L),
         recentColors = readRecentColors(),
+        savedColors = readSavedColors(),
         zoomPresets = readZoomPresets(),
         inertialScroll = prefs.getBoolean(KEY_INERTIAL_SCROLL, false),
         rememberTools = prefs.getBoolean(KEY_REMEMBER_TOOLS, true),
@@ -374,12 +392,104 @@ class SettingsRepository(context: Context) {
      * Kept globally rather than per-tool: someone who mixes a particular green wants it for the pen,
      * the rule lines and the paper without mixing it three times.
      */
-    fun addRecentColor(argb: Int) {
+    fun addRecentColor(argb: Int, presets: IntArray = ColorCodec.INK_PRESETS) {
         val existing = readRecentColors()
-        if (existing.firstOrNull() == argb) return
-        val updated = (listOf(argb) + existing.filterNot { it == argb }).take(MAX_RECENT_COLORS)
-        prefs.edit().putString(KEY_RECENT_COLORS, updated.joinToString(",")).apply()
+        val updated = ColorPalette.recordRecent(existing, argb, readSavedColors(), presets)
+        if (updated == existing) return
+        prefs.edit().putString(KEY_RECENT_COLORS, ColorPalette.encode(updated)).apply()
     }
+
+    /**
+     * Pins a colour to the user's palette. Saving takes it out of recents too — it is one tap away
+     * now, and the slot is better spent on a mix that is not kept anywhere else.
+     */
+    fun saveColor(argb: Int) {
+        val saved = readSavedColors()
+        val updated = ColorPalette.save(saved, argb)
+        if (updated == saved) return
+        prefs.edit()
+            .putString(KEY_SAVED_COLORS, ColorPalette.encode(updated))
+            .putString(KEY_RECENT_COLORS, ColorPalette.encode(ColorPalette.remove(readRecentColors(), argb)))
+            .apply()
+    }
+
+    fun unsaveColor(argb: Int) = writeSavedColors(ColorPalette.remove(readSavedColors(), argb))
+
+    fun moveSavedColor(argb: Int, by: Int) {
+        val saved = readSavedColors()
+        val from = saved.indexOf(argb)
+        writeSavedColors(ColorPalette.move(saved, from, from + by))
+    }
+
+    /** Swaps one saved colour for another in place, so editing a colour keeps its spot. */
+    fun replaceSavedColor(old: Int, new: Int) {
+        val saved = readSavedColors()
+        if (old !in saved) return
+        writeSavedColors(if (new in saved) saved.filterNot { it == old } else saved.map { if (it == old) new else it })
+    }
+
+    private fun writeSavedColors(colors: List<Int>) =
+        prefs.edit().putString(KEY_SAVED_COLORS, ColorPalette.encode(colors)).apply()
+
+    private fun readSavedColors(): List<Int> =
+        ColorPalette.decode(prefs.getString(KEY_SAVED_COLORS, null), ColorPalette.MAX_SAVED)
+
+    // ---- Paper themes ------------------------------------------------------------------------
+
+    /** Saves [background] as a new theme and returns it, or null when there is no room. */
+    fun addPaperTheme(name: String, background: PageBackground): PaperTheme? {
+        val themes = readPaperThemes()
+        val clean = PaperThemes.cleanName(name) ?: return null
+        val theme = PaperTheme(PaperTheme.newId(themes, System.currentTimeMillis()), clean, background)
+        val updated = PaperThemes.add(themes, theme)
+        if (updated == themes) return null
+        writePaperThemes(updated)
+        return theme
+    }
+
+    fun renamePaperTheme(id: String, name: String) {
+        val clean = PaperThemes.cleanName(name) ?: return
+        val themes = readPaperThemes()
+        val theme = themes.firstOrNull { it.id == id } ?: return
+        writePaperThemes(PaperThemes.replace(themes, theme.copy(name = clean)))
+    }
+
+    fun updatePaperTheme(id: String, background: PageBackground) {
+        val themes = readPaperThemes()
+        val theme = themes.firstOrNull { it.id == id } ?: return
+        writePaperThemes(PaperThemes.replace(themes, theme.copy(background = background)))
+    }
+
+    /** Removes a theme; if it was the default, new notes go back to plain paper. */
+    fun removePaperTheme(id: String) {
+        val editor = prefs.edit()
+            .putString(KEY_PAPER_THEMES, PaperThemeCodec.encode(PaperThemes.remove(readPaperThemes(), id)))
+        if (prefs.getString(KEY_DEFAULT_PAPER_THEME, null) == id) editor.remove(KEY_DEFAULT_PAPER_THEME)
+        editor.apply()
+    }
+
+    /** Puts a removed theme back where it was — the undo behind "Theme deleted". */
+    fun restorePaperTheme(theme: PaperTheme, index: Int, wasDefault: Boolean) {
+        val themes = readPaperThemes()
+        if (themes.any { it.id == theme.id }) return
+        val updated = themes.toMutableList().apply { add(index.coerceIn(0, size), theme) }
+        val editor = prefs.edit().putString(KEY_PAPER_THEMES, PaperThemeCodec.encode(updated))
+        if (wasDefault) editor.putString(KEY_DEFAULT_PAPER_THEME, theme.id)
+        editor.apply()
+    }
+
+    fun movePaperTheme(id: String, by: Int) = writePaperThemes(PaperThemes.move(readPaperThemes(), id, by))
+
+    /** Null makes new notes plain paper again. */
+    fun setDefaultPaperTheme(id: String?) = prefs.edit().apply {
+        if (id == null) remove(KEY_DEFAULT_PAPER_THEME) else putString(KEY_DEFAULT_PAPER_THEME, id)
+    }.apply()
+
+    private fun readPaperThemes(): List<PaperTheme> =
+        PaperThemeCodec.decode(prefs.getString(KEY_PAPER_THEMES, null))
+
+    private fun writePaperThemes(themes: List<PaperTheme>) =
+        prefs.edit().putString(KEY_PAPER_THEMES, PaperThemeCodec.encode(themes)).apply()
 
     fun setDefaultView(view: ViewMode) = prefs.edit().putString(KEY_DEFAULT_VIEW, view.key).apply()
 
@@ -419,11 +529,7 @@ class SettingsRepository(context: Context) {
     fun clearRecentColors() = prefs.edit().remove(KEY_RECENT_COLORS).apply()
 
     private fun readRecentColors(): List<Int> =
-        prefs.getString(KEY_RECENT_COLORS, null)
-            ?.split(',')
-            ?.mapNotNull { it.trim().toIntOrNull() }
-            ?.take(MAX_RECENT_COLORS)
-            ?: emptyList()
+        ColorPalette.decode(prefs.getString(KEY_RECENT_COLORS, null), ColorPalette.MAX_RECENT)
 
     fun setDefaultPageSize(size: PageSize) {
         val editor = prefs.edit()
@@ -437,35 +543,10 @@ class SettingsRepository(context: Context) {
         editor.apply()
     }
 
-    fun setDefaultPattern(pattern: PagePattern) = prefs.edit()
-        .putString(KEY_PATTERN_TYPE, pattern.type.key)
-        .putFloat(KEY_PATTERN_SPACING, pattern.spacing)
-        .putInt(KEY_PATTERN_COLOR, pattern.color)
-        .putFloat(KEY_PATTERN_MARGIN, pattern.margin)
-        .apply()
-
-    fun setDefaultBackgroundColors(light: Int, dark: Int) = prefs.edit()
-        .putInt(KEY_BG_LIGHT, light)
-        .putInt(KEY_BG_DARK, dark)
-        .apply()
-
     private fun readPageSize(): PageSize = when (val kind = prefs.getString(KEY_PAGE_KIND, "A4")) {
         "custom" -> PageSize.Custom(prefs.getFloat(KEY_PAGE_W, 595f), prefs.getFloat(KEY_PAGE_H, 842f))
         else -> PageSize.Fixed(
             PageSize.Kind.entries.firstOrNull { it.name == kind } ?: PageSize.Kind.A4
-        )
-    }
-
-    private fun readBackground(): PageBackground {
-        val defaults = PageBackground.DEFAULT
-        return PageBackground(
-            color = prefs.getInt(KEY_BG_LIGHT, defaults.color),
-            pattern = PagePattern(
-                type = PatternType.fromKey(prefs.getString(KEY_PATTERN_TYPE, "none") ?: "none"),
-                spacing = prefs.getFloat(KEY_PATTERN_SPACING, 24f),
-                color = prefs.getInt(KEY_PATTERN_COLOR, PagePattern.NONE.color),
-                margin = prefs.getFloat(KEY_PATTERN_MARGIN, 0f),
-            ),
         )
     }
 
@@ -513,13 +594,13 @@ class SettingsRepository(context: Context) {
         const val KEY_REMEMBER_TOOLS = "tools.remember"
         const val KEY_TOOL_STATE = "tools.state"
         const val KEY_RECENT_COLORS = "ui.recentColors"
+        const val KEY_SAVED_COLORS = "ui.savedColors"
+        const val KEY_PAPER_THEMES = "paper.themes"
+        const val KEY_DEFAULT_PAPER_THEME = "paper.defaultTheme"
         const val KEY_DEFAULT_VIEW = "ui.defaultView"
         const val KEY_UNIT = "ui.measurementUnit"
         const val KEY_ZOOM_PRESETS = "ui.zoomPresets"
         const val KEY_ZOOM_INDICATOR = "ui.zoomIndicatorSeconds"
-
-        /** Two rows on a phone; beyond that the row becomes a scroll people do not scroll. */
-        const val MAX_RECENT_COLORS = 12
 
         /** The menu carries three fixed entries already; past this it stops fitting the screen. */
         const val MAX_ZOOM_PRESETS = 8
@@ -527,12 +608,6 @@ class SettingsRepository(context: Context) {
         const val KEY_PAGE_KIND = "page.kind"
         const val KEY_PAGE_W = "page.width"
         const val KEY_PAGE_H = "page.height"
-        const val KEY_BG_LIGHT = "page.bgLight"
-        const val KEY_BG_DARK = "page.bgDark"
-        const val KEY_PATTERN_TYPE = "page.patternType"
-        const val KEY_PATTERN_SPACING = "page.patternSpacing"
-        const val KEY_PATTERN_COLOR = "page.patternColor"
-        const val KEY_PATTERN_MARGIN = "page.patternMargin"
     }
 }
 

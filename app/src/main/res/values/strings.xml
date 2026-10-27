@@ -48,6 +48,29 @@
     <string name="settings_pandoc_text_notes_description">Let a .md note set its own font sizes and text colours, written as Pandoc spans. Other Markdown editors show these as plain text. Ink notes always use them.</string>
     <string name="settings_paper">Paper</string>
     <string name="settings_measurements">Measurements</string>
+    <string name="settings_saved_colours">Saved colours</string>
+    <string name="settings_saved_colours_summary">Your palette, kept apart from recent colours</string>
+    <string name="settings_saved_colours_description">Saved colours stay where you put them and are never pushed out by recent ones. Once you have any, they replace the presets in the toolbar. Tap one to edit, move or remove it.</string>
+    <string name="settings_add_colour">Add colour</string>
+    <string name="settings_edit_colour">Edit colour</string>
+    <string name="settings_move_earlier">Move earlier</string>
+    <string name="settings_move_later">Move later</string>
+    <string name="settings_colour_removed">Colour removed</string>
+    <string name="settings_undo">Undo</string>
+    <plurals name="settings_saved_count">
+        <item quantity="one">%1$d of %2$d</item>
+        <item quantity="other">%1$d of %2$d</item>
+    </plurals>
+    <string name="settings_recent_colours">Recent colours</string>
+    <string name="settings_clear_recent">Clear recent colours</string>
+    <string name="settings_clear_recent_description">Saved colours are not affected</string>
+    <string name="settings_paper_themes">Paper themes</string>
+    <string name="settings_paper_themes_summary">Saved paper and rules, and the paper new notes start on</string>
+    <string name="settings_paper_themes_empty">No themes yet. Open Page setup in any note and tap “Save current” to keep its paper as a theme.</string>
+    <string name="settings_new_note_paper">Paper for new notes</string>
+    <string name="settings_new_note_paper_description">Notes you already have are not changed</string>
+    <string name="settings_plain_paper">Plain</string>
+    <string name="settings_theme_deleted">Deleted “%1$s”</string>
     <string name="settings_measurements_description">The unit page margins, rule spacing and paper sizes are shown in.</string>
 
     <!--  THEME NAMES  -->

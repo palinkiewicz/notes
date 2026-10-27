@@ -103,7 +103,7 @@ class LibraryViewModel(
     private val store: NoteStore,
     private val index: NoteIndex,
     private val repository: NoteRepository,
-    settings: SettingsRepository,
+    private val settings: SettingsRepository,
     /** What the root of the library is called on screen. A label, not a folder on disk. */
     private val rootFolderName: String,
     /** What a note created without a name is called. */
@@ -321,7 +321,15 @@ class LibraryViewModel(
         val parent = _state.value.current ?: return
         val path = _state.value.path
         viewModelScope.launch {
-            repository.create(parent, title.ifBlank { untitledName }, kind, path = path).fold(
+            // Read at the moment of creating, not cached: the default theme may have been changed
+            // in the page setup of the note the user has just come back from.
+            repository.create(
+                parent,
+                title.ifBlank { untitledName },
+                kind,
+                background = settings.read().defaultBackground,
+                path = path,
+            ).fold(
                 onSuccess = { ref ->
                     reload()
                     onCreated(ref)

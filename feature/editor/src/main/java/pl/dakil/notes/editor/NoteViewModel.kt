@@ -44,7 +44,9 @@ import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.Note
+import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.PageBackground
+import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.PageMargins
 import pl.dakil.notes.model.PageSize
@@ -148,6 +150,10 @@ data class EditorUiState(
      */
     val fingerDrawingAvailable: Boolean = false,
     val recentColors: List<Int> = emptyList(),
+    /** The user's saved palette; once it has anything in it, it leads every quick colour row. */
+    val savedColors: List<Int> = emptyList(),
+    val paperThemes: List<PaperTheme> = emptyList(),
+    val defaultPaperThemeId: String? = null,
     /** Zoom levels the user pinned, as whole percentages, ascending. */
     val zoomPresets: List<Int> = emptyList(),
     /** How long the zoom indicator lingers after a zoom, in seconds; 0 hides it. */
@@ -250,6 +256,9 @@ class NoteViewModel(
                         ),
                         fingerDrawingAvailable = app.fingerDrawingAvailable,
                         recentColors = app.recentColors,
+                        savedColors = app.savedColors,
+                        paperThemes = app.paperThemes,
+                        defaultPaperThemeId = app.defaultPaperThemeId,
                         zoomPresets = app.zoomPresets,
                         zoomIndicatorSeconds = app.zoomIndicatorSeconds,
                         inertialScroll = app.inertialScroll,
@@ -513,8 +522,44 @@ class NoteViewModel(
      */
     fun setRuler(enabled: Boolean) = _state.update { it.copy(rulerEnabled = enabled) }
 
-    /** Records a colour the user settled on, so it is one tap away next time. */
-    fun rememberColor(argb: Int) = settings.addRecentColor(argb)
+    /**
+     * Records a colour the user settled on, so it is one tap away next time.
+     *
+     * [presets] are the ones the picker it came from offers: a paper picker's own presets are as
+     * much one tap away as the ink ones are in a pen picker, and need no recent slot either.
+     */
+    fun rememberColor(argb: Int, presets: IntArray = ColorCodec.INK_PRESETS) =
+        settings.addRecentColor(argb, presets)
+
+    fun saveColor(argb: Int) = settings.saveColor(argb)
+
+    fun unsaveColor(argb: Int) = settings.unsaveColor(argb)
+
+    fun moveSavedColor(argb: Int, by: Int) = settings.moveSavedColor(argb, by)
+
+    // ---- Paper themes --------------------------------------------------------------------------
+
+    /** Puts a saved theme on this note's paper — one edit, so one undo takes it off again. */
+    fun applyPaperTheme(theme: PaperTheme) = setPageBackground(theme.background)
+
+    /** Saves this note's paper as a new theme under [name]. */
+    fun savePaperTheme(name: String) {
+        val background = _state.value.sheet?.format?.background ?: return
+        settings.addPaperTheme(name, background)
+    }
+
+    /** Overwrites a theme with this note's paper, for a theme that was refined on the page. */
+    fun updatePaperTheme(id: String) {
+        val background = _state.value.sheet?.format?.background ?: return
+        settings.updatePaperTheme(id, background)
+    }
+
+    fun renamePaperTheme(id: String, name: String) = settings.renamePaperTheme(id, name)
+
+    fun removePaperTheme(id: String) = settings.removePaperTheme(id)
+
+    /** Makes [id] the paper new notes start on; null goes back to plain paper. */
+    fun setDefaultPaperTheme(id: String?) = settings.setDefaultPaperTheme(id)
 
     /** Pins the current zoom so it can be picked by name later. Kept app-wide, not per-note. */
     fun addZoomPreset(percent: Int) = settings.addZoomPreset(percent)

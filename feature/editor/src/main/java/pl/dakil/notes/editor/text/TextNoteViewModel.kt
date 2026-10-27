@@ -67,6 +67,8 @@ data class TextNoteUiState(
      * not edit anybody's file.
      */
     val pandoc: Boolean = false,
+    /** The user's saved palette, offered by the format bar's colour popup. */
+    val savedColors: List<Int> = emptyList(),
     /** What the image button does when tapped. A user setting, see [ImageInsertMode]. */
     val imageInsertMode: ImageInsertMode = ImageInsertMode.DIALOG,
     /**
@@ -139,7 +141,13 @@ class TextNoteViewModel(
         // a formatting bar that only notices on the next launch is one the user thinks is broken.
         settings.settings
             .onEach { app ->
-                _state.update { it.copy(pandoc = app.pandocTextNotes, imageInsertMode = app.imageInsertMode) }
+                _state.update {
+                    it.copy(
+                        pandoc = app.pandocTextNotes,
+                        imageInsertMode = app.imageInsertMode,
+                        savedColors = app.savedColors,
+                    )
+                }
             }
             .launchIn(viewModelScope)
     }

@@ -46,6 +46,31 @@
     <string name="settings_pandoc_text_notes_description">Pozwól notatce .md ustawiać własne rozmiary czcionki i kolory tekstu, zapisywane jako spany Pandoc. Inne edytory Markdown pokażą je jako zwykły tekst. Notatki odręczne zawsze ich używają.</string>
     <string name="settings_paper">Papier</string>
     <string name="settings_measurements">Jednostki miary</string>
+    <string name="settings_saved_colours">Zapisane kolory</string>
+    <string name="settings_saved_colours_summary">Twoja paleta, osobno od ostatnich kolorów</string>
+    <string name="settings_saved_colours_description">Zapisane kolory zostają tam, gdzie je umieścisz, i nigdy nie są wypierane przez ostatnie. Gdy masz choć jeden, zastępują kolory standardowe na pasku narzędzi. Dotknij koloru, aby go edytować, przesunąć lub usunąć.</string>
+    <string name="settings_add_colour">Dodaj kolor</string>
+    <string name="settings_edit_colour">Edytuj kolor</string>
+    <string name="settings_move_earlier">Przesuń wcześniej</string>
+    <string name="settings_move_later">Przesuń dalej</string>
+    <string name="settings_colour_removed">Usunięto kolor</string>
+    <string name="settings_undo">Cofnij</string>
+    <plurals name="settings_saved_count">
+        <item quantity="one">%1$d z %2$d</item>
+        <item quantity="few">%1$d z %2$d</item>
+        <item quantity="many">%1$d z %2$d</item>
+        <item quantity="other">%1$d z %2$d</item>
+    </plurals>
+    <string name="settings_recent_colours">Ostatnie kolory</string>
+    <string name="settings_clear_recent">Wyczyść ostatnie kolory</string>
+    <string name="settings_clear_recent_description">Nie dotyczy zapisanych kolorów</string>
+    <string name="settings_paper_themes">Motywy papieru</string>
+    <string name="settings_paper_themes_summary">Zapisany papier i linie oraz papier dla nowych notatek</string>
+    <string name="settings_paper_themes_empty">Brak motywów. Otwórz Ustawienia strony w dowolnej notatce i dotknij „Zapisz bieżący”, aby zachować jej papier jako motyw.</string>
+    <string name="settings_new_note_paper">Papier dla nowych notatek</string>
+    <string name="settings_new_note_paper_description">Istniejące notatki nie zostaną zmienione</string>
+    <string name="settings_plain_paper">Zwykły</string>
+    <string name="settings_theme_deleted">Usunięto „%1$s”</string>
     <string name="settings_measurements_description">Jednostka, w której pokazywane są marginesy, odstępy linii i rozmiary papieru.</string>
 
     <!--  THEME NAMES  -->

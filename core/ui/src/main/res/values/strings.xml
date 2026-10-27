@@ -22,5 +22,17 @@
     <string name="ui_color_hex">Hex</string>
     <string name="ui_color_presets">Presets</string>
     <string name="ui_color_recent">Recent</string>
+    <string name="ui_color_saved">Saved</string>
+    <string name="ui_color_save">Save colour</string>
+    <string name="ui_color_unsave">Remove from saved</string>
+    <string name="ui_color_already_saved">Already saved</string>
+    <string name="ui_color_saved_hint">Tap the bookmark to save a colour. Saved colours stay put and replace the presets in the toolbar.</string>
+    <string name="ui_color_move_earlier">Move earlier</string>
+    <string name="ui_color_move_later">Move later</string>
+    <string name="ui_color_remove">Remove</string>
+    <plurals name="ui_color_palette_full">
+        <item quantity="one">Palette full (%d colour)</item>
+        <item quantity="other">Palette full (%d colours)</item>
+    </plurals>
 
 </resources>

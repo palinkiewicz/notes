@@ -315,6 +315,7 @@ fun TextNoteScreen(
                     // A `.md` file has to stay one every other editor renders sensibly, so the size
                     // and colour controls are offered only where the user has asked for them.
                     attributes = state.pandoc,
+                    savedColors = state.savedColors,
                 )
             }
         },
@@ -368,6 +369,7 @@ fun TextNoteScreen(
                             onInsertImage = imageInsert::start,
                             onInsertImageLink = if (imageInsert.longPressOpensLink) imageInsert::startLink else null,
                             attributes = state.pandoc,
+                            savedColors = state.savedColors,
                         )
                     }
                     MarkdownEditor(

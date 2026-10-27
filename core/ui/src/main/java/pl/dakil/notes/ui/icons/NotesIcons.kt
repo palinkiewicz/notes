@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -45,6 +46,8 @@ object NotesIcons {
     val Check get() = Icons.Default.Check
     val Close get() = Icons.Default.Close
     val Rename get() = Icons.Default.Edit
+    /** Marks the paper theme new notes are made with. */
+    val Default get() = Icons.Default.Star
 
     // ---- Authored here --------------------------------------------------------------------------
 
@@ -267,6 +270,36 @@ object NotesIcons {
         )
     }
 
+    /** Save this colour to the palette. */
+    val Bookmark: ImageVector by lazy {
+        strokedIcon("Bookmark", BOOKMARK_PATH)
+    }
+
+    /**
+     * The same glyph filled in: this colour is saved, tap to take it out.
+     *
+     * The one filled authored icon, because a saved/unsaved pair has to differ by more than a
+     * stroke weight to be read at a glance — and filling is what every bookmark toggle does.
+     */
+    val BookmarkFilled: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "BookmarkFilled",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathParser().parsePathString(BOOKMARK_PATH).toNodes(),
+                fill = SolidColor(Color.Black),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     /**
      * A shape with its interior hatched: draw this filled in, not merely outlined.
      *
@@ -477,6 +510,9 @@ object NotesIcons {
      * `PathParser` is part of `ui-graphics`, so this needs no extra dependency and no generated
      * XML resources.
      */
+    /** Shared by [Bookmark] and [BookmarkFilled]. */
+    private const val BOOKMARK_PATH = "M6.5 4 h11 v16.5 L12 16.5 L6.5 20.5 Z"
+
     /** Shared by [Fill] and [FillOff], which differ only by the stroke through them. */
     private const val FILL_PATH =
         "M4.5 5.5 h15 v13 h-15 Z " +

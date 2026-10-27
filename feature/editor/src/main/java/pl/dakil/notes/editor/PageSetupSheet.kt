@@ -28,6 +28,7 @@ import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageMargins
 import pl.dakil.notes.model.PageSize
+import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PatternType
 import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorSettingRow
@@ -69,6 +70,9 @@ fun PageSetupSheet(
     view: ViewMode,
     onViewChange: (ViewMode) -> Unit,
     unit: MeasurementUnit,
+    themes: List<PaperTheme>,
+    defaultThemeId: String?,
+    themeActions: PaperThemeActions,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -109,6 +113,17 @@ fun PageSetupSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp),
+            )
+
+            // First, because a saved theme is the one-tap answer to everything below it: someone
+            // with a theme for this kind of note should not have to scroll past size and margins.
+            SectionLabel(stringResource(R.string.editor_themes))
+            PaperThemeCards(
+                themes = themes,
+                defaultId = defaultThemeId,
+                current = background,
+                pageSize = size,
+                actions = themeActions,
             )
 
             SectionLabel(stringResource(R.string.editor_size))

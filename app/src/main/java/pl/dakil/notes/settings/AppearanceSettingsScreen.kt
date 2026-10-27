@@ -60,6 +60,8 @@ fun AppearanceSettingsScreen(
     settings: SettingsRepository,
     /** Wipes the remembered positions of ink notes (true) or text notes (false). */
     onForgetPositions: (ink: Boolean) -> Unit,
+    onOpenPaperThemes: () -> Unit,
+    onOpenSavedColors: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     Scaffold(
@@ -210,6 +212,19 @@ fun AppearanceSettingsScreen(
             )
 
             SectionHeader(stringResource(R.string.settings_paper))
+
+            NavigationRow(
+                title = stringResource(R.string.settings_paper_themes),
+                summary = stringResource(R.string.settings_paper_themes_summary),
+                icon = NotesIcons.PageSetup,
+                onClick = onOpenPaperThemes,
+            )
+            NavigationRow(
+                title = stringResource(R.string.settings_saved_colours),
+                summary = stringResource(R.string.settings_saved_colours_summary),
+                icon = NotesIcons.Palette,
+                onClick = onOpenSavedColors,
+            )
 
             SelectRow(
                 title = stringResource(R.string.settings_measurements),

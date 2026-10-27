@@ -65,6 +65,7 @@ import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorPickerSheet
+import pl.dakil.notes.ui.color.SavedPalette
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
@@ -162,6 +163,18 @@ fun EditorScreen(
             view = state.view,
             onViewChange = viewModel::setView,
             unit = state.measurementUnit,
+            themes = state.paperThemes,
+            defaultThemeId = state.defaultPaperThemeId,
+            themeActions = remember(viewModel) {
+                PaperThemeActions(
+                    onApply = viewModel::applyPaperTheme,
+                    onSaveCurrent = viewModel::savePaperTheme,
+                    onUpdate = viewModel::updatePaperTheme,
+                    onRename = viewModel::renamePaperTheme,
+                    onSetDefault = viewModel::setDefaultPaperTheme,
+                    onDelete = viewModel::removePaperTheme,
+                )
+            },
             onDismiss = { pageSetupOpen = false },
         )
     }
@@ -174,8 +187,9 @@ fun EditorScreen(
             initial = spec.color,
             presets = ColorCodec.INK_PRESETS,
             recents = state.recentColors,
+            palette = rememberSavedPalette(state.savedColors, viewModel),
             onColorChange = { viewModel.setToolColor(tool, it) },
-            onCommit = viewModel::rememberColor,
+            onCommit = { viewModel.rememberColor(it) },
             onDismiss = { editingPen = null },
         )
     }
@@ -185,6 +199,7 @@ fun EditorScreen(
     editingPageColor?.let { target ->
         val background = sheet?.format?.background ?: return@let
         val lines = target == PageColorTarget.LINES || target == PageColorTarget.MARGIN
+        val presets = if (lines) ColorCodec.LINE_PRESETS else ColorCodec.PAPER_PRESETS
         val current = when (target) {
             PageColorTarget.PAPER -> background.color
             PageColorTarget.LINES -> background.pattern.color
@@ -199,8 +214,9 @@ fun EditorScreen(
             initial = current,
             // Paper is opaque by definition; rules are frequently translucent.
             showAlpha = lines,
-            presets = if (lines) ColorCodec.LINE_PRESETS else ColorCodec.PAPER_PRESETS,
+            presets = presets,
             recents = state.recentColors,
+            palette = rememberSavedPalette(state.savedColors, viewModel),
             onColorChange = { picked ->
                 viewModel.setPageBackground(
                     when (target) {
@@ -212,7 +228,7 @@ fun EditorScreen(
                     }
                 )
             },
-            onCommit = viewModel::rememberColor,
+            onCommit = { viewModel.rememberColor(it, presets) },
             onDismiss = {
                 editingPageColor = null
                 pageSetupOpen = true
@@ -420,6 +436,7 @@ fun EditorScreen(
                             },
                             // A sheet is paper, not a Markdown file: it can set its own sizes and colours.
                             attributes = true,
+                            savedColors = state.savedColors,
                             compact = true,
                         )
                     }
@@ -476,6 +493,7 @@ fun EditorScreen(
                                 null
                             },
                             attributes = true,
+                            savedColors = state.savedColors,
                         )
                     }
                     if (expanded) {
@@ -507,3 +525,15 @@ fun EditorScreen(
         }
     }
 }
+
+/** The saved palette as every picker in the editor offers it, saving through [viewModel]. */
+@Composable
+internal fun rememberSavedPalette(colors: List<Int>, viewModel: NoteViewModel): SavedPalette =
+    remember(colors, viewModel) {
+        SavedPalette(
+            colors = colors,
+            onSave = viewModel::saveColor,
+            onRemove = viewModel::unsaveColor,
+            onMove = viewModel::moveSavedColor,
+        )
+    }
