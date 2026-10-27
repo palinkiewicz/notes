@@ -3,6 +3,7 @@ package pl.dakil.notes.editor.export
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import pl.dakil.notes.editor.markdown.ImageSource
 import pl.dakil.notes.model.ExportColorPreset
 import pl.dakil.notes.model.Sheet
 import java.io.File
@@ -32,17 +33,21 @@ fun exportInk(
  * [attributes] is the user's Pandoc setting, passed in rather than read here: an export is a picture
  * of what the note looked like on screen, and a note whose sizes the editor was ignoring must not
  * come out of the printer with them applied. See `AppSettings.pandocTextNotes`.
+ *
+ * [images] is the note's own [ImageSource]: an `attachments/…` image is relative to the folder the
+ * note is in, which only the open note knows.
  */
-fun exportText(
+suspend fun exportText(
     context: Context,
     markdown: String,
     format: ExportFormat,
     attributes: Boolean,
     pages: List<Int>?,
+    images: ImageSource,
 ): List<File> =
     when (format) {
-        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, attributes, pages))
-        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown, attributes, pages)
+        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, attributes, pages, images))
+        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown, attributes, pages, images)
     }
 
 /**

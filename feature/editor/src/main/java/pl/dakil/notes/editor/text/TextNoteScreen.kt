@@ -150,7 +150,7 @@ fun TextNoteScreen(
         val pageCount by produceState<Int?>(null) {
             val markdown = text.text.toString()
             value = withContext(Dispatchers.Default) {
-                runCatching { TextPageExporter.pageCount(context, markdown, state.pandoc) }.getOrDefault(1)
+                runCatching { TextPageExporter.pageCount(context, markdown, state.pandoc, viewModel) }.getOrDefault(1)
             }
         }
         ExportSheet(
@@ -163,7 +163,7 @@ fun TextNoteScreen(
                 exporting = true
                 coroutineScope.launch {
                     val result = withContext(Dispatchers.Default) {
-                        runCatching { exportText(context, markdown, format, state.pandoc, pages) }
+                        runCatching { exportText(context, markdown, format, state.pandoc, pages, viewModel) }
                     }
                     exporting = false
                     exportOpen = false
