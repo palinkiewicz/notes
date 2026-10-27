@@ -181,7 +181,8 @@ data class ImageBlock(
  *
  * Read off the block's [Block.transform] whatever is in it — a page move composes a translation
  * onto it, a rotation is written as one about the corner — so every way a transform can have been
- * built reads back as the same three numbers.
+ * built reads back as the same three numbers. A block that has also been stretched or sheared has
+ * more to it than an angle; [frame] is the whole of it.
  */
 data class Placement(val left: Float, val top: Float, val angle: Float)
 
@@ -191,18 +192,152 @@ fun Block.placement(): Placement = Placement(
     angle = if (transform.isIdentity) 0f else kotlin.math.atan2(transform.b, transform.a),
 )
 
-/** The rect and transform that stand a [width] × [height] block at [placement]. */
-private fun placed(placement: Placement, width: Float, height: Float): Pair<Rect, Affine> {
-    val rect = Rect(placement.left, placement.top, placement.left + width, placement.top + height)
-    // Unturned is written as no transform at all, so a block nobody has rotated is byte-identical to
-    // one written before rotation existed.
-    val angle = normalisedAngle(placement.angle)
-    val transform = if (kotlin.math.abs(angle) < ANGLE_EPSILON) {
-        Affine.IDENTITY
-    } else {
-        Affine.rotate(angle, placement.left, placement.top)
+/**
+ * Where a block taken whole stands, in full: its rect's top-left corner on the paper, and the
+ * linear map ([a], [b], [c], [d], laid out as in [Affine]) its rect is drawn through about that
+ * corner.
+ *
+ * For a block that has only ever been moved and turned the map is a rotation and this says no more
+ * than [Placement]; a stretch or a mirror is what makes it a general matrix.
+ */
+data class Frame(
+    val left: Float, val top: Float,
+    val a: Float, val b: Float, val c: Float, val d: Float,
+) {
+    /** The map as a whole: the rect's own top-left corner at the origin, carried to [left], [top]. */
+    fun matrix(): Affine = Affine(a, b, c, d, left, top)
+
+    /** Whether the map's two axes are still at right angles, so it is a turn and two stretches. */
+    val isOrthogonal: Boolean
+        get() = kotlin.math.abs(a * c + b * d) <=
+            ORTHOGONAL_EPSILON * kotlin.math.hypot(a, b) * kotlin.math.hypot(c, d)
+}
+
+fun Block.frame(): Frame = Frame(
+    left = transform.mapX(rect.left, rect.top),
+    top = transform.mapY(rect.left, rect.top),
+    a = transform.a, b = transform.b, c = transform.c, d = transform.d,
+)
+
+/**
+ * The rect and transform that stand a [width] × [height] block at [left], [top], drawn through the
+ * linear map [a]..[d] about that corner.
+ *
+ * A map that is no map at all is written as no transform, so a block nobody has turned or stretched
+ * is byte-identical to one written before either existed — and one turned back upright returns to
+ * that form, rather than carrying a matrix of float noise around.
+ */
+private fun framed(
+    left: Float, top: Float, width: Float, height: Float,
+    a: Float, b: Float, c: Float, d: Float,
+): Pair<Rect, Affine> {
+    val rect = Rect(left, top, left + width, top + height)
+    val upright = kotlin.math.abs(a - 1f) < IDENTITY_EPSILON && kotlin.math.abs(b) < IDENTITY_EPSILON &&
+        kotlin.math.abs(c) < IDENTITY_EPSILON && kotlin.math.abs(d - 1f) < IDENTITY_EPSILON
+    if (upright) return rect to Affine.IDENTITY
+    // About the corner: p ↦ corner + L · (p − corner).
+    return rect to Affine(a, b, c, d, left - (a * left + c * top), top - (b * left + d * top))
+}
+
+/** Below this a map is the identity: about a hundredth of a degree of turn, or of stretch. */
+private const val IDENTITY_EPSILON = 2e-4f
+
+/** How near a right angle a map's axes must be to count as one: about a twentieth of a degree. */
+private const val ORTHOGONAL_EPSILON = 1e-3f
+
+/** The linear part of [this], applied after the linear map [a]..[d]. */
+private inline fun <T> Affine.linearAfter(
+    a: Float, b: Float, c: Float, d: Float,
+    out: (Float, Float, Float, Float) -> T,
+): T = out(
+    this.a * a + this.c * b, this.b * a + this.d * b,
+    this.a * c + this.c * d, this.b * c + this.d * d,
+)
+
+/** Whether [this] turns the page over, as a mirror does. */
+private val Affine.isMirror: Boolean get() = a * d - b * c < 0f
+
+/**
+ * Whether [this] keeps shapes — a turn, a move, an even scale, or a mirror — as against a stretch or
+ * a shear, which changes them.
+ */
+private val Affine.isSimilarity: Boolean
+    get() {
+        val scale = kotlin.math.sqrt(kotlin.math.abs(a * d - b * c))
+        val tolerance = SIMILARITY_EPSILON * scale
+        return if (isMirror) {
+            kotlin.math.abs(a + d) <= tolerance && kotlin.math.abs(b - c) <= tolerance
+        } else {
+            kotlin.math.abs(a - d) <= tolerance && kotlin.math.abs(b + c) <= tolerance
+        }
     }
-    return rect to transform
+
+private const val SIMILARITY_EPSILON = 1e-4f
+
+/**
+ * The same text box after a selection transform.
+ *
+ * Moved and turned with it, but never evenly scaled: a box's width is a measurement the reader chose
+ * — it is what decides where the lines break — and the words keep their size, which is the size the
+ * text was written at. That is the corner grips, which scale everything else evenly.
+ *
+ * A stretch is different: the edge grips exist to change a selection's proportions, and the box is
+ * stretched with everything else, letters and all. The width the lines break at stays the same, so
+ * the words wrap exactly as they did and come out wider or taller.
+ *
+ * A mirror is the one thing that cannot be done to words and leave them words. The box goes where
+ * its mirror image would be — its centre carried by [matrix] — and is laid the mirrored way, but the
+ * text in it still reads left to right.
+ */
+fun TextBlock.carriedBy(matrix: Affine): TextBlock {
+    if (matrix.isIdentity) return this
+    val at = frame()
+    val w = rect.width
+    val h = rect.height
+    val (rect, transform) = when {
+        !matrix.isSimilarity -> matrix.linearAfter(at.a, at.b, at.c, at.d) { a, b, c, d ->
+            framed(matrix.mapX(at.left, at.top), matrix.mapY(at.left, at.top), w, h, a, b, c, d)
+        }
+        matrix.isMirror -> mirroredText(at, w, h, matrix)
+        else -> {
+            // The turn alone: the even scale is divided back out.
+            val scale = kotlin.math.sqrt(matrix.a * matrix.d - matrix.b * matrix.c)
+            val turn = Affine(matrix.a / scale, matrix.b / scale, matrix.c / scale, matrix.d / scale, 0f, 0f)
+            turn.linearAfter(at.a, at.b, at.c, at.d) { a, b, c, d ->
+                framed(matrix.mapX(at.left, at.top), matrix.mapY(at.left, at.top), w, h, a, b, c, d)
+            }
+        }
+    }
+    return copy(rect = rect, transform = transform)
+}
+
+/**
+ * A box of [w] × [h] at [at], mirrored by [matrix] and kept readable.
+ *
+ * The mirror image of the box's map is `Q · L` for the mirror's unscaled part `Q`, which reads
+ * backwards. Flipping it back along the box's own width, `Q · L · diag(−1, 1)`, or its height,
+ * `Q · L · diag(1, −1)`, makes it read forwards again; the two differ by a half turn, and the one
+ * kept is the one whose baseline is nearer the mirror image of the old one — so for both the page's
+ * mirrors an upright box stays upright, whichever way the selection was flipped.
+ */
+private fun mirroredText(at: Frame, w: Float, h: Float, matrix: Affine): Pair<Rect, Affine> {
+    val scale = kotlin.math.sqrt(-(matrix.a * matrix.d - matrix.b * matrix.c))
+    val q = Affine(matrix.a / scale, matrix.b / scale, matrix.c / scale, matrix.d / scale, 0f, 0f)
+    // Q · L, column by column.
+    val (a, b, c, d) = q.linearAfter(at.a, at.b, at.c, at.d) { a, b, c, d -> listOf(a, b, c, d) }
+    val wanted = -kotlin.math.atan2(at.b, at.a)
+    val acrossWidth = kotlin.math.abs(normalisedAngle(kotlin.math.atan2(-b, -a) - wanted)) <=
+        kotlin.math.abs(normalisedAngle(kotlin.math.atan2(b, a) - wanted))
+    val (na, nb, nc, nd) = if (acrossWidth) listOf(-a, -b, c, d) else listOf(a, b, -c, -d)
+
+    // The centre is the one point of the box whose mirror image is where the box has to be.
+    val cx = at.left + (at.a * w + at.c * h) / 2f
+    val cy = at.top + (at.b * w + at.d * h) / 2f
+    val mx = matrix.mapX(cx, cy)
+    val my = matrix.mapY(cx, cy)
+    return framed(
+        mx - (na * w + nc * h) / 2f, my - (nb * w + nd * h) / 2f, w, h, na, nb, nc, nd,
+    )
 }
 
 private fun normalisedAngle(angle: Float): Float {
@@ -213,49 +348,29 @@ private fun normalisedAngle(angle: Float): Float {
     return a
 }
 
-/** Below this a block is upright: about a hundredth of a degree. */
-private const val ANGLE_EPSILON = 2e-4f
-
-/** The turn [matrix] applies, in radians; zero for a pure scale or move. */
-private fun Affine.turn(): Float = kotlin.math.atan2(b, a)
-
 /**
- * Where [placement] ends up under a selection transform: its corner carried by [matrix], and turned
- * by as much as [matrix] turns.
- */
-private fun Placement.carriedBy(matrix: Affine) = Placement(
-    left = matrix.mapX(left, top),
-    top = matrix.mapY(left, top),
-    angle = angle + matrix.turn(),
-)
-
-/**
- * The same text box after a selection transform: moved and turned with it, never scaled.
+ * The same picture after a selection transform: exactly where [matrix] puts every pixel of it.
  *
- * A box's width is a measurement the reader chose — it is what decides where the lines break — and
- * its height is whatever the words need, so a scale has nothing honest to change. A turn does: the
- * box is rotated about its corner, and the words with it.
- */
-fun TextBlock.carriedBy(matrix: Affine): TextBlock {
-    if (matrix.isIdentity) return this
-    val (rect, transform) = placed(placement().carriedBy(matrix), rect.width, rect.height)
-    return copy(rect = rect, transform = transform)
-}
-
-/**
- * The same picture after a selection transform: moved, turned, and scaled evenly — never skewed.
- *
- * A drag on a corner handle scales the two axes apart, and a picture pulled out of its aspect is a
- * picture of something else, so the scale taken is the one that keeps the area the transform asks
- * for, applied to both sides alike.
+ * Moved, turned, scaled, stretched and mirrored alike, so a picture in a selection goes wherever
+ * the ink round it goes. How far each side is stretched is kept in the [rect] — so a picture that
+ * was only ever scaled stays a plain rectangle in the file, and the editor decodes it at the size it
+ * is actually shown — and what is left in the transform is the turn, and any shear or mirror, at
+ * unit length.
  */
 fun ImageBlock.placedBy(matrix: Affine): ImageBlock {
     if (matrix.isIdentity) return this
-    val scale = kotlin.math.sqrt(kotlin.math.abs(matrix.a * matrix.d - matrix.b * matrix.c))
-        .takeIf { it.isFinite() && it > 0f } ?: 1f
-    val width = (rect.width * scale).coerceAtLeast(MIN_IMAGE_SIDE)
-    val height = (rect.height * width / rect.width.coerceAtLeast(1e-3f)).coerceAtLeast(MIN_IMAGE_SIDE)
-    val (rect, transform) = placed(placement().carriedBy(matrix), width, height)
+    val at = frame()
+    val (rect, transform) = matrix.linearAfter(at.a, at.b, at.c, at.d) { a, b, c, d ->
+        val across = kotlin.math.hypot(a, b).takeIf { it > 0f && it.isFinite() } ?: 1f
+        val down = kotlin.math.hypot(c, d).takeIf { it > 0f && it.isFinite() } ?: 1f
+        // Clamped as lengths on the page, so a picture cannot be scaled away to nothing.
+        val width = (rect.width * across).coerceAtLeast(MIN_IMAGE_SIDE)
+        val height = (rect.height * down).coerceAtLeast(MIN_IMAGE_SIDE)
+        framed(
+            matrix.mapX(at.left, at.top), matrix.mapY(at.left, at.top), width, height,
+            a / across, b / across, c / down, d / down,
+        )
+    }
     return copy(rect = rect, transform = transform)
 }
 

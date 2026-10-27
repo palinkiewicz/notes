@@ -1,7 +1,10 @@
 package pl.dakil.notes.model
 
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -109,51 +112,139 @@ sealed interface ShapeSpec {
 /**
  * Maps a shape through [m], or returns null when [m] would take it outside what these types can say.
  *
- * Only similarities — uniform scale, rotation, translation — are expressible: every shape here is
- * defined by extents and one angle, so a shear or a non-uniform scale would turn a circle into an
- * ellipse at an angle its own parameters cannot represent, and a square into a parallelogram with no
- * type at all. Rather than record a lie, such a transform drops the spec and leaves an ordinary
- * stroke, which is exactly what the ink already is.
+ * A [ShapeSpec.Line] and a [ShapeSpec.Poly] are nothing but their points, and any affine map takes a
+ * line to a line and a polygon to a polygon, so those two follow every transform.
+ *
+ * The rest are defined by extents and one angle. A similarity — uniform scale, rotation, translation,
+ * and a mirror — keeps them what they are. Beyond that, a stretch along the page's axes keeps an
+ * axis-aligned rectangle or ellipse a rectangle or ellipse, which is the case the selection's edge
+ * grips produce, and a regular polygon pulled out of shape is still a polygon. Anything else — a
+ * shear, or a stretch across a turned ellipse — would need parameters these types do not have, so
+ * rather than record a lie the spec is dropped and an ordinary stroke is left, which is exactly what
+ * the ink already is.
  */
 fun ShapeSpec.transformedBy(m: Affine): ShapeSpec? {
     if (m.isIdentity) return this
     val det = m.a * m.d - m.b * m.c
-    // A reflection flips vertex order and the sense of rotation; not worth the special case.
-    if (det <= 0f) return null
-    val scale = sqrt(det)
-    if (abs(m.a - m.d) > SIMILARITY_TOLERANCE * scale) return null
-    if (abs(m.b + m.c) > SIMILARITY_TOLERANCE * scale) return null
-    val turn = atan2(m.b, m.a)
+    if (abs(det) < DEGENERATE_DET) return null
 
-    return when (this) {
-        is ShapeSpec.Line -> ShapeSpec.Line(
+    when (this) {
+        is ShapeSpec.Line -> return ShapeSpec.Line(
             m.mapX(x0, y0), m.mapY(x0, y0),
             m.mapX(x1, y1), m.mapY(x1, y1),
         )
+        is ShapeSpec.Poly -> return mapPoints(xs, ys, m)
+        else -> Unit
+    }
+
+    val scale = sqrt(abs(det))
+    // A mirror is a turn followed by a flip: M = Rot(turn) · diag(1, −1). Its matrix has a == −d and
+    // b == c where a turn has a == d and b == −c, so the similarity test differs by those two signs.
+    val mirrored = det < 0f
+    val similar = if (mirrored) {
+        abs(m.a + m.d) <= SIMILARITY_TOLERANCE * scale && abs(m.b - m.c) <= SIMILARITY_TOLERANCE * scale
+    } else {
+        abs(m.a - m.d) <= SIMILARITY_TOLERANCE * scale && abs(m.b + m.c) <= SIMILARITY_TOLERANCE * scale
+    }
+    if (!similar) return stretchedBy(m)
+
+    val turn = atan2(m.b, m.a)
+    // A mirror reverses the sense of every angle: the direction θ comes out at turn − θ.
+    fun angle(theta: Float) = if (mirrored) turn - theta else theta + turn
+
+    return when (this) {
         is ShapeSpec.Arc -> ShapeSpec.Arc(
-            m.mapX(cx, cy), m.mapY(cx, cy), r * scale, start + turn, sweep,
+            m.mapX(cx, cy), m.mapY(cx, cy), r * scale, angle(start), if (mirrored) -sweep else sweep,
         )
-        is ShapeSpec.Poly -> {
-            val n = vertexCount
-            val nx = FloatArray(n)
-            val ny = FloatArray(n)
-            for (i in 0 until n) {
-                nx[i] = m.mapX(xs[i], ys[i])
-                ny[i] = m.mapY(xs[i], ys[i])
-            }
-            ShapeSpec.Poly(nx, ny)
-        }
+        // Symmetric about their own axes, so turning the axis by the mirror describes the mirror
+        // image exactly; a regular polygon's vertex set is likewise its own reflection.
         is ShapeSpec.Rect -> ShapeSpec.Rect(
-            m.mapX(cx, cy), m.mapY(cx, cy), hw * scale, hh * scale, rot + turn, equilateral,
+            m.mapX(cx, cy), m.mapY(cx, cy), hw * scale, hh * scale, angle(rot), equilateral,
         )
         is ShapeSpec.Ngon -> ShapeSpec.Ngon(
-            m.mapX(cx, cy), m.mapY(cx, cy), r * scale, rot + turn, sides,
+            m.mapX(cx, cy), m.mapY(cx, cy), r * scale, angle(rot), sides,
         )
         is ShapeSpec.Ellipse -> ShapeSpec.Ellipse(
-            m.mapX(cx, cy), m.mapY(cx, cy), rx * scale, ry * scale, rot + turn, equilateral,
+            m.mapX(cx, cy), m.mapY(cx, cy), rx * scale, ry * scale, angle(rot), equilateral,
         )
+        is ShapeSpec.Line, is ShapeSpec.Poly -> error("handled above")
     }
 }
+
+/** The non-similar half of [transformedBy]. */
+private fun ShapeSpec.stretchedBy(m: Affine): ShapeSpec? = when (this) {
+    // Still a polygon, just no longer a regular one; its vertices are the ones the handles stood on.
+    is ShapeSpec.Ngon -> {
+        val xs = FloatArray(sides)
+        val ys = FloatArray(sides)
+        for (i in 0 until sides) {
+            val a = rot + i * 2f * PI.toFloat() / sides
+            xs[i] = cx + r * cos(a)
+            ys[i] = cy + r * sin(a)
+        }
+        mapPoints(xs, ys, m)
+    }
+    is ShapeSpec.Rect -> {
+        val (sw, sh) = axisStretch(m, rot)
+        if (sw == null || sh == null) {
+            // A turned rectangle stretched along the page is a parallelogram: still four corners.
+            val xs = FloatArray(4)
+            val ys = FloatArray(4)
+            val c = cos(rot)
+            val s = sin(rot)
+            for (i in 0 until 4) {
+                // Same corner order as the shape's handles.
+                val lx = if (i == 1 || i == 2) hw else -hw
+                val ly = if (i == 2 || i == 3) hh else -hh
+                xs[i] = cx + lx * c - ly * s
+                ys[i] = cy + lx * s + ly * c
+            }
+            mapPoints(xs, ys, m)
+        } else {
+            ShapeSpec.Rect(m.mapX(cx, cy), m.mapY(cx, cy), hw * sw, hh * sh, rot, equilateral = false)
+        }
+    }
+    is ShapeSpec.Ellipse -> {
+        val (sw, sh) = axisStretch(m, rot)
+        if (sw == null || sh == null) null
+        else ShapeSpec.Ellipse(m.mapX(cx, cy), m.mapY(cx, cy), rx * sw, ry * sh, rot, equilateral = false)
+    }
+    // A stretched circle is an elliptical arc, which an Arc deliberately cannot be.
+    is ShapeSpec.Arc, is ShapeSpec.Line, is ShapeSpec.Poly -> null
+}
+
+/**
+ * How much [m] stretches a shape's own two axes, when [m] is a stretch along the page's axes and the
+ * shape, turned by [rot], lies along them too; nulls otherwise.
+ *
+ * A shape turned a quarter has its width along the page's height, so the factors swap.
+ */
+private fun axisStretch(m: Affine, rot: Float): Pair<Float?, Float?> {
+    val size = maxOf(abs(m.a), abs(m.d))
+    if (abs(m.b) > SIMILARITY_TOLERANCE * size || abs(m.c) > SIMILARITY_TOLERANCE * size) return null to null
+    val quarter = (PI / 2).toFloat()
+    val quarters = Math.round(rot / quarter)
+    if (abs(rot - quarters * quarter) > AXIS_TOLERANCE) return null to null
+    val sx = abs(m.a)
+    val sy = abs(m.d)
+    return if (quarters % 2 == 0) sx to sy else sy to sx
+}
+
+private fun mapPoints(xs: FloatArray, ys: FloatArray, m: Affine): ShapeSpec.Poly {
+    val nx = FloatArray(xs.size)
+    val ny = FloatArray(ys.size)
+    for (i in xs.indices) {
+        nx[i] = m.mapX(xs[i], ys[i])
+        ny[i] = m.mapY(xs[i], ys[i])
+    }
+    return ShapeSpec.Poly(nx, ny)
+}
+
+/** Below this a transform has flattened the shape onto a line, and no description survives it. */
+private const val DEGENERATE_DET = 1e-9f
+
+/** How far off the page's axes a shape may be turned and still count as lying along them: ~0.06°. */
+private const val AXIS_TOLERANCE = 1e-3f
 
 /** Relative slack when deciding whether an affine is close enough to a similarity to keep. */
 private const val SIMILARITY_TOLERANCE = 1e-4f

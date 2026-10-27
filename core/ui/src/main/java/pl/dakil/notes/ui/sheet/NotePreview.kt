@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -31,7 +30,7 @@ import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
-import pl.dakil.notes.model.placement
+import pl.dakil.notes.model.frame
 import kotlin.math.roundToInt
 
 /**
@@ -95,16 +94,15 @@ fun InkNotePreview(
                 for (block in sheet.blocks) {
                     if (block !is ImageBlock || block.rect.top >= format.height) continue
                     val r = block.rect
-                    val at = block.placement()
-                    val origin = Offset(at.left * ptToPx, at.top * ptToPx)
+                    val at = block.frame()
                     val bitmap = images[block.src]
-                    rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), origin) {
+                    inBlockFrame(at, at.left * ptToPx, at.top * ptToPx) {
                         if (bitmap == null) {
-                            drawRect(Color(IMAGE_TILE), origin, Size(r.width * ptToPx, r.height * ptToPx))
+                            drawRect(Color(IMAGE_TILE), Offset.Zero, Size(r.width * ptToPx, r.height * ptToPx))
                         } else {
                             drawImage(
                                 image = bitmap,
-                                dstOffset = IntOffset(origin.x.roundToInt(), origin.y.roundToInt()),
+                                dstOffset = IntOffset.Zero,
                                 dstSize = IntSize((r.width * ptToPx).roundToInt().coerceAtLeast(1), (r.height * ptToPx).roundToInt().coerceAtLeast(1)),
                                 colorFilter = block.tint?.let(::imageTintFilter),
                             )
@@ -161,17 +159,16 @@ private fun DrawScope.drawTextBlock(
         overflow = TextOverflow.Clip,
         constraints = Constraints(maxWidth = widthPx),
     )
-    val at = block.placement()
-    val origin = Offset(at.left * ptToPx, at.top * ptToPx)
-    // Turned about its corner, as on the sheet; the clip is the box's own, turned with it.
-    rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), origin) {
+    val at = block.frame()
+    // Through its own frame, as on the sheet; the clip is the box's own, carried with it.
+    inBlockFrame(at, at.left * ptToPx, at.top * ptToPx) {
         clipRect(
-            left = origin.x,
-            top = origin.y,
-            right = origin.x + block.rect.width * ptToPx,
-            bottom = origin.y + block.rect.height.coerceAtLeast(laid.size.height / ptToPx) * ptToPx,
+            left = 0f,
+            top = 0f,
+            right = block.rect.width * ptToPx,
+            bottom = block.rect.height.coerceAtLeast(laid.size.height / ptToPx) * ptToPx,
         ) {
-            drawText(laid, topLeft = origin)
+            drawText(laid, topLeft = Offset.Zero)
         }
     }
 }

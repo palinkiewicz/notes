@@ -154,6 +154,7 @@
 
     <!--  SELECTION  -->
     <string name="editor_selection_scale">Resize selection</string>
+    <string name="editor_selection_stretch">Stretch selection</string>
     <string name="editor_selection_rotate">Rotate selection</string>
     <string name="editor_selection_apex">Move shape corner</string>
     <string name="editor_selection_duplicate">Duplicate selection</string>
@@ -162,6 +163,9 @@
     <string name="editor_selection_fill">Fill selection</string>
     <string name="editor_selection_unfill">Remove fill</string>
     <string name="editor_selection_delete">Delete selection</string>
+    <string name="editor_selection_mirror_horizontal">Mirror horizontally</string>
+    <string name="editor_selection_mirror_vertical">Mirror vertically</string>
+    <string name="editor_selection_angle" translatable="false">%1$d°</string>
 
     <!--  MARKDOWN EDITOR  -->
     <string name="markdown_placeholder">Write something…</string>

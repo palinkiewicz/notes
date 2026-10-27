@@ -240,20 +240,6 @@ fun SheetEditor(
             )
         }
 
-        // The selection's grips, out here for the same reason the box's are: a grip scaled with
-        // the paper is unhittable at the zoom a note opens at. After the text chrome, so that on
-        // the rare occasion both are up the selection's controls are the ones on top.
-        SelectionChrome(
-            sheet = sheet,
-            state = state,
-            viewModel = viewModel,
-            controller = selectionController,
-            transform = transform,
-            ptToPx = ptToPx,
-            paged = paged,
-            modifier = Modifier.fillMaxSize(),
-        )
-
         // Above the sheet and outside its transform, so it stays legible and tappable at any zoom.
         PageChrome(
             format = format,
@@ -277,6 +263,22 @@ fun SheetEditor(
                 }
             },
             onAddPage = viewModel::addPage,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // The selection's grips, out here for the same reason the box's are: a grip scaled with
+        // the paper is unhittable at the zoom a note opens at. After the text chrome, so that on
+        // the rare occasion both are up the selection's controls are the ones on top — and after
+        // the page headers, whose rows span the page's width and would otherwise take the taps
+        // meant for a grip or the action bar of a selection near the top of a page.
+        SelectionChrome(
+            sheet = sheet,
+            state = state,
+            viewModel = viewModel,
+            controller = selectionController,
+            transform = transform,
+            ptToPx = ptToPx,
+            paged = paged,
             modifier = Modifier.fillMaxSize(),
         )
 

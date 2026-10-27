@@ -9,7 +9,9 @@ import pl.dakil.notes.editor.canvas.SelectionHandle
 import pl.dakil.notes.editor.canvas.handleAnchor
 import pl.dakil.notes.editor.canvas.handlePosition
 import pl.dakil.notes.editor.canvas.rotateMatrix
+import pl.dakil.notes.editor.canvas.mirrorMatrix
 import pl.dakil.notes.editor.canvas.scaleMatrix
+import pl.dakil.notes.editor.canvas.turnAngle
 import pl.dakil.notes.model.Rect
 
 /**
@@ -103,5 +105,86 @@ class SelectionGeometryTest {
         val (rx, ry) = handlePosition(box, SelectionHandle.ROTATE)
         assertEquals(200f, rx, eps)
         assertEquals(box.bottom, ry, eps)
+    }
+
+    @Test
+    fun `an edge stretches along its own axis and leaves the other alone`() {
+        // The right edge pulled out by half the width again: half as wide again, exactly as tall.
+        val handle = SelectionHandle.RIGHT
+        val (hx, hy) = handlePosition(box, handle)
+        val m = scaleMatrix(box, handle, hx, hy, hx + 100f, hy + 70f)
+
+        assertEquals(1.5f, m.a, eps)
+        assertEquals(1f, m.d, eps)
+        // The opposite edge is nailed down, as a corner's opposite corner is.
+        assertEquals(box.left, m.mapX(box.left, box.bottom), eps)
+    }
+
+    @Test
+    fun `a top edge stretches downwards from the bottom one`() {
+        val handle = SelectionHandle.TOP
+        val (hx, hy) = handlePosition(box, handle)
+        val m = scaleMatrix(box, handle, hx, hy, hx, hy - 200f)
+
+        assertEquals(2f, m.d, eps)
+        assertEquals(1f, m.a, eps)
+        assertEquals(box.bottom, m.mapY(box.left, box.bottom), eps)
+    }
+
+    @Test
+    fun `an edge dragged through the opposite edge stops at the clamp instead of flipping`() {
+        // Turning the selection inside out mid-drag is a mirror the user did not ask for; that is
+        // what the mirror buttons are for.
+        val handle = SelectionHandle.LEFT
+        val (hx, hy) = handlePosition(box, handle)
+        val m = scaleMatrix(box, handle, hx, hy, box.right + 300f, hy)
+
+        assertEquals(MIN_SCALE, m.a, eps)
+    }
+
+    @Test
+    fun `a mirror keeps the selection exactly where it was`() {
+        // Flipped about its own middle, so the frame the user is looking at does not move.
+        for (horizontal in listOf(true, false)) {
+            val flipped = mirrorMatrix(box, horizontal).mapBounds(box)
+            assertEquals(box.left, flipped.left, eps)
+            assertEquals(box.top, flipped.top, eps)
+            assertEquals(box.right, flipped.right, eps)
+            assertEquals(box.bottom, flipped.bottom, eps)
+        }
+        assertEquals(box.right, mirrorMatrix(box, horizontal = true).mapX(box.left, box.top), eps)
+        assertEquals(box.bottom, mirrorMatrix(box, horizontal = false).mapY(box.left, box.top), eps)
+    }
+
+    /** The grip dragged round from due right of the centre to [degrees] past it. */
+    private fun turnBy(degrees: Double): Float {
+        val r = Math.toRadians(degrees)
+        val m = rotateMatrix(
+            box, 300f, 300f,
+            200f + 100f * kotlin.math.cos(r).toFloat(), 300f + 100f * kotlin.math.sin(r).toFloat(),
+        )
+        return Math.toDegrees(m.turnAngle().toDouble()).toFloat()
+    }
+
+    @Test
+    fun `a turn near a forty-five degree step lands on it`() {
+        assertEquals(45f, turnBy(43.0), eps)
+        assertEquals(-90f, turnBy(-92.5), eps)
+        assertEquals(0f, turnBy(2.0), eps)
+    }
+
+    @Test
+    fun `a turn between steps is left exactly where the hand put it`() {
+        // A detent, not a ratchet: anything else would make the angles between unreachable.
+        assertEquals(37f, turnBy(37.0), 1e-2f)
+        // Nothing at the old fifteen-degree marks either.
+        assertEquals(30f, turnBy(30.0), 1e-2f)
+    }
+
+    @Test
+    fun `a turn past the back of the circle snaps the same as any other`() {
+        // atan2 jumps from π to −π behind the centre; the turn has to be brought back first or a
+        // half turn would read as −360° away from the step it is sitting on.
+        assertEquals(180f, kotlin.math.abs(turnBy(178.0)), eps)
     }
 }

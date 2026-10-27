@@ -7,9 +7,9 @@ import androidx.compose.ui.unit.IntSize
 import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.model.ImageBlock
 import androidx.compose.ui.geometry.Offset
-import pl.dakil.notes.model.placement
+import pl.dakil.notes.model.frame
 import pl.dakil.notes.ui.sheet.imageTintFilter
-import androidx.compose.ui.graphics.drawscope.rotate
+import pl.dakil.notes.ui.sheet.inBlockFrame
 import kotlin.math.roundToInt
 import android.content.Context
 import android.graphics.Bitmap
@@ -155,15 +155,14 @@ object InkPageExporter {
             for (block in sheet.blocks) {
                 if (block !is ImageBlock || sheet.pageOf(block) != pageIndex) continue
                 val r = block.rect
-                val at = block.placement()
+                val at = block.frame()
                 val width = (r.width * ptToPx).roundToInt().coerceAtLeast(1)
                 val height = (r.height * ptToPx).roundToInt().coerceAtLeast(1)
                 val bitmap = ImageLoader.decode(block.bytes, width) ?: continue
-                val origin = Offset(at.left * ptToPx, (at.top - pageTop) * ptToPx)
-                rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), origin) {
+                inBlockFrame(at, at.left * ptToPx, (at.top - pageTop) * ptToPx) {
                     drawImage(
                         image = bitmap,
-                        dstOffset = IntOffset(origin.x.roundToInt(), origin.y.roundToInt()),
+                        dstOffset = IntOffset.Zero,
                         dstSize = IntSize(width, height),
                         // The export presets recolour ink, not photographs; a picture keeps
                         // only the filter its author put on it.
@@ -206,7 +205,7 @@ object InkPageExporter {
         // as the ink beside them, and a printed page that dropped them is not a picture of it.
         val annotated = plan.toAnnotatedString(block.markdown, exportMarkdownStyles(attributes = true))
         val rect = block.rect
-        val at = block.placement()
+        val at = block.frame()
         val widthPx = (rect.width * ptToPx).toInt().coerceAtLeast(1)
         val paragraph = Paragraph(
             text = annotated.text,
@@ -216,15 +215,10 @@ object InkPageExporter {
             fontFamilyResolver = fontResolver,
             spanStyles = annotated.spanStyles,
         )
-        val left = at.left * ptToPx
-        val top = (at.top - pageTop) * ptToPx
-        val canvas = drawContext.canvas
-        canvas.save()
-        canvas.translate(left, top)
-        // Turned about its corner, as on the sheet.
-        canvas.rotate(Math.toDegrees(at.angle.toDouble()).toFloat())
-        paragraph.paint(canvas)
-        canvas.restore()
+        // Through its own frame, as on the sheet: turned, stretched or both about its corner.
+        inBlockFrame(at, at.left * ptToPx, (at.top - pageTop) * ptToPx) {
+            paragraph.paint(drawContext.canvas)
+        }
     }
 
     /** Fixed rather than theme-derived: there is no composition here to read a colour scheme from. */

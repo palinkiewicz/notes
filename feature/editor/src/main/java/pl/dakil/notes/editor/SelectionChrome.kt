@@ -1,15 +1,19 @@
 package pl.dakil.notes.editor
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
@@ -23,6 +27,7 @@ import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.handlePosition
 import pl.dakil.notes.editor.canvas.rotateMatrix
 import pl.dakil.notes.editor.canvas.scaleMatrix
+import pl.dakil.notes.editor.canvas.turnAngle
 import pl.dakil.notes.ink.handleCount
 import pl.dakil.notes.ink.handleInto
 import pl.dakil.notes.model.ColorCodec
@@ -112,33 +117,44 @@ fun SelectionChrome(
     // while they drag has to be the corner of the box they are looking at.
     val padded = selection.bounds.inflate(SELECTION_PAD_PT)
 
+    // How far below the frame's bottom edge the rotate grip stands, from the edge to the grip's
+    // centre, in window pixels: half the bottom edge grip's touch area, a gap, and half of itself —
+    // clear of that grip rather than overlapping it.
+    val rotateDropPx = handlePx + HANDLE_GAP
+
+    // Composition, not placement, decides what is shown while the selection turns — see
+    // SelectionController.grip for why that flips only twice a gesture.
+    val rotating = controller.isRotating
+
     Layout(
         modifier = modifier,
         content = {
             if (shape == null) {
-                for (handle in CORNERS) {
-                    val (hx, hy) = handlePosition(padded, handle)
-                    Grip(
-                        icon = NotesIcons.Resize,
-                        description = stringResource(R.string.editor_selection_scale),
-                        modifier = Modifier.layoutId(handle),
-                        // The glyph is a double arrow drawn along the ↗↙ diagonal, which is the
-                        // way these two corners actually travel. The other pair moves along ↖↘,
-                        // so the same icon is turned a quarter rather than a second one drawn —
-                        // every vector added here is bytes against the size budget.
-                        rotation = if (handle in TILTED_CORNERS) 90f else 0f,
-                        onStart = {
-                            cursor[0] = hx
-                            cursor[1] = hy
-                            controller.beginTransform()
-                        },
-                        onEnd = { controller.endTransform()?.let(viewModel::transformSelection) },
-                    ) { dx, dy ->
-                        cursor[0] += toDocument(dx)
-                        cursor[1] += toDocument(dy)
-                        controller.setLive(
-                            scaleMatrix(padded, handle, hx, hy, cursor[0], cursor[1])
-                        )
+                // Everything but the rotate grip steps aside while the selection turns: the frame
+                // is drawn turned with the ink then, and grips standing on the box round it would
+                // mark corners that are not the selection's.
+                if (!rotating) {
+                    for (handle in FRAME_GRIPS) {
+                        val (hx, hy) = handlePosition(padded, handle)
+                        FrameGrip(
+                            description = stringResource(
+                                if (handle.isEdge) R.string.editor_selection_stretch
+                                else R.string.editor_selection_scale
+                            ),
+                            modifier = Modifier.layoutId(handle),
+                            onStart = {
+                                cursor[0] = hx
+                                cursor[1] = hy
+                                controller.beginTransform(handle)
+                            },
+                            onEnd = { controller.endTransform()?.let(viewModel::transformSelection) },
+                        ) { dx, dy ->
+                            cursor[0] += toDocument(dx)
+                            cursor[1] += toDocument(dy)
+                            controller.setLive(
+                                scaleMatrix(padded, handle, hx, hy, cursor[0], cursor[1])
+                            )
+                        }
                     }
                 }
 
@@ -147,22 +163,32 @@ fun SelectionChrome(
                     icon = NotesIcons.Rotate,
                     description = stringResource(R.string.editor_selection_rotate),
                     modifier = Modifier.layoutId(SelectionHandle.ROTATE),
+                    // Turned with the selection, so the arrow keeps pointing round the way it goes.
+                    rotation = {
+                        @Suppress("UNUSED_EXPRESSION")
+                        controller.version
+                        Math.toDegrees(controller.live.turnAngle().toDouble()).toFloat()
+                    },
                     onStart = {
                         cursor[0] = rx
                         // Where the grip actually stands, not where the frame's edge is. The angle
                         // is measured from the finger, so seeding it from the edge would jerk the
                         // selection round by the height of the gap on the very first sample.
-                        cursor[1] = ry + toDocument(HANDLE_GAP + handlePx * 0.5f)
-                        controller.beginTransform()
+                        cursor[1] = ry + toDocument(rotateDropPx)
+                        controller.beginTransform(SelectionHandle.ROTATE)
                     },
                     onEnd = { controller.endTransform()?.let(viewModel::transformSelection) },
                 ) { dx, dy ->
-                    val fromY = ry + toDocument(HANDLE_GAP + handlePx * 0.5f)
+                    val fromY = ry + toDocument(rotateDropPx)
                     cursor[0] += toDocument(dx)
                     cursor[1] += toDocument(dy)
                     controller.setLive(
                         rotateMatrix(padded, rx, fromY, cursor[0], cursor[1])
                     )
+                }
+
+                if (controller.grip != null) {
+                    TransformReadout(controller, Modifier.layoutId(Readout))
                 }
             } else {
                 val out = FloatArray(2)
@@ -189,71 +215,54 @@ fun SelectionChrome(
                 }
             }
 
-            Surface(
-                modifier = Modifier.layoutId(ActionBar),
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                shadowElevation = 3.dp,
-            ) {
-                Row {
-                    HandleButton(
-                        icon = NotesIcons.Copy,
-                        description = stringResource(R.string.editor_selection_duplicate),
-                        container = MaterialTheme.colorScheme.secondaryContainer,
-                        content = MaterialTheme.colorScheme.onSecondaryContainer,
-                        elevation = 0.dp,
-                        onClick = viewModel::duplicateSelection,
-                    )
-                    HandleButton(
-                        icon = NotesIcons.Palette,
-                        description = stringResource(R.string.editor_selection_colour),
-                        container = MaterialTheme.colorScheme.secondaryContainer,
-                        content = MaterialTheme.colorScheme.onSecondaryContainer,
-                        elevation = 0.dp,
-                        onClick = { pickingColor = true },
-                    )
-                    // The way back from the colour button for a picture: its own colours again.
-                    if (selection.images.any { (sheet.block(it) as? ImageBlock)?.tint != null }) {
+            if (!rotating) {
+                Surface(
+                    modifier = Modifier.layoutId(ActionBar),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shadowElevation = 3.dp,
+                ) {
+                    Row {
+                        BarButton(NotesIcons.Copy, R.string.editor_selection_duplicate, viewModel::duplicateSelection)
+                        BarButton(NotesIcons.Palette, R.string.editor_selection_colour) { pickingColor = true }
+                        // The way back from the colour button for a picture: its own colours again.
+                        if (selection.images.any { (sheet.block(it) as? ImageBlock)?.tint != null }) {
+                            BarButton(NotesIcons.Close, R.string.editor_selection_remove_tint, viewModel::clearImageTint)
+                        }
+                        // Offered only where it means something: a text box has no interior to
+                        // paint, and a selection of nothing but boxes would get a button that does
+                        // nothing.
+                        if (selection.strokeCount > 0) {
+                            BarButton(
+                                icon = if (allFilled) NotesIcons.FillOff else NotesIcons.Fill,
+                                description = if (allFilled) R.string.editor_selection_unfill
+                                else R.string.editor_selection_fill,
+                            ) { viewModel.setSelectionFilled(!allFilled) }
+                        }
+                        BarButton(NotesIcons.FlipHorizontal, R.string.editor_selection_mirror_horizontal) {
+                            viewModel.mirrorSelection(horizontal = true)
+                        }
+                        BarButton(NotesIcons.FlipVertical, R.string.editor_selection_mirror_vertical) {
+                            viewModel.mirrorSelection(horizontal = false)
+                        }
                         HandleButton(
-                            icon = NotesIcons.Close,
-                            description = stringResource(R.string.editor_selection_remove_tint),
+                            icon = NotesIcons.Delete,
+                            description = stringResource(R.string.editor_selection_delete),
                             container = MaterialTheme.colorScheme.secondaryContainer,
-                            content = MaterialTheme.colorScheme.onSecondaryContainer,
+                            content = MaterialTheme.colorScheme.error,
                             elevation = 0.dp,
-                            onClick = viewModel::clearImageTint,
+                            onClick = viewModel::deleteSelection,
                         )
                     }
-                    // Offered only where it means something: a text box has no interior to paint,
-                    // and a selection of nothing but boxes would get a button that does nothing.
-                    if (selection.strokeCount > 0) {
-                        HandleButton(
-                            icon = if (allFilled) NotesIcons.FillOff else NotesIcons.Fill,
-                            description = stringResource(
-                                if (allFilled) R.string.editor_selection_unfill
-                                else R.string.editor_selection_fill
-                            ),
-                            container = MaterialTheme.colorScheme.secondaryContainer,
-                            content = MaterialTheme.colorScheme.onSecondaryContainer,
-                            elevation = 0.dp,
-                            onClick = { viewModel.setSelectionFilled(!allFilled) },
-                        )
-                    }
-                    HandleButton(
-                        icon = NotesIcons.Delete,
-                        description = stringResource(R.string.editor_selection_delete),
-                        container = MaterialTheme.colorScheme.secondaryContainer,
-                        content = MaterialTheme.colorScheme.error,
-                        elevation = 0.dp,
-                        onClick = viewModel::deleteSelection,
-                    )
                 }
             }
         },
         measurePolicy = { measurables, constraints ->
             val loose = Constraints(maxWidth = constraints.maxWidth, maxHeight = constraints.maxHeight)
             val placeables = measurables.map { it.layoutId to it.measure(loose) }
-            val gripPx = HandleSize.toPx()
+            val touchPx = HandleSize.toPx()
+            val barHeight = placeables.firstOrNull { it.first == ActionBar }?.second?.height ?: 0
 
             layout(constraints.maxWidth, constraints.maxHeight) {
                 // Read here rather than at composition, so a pan, a pinch or a drag in progress
@@ -263,24 +272,48 @@ fun SelectionChrome(
                 val f = frame()
                 val live = controller.liveShape ?: shape
                 val out = FloatArray(2)
+                val midX = (f.left + f.right) / 2f
+                val midY = (f.top + f.bottom) / 2f
+                // An edge grip needs its edge to be long enough to stand clear of both corners'
+                // touch areas; on a selection round one short line of writing it would sit on top
+                // of them, and a touch there would go to whichever grip Compose tried first. Left
+                // unplaced, it is not hit-tested either, and zooming in brings it back.
+                val roomAcross = f.right - f.left >= touchPx * 2f
+                val roomDown = f.bottom - f.top >= touchPx * 2f
+                val barCentre = f.top - touchPx / 2f - HANDLE_GAP - barHeight / 2f
 
                 for ((id, placeable) in placeables) {
-                    val half = placeable.width / 2f
                     val halfH = placeable.height / 2f
-                    val midX = (f.left + f.right) / 2f
                     val (cx, cy) = when (id) {
-                        // Corners stand outside the frame, so they never cover the ink they are
-                        // there to resize — the same rule the text box's grips follow.
-                        SelectionHandle.TOP_LEFT -> f.left - half - HANDLE_GAP to f.top - halfH - HANDLE_GAP
-                        SelectionHandle.TOP_RIGHT -> f.right + half + HANDLE_GAP to f.top - halfH - HANDLE_GAP
-                        SelectionHandle.BOTTOM_LEFT -> f.left - half - HANDLE_GAP to f.bottom + halfH + HANDLE_GAP
-                        SelectionHandle.BOTTOM_RIGHT -> f.right + half + HANDLE_GAP to f.bottom + halfH + HANDLE_GAP
-                        SelectionHandle.ROTATE -> midX to f.bottom + halfH + HANDLE_GAP
-                        // A full grip's height clear of the top corners rather than level with
-                        // them. A selection round a single line of writing is thinner than a
-                        // fingertip, and at that size the bar and the corner grips end up in the
-                        // same band of glass, jostling for the same taps.
-                        ActionBar -> midX to f.top - gripPx - HANDLE_GAP * 2f - halfH
+                        // Exactly on the frame, as in any drawing program: the frame is what is
+                        // being resized, and the grip is where on it to take hold.
+                        SelectionHandle.TOP_LEFT -> f.left to f.top
+                        SelectionHandle.TOP_RIGHT -> f.right to f.top
+                        SelectionHandle.BOTTOM_LEFT -> f.left to f.bottom
+                        SelectionHandle.BOTTOM_RIGHT -> f.right to f.bottom
+                        SelectionHandle.TOP -> if (roomAcross) midX to f.top else continue
+                        SelectionHandle.BOTTOM -> if (roomAcross) midX to f.bottom else continue
+                        SelectionHandle.LEFT -> if (roomDown) f.left to midY else continue
+                        SelectionHandle.RIGHT -> if (roomDown) f.right to midY else continue
+                        SelectionHandle.ROTATE -> if (controller.isRotating) {
+                            // Carried round with the selection, so it stays under the finger that
+                            // is turning it instead of sliding along the box round the turned ink.
+                            val (rx, ry) = handlePosition(padded, SelectionHandle.ROTATE)
+                            val gy = ry + toDocument(rotateDropPx)
+                            val m = controller.live
+                            screenX(m.mapX(rx, gy)) to screenY(m.mapY(rx, gy))
+                        } else {
+                            midX to f.bottom + rotateDropPx
+                        }
+                        // A full grip clear of the top edge, where nothing but the edge grips are.
+                        ActionBar -> midX to barCentre
+                        // Over the bar while it is there, and in its place while the selection
+                        // turns, so it is never under the finger that is driving it.
+                        Readout -> midX to if (controller.isRotating) {
+                            f.top - HANDLE_GAP - halfH
+                        } else {
+                            barCentre - barHeight / 2f - HANDLE_GAP - halfH
+                        }
                         is ApexId -> {
                             // The apex handles follow the shape as it is being pulled about, which
                             // is why the live spec is preferred over the committed one.
@@ -365,21 +398,76 @@ private fun selectionColor(sheet: Sheet, selection: Selection): Int {
     return ColorCodec.INK_PRESETS.first()
 }
 
-private val CORNERS = listOf(
+/** The frame's eight scale grips: corners scale evenly, edges stretch along one axis. */
+private val FRAME_GRIPS = listOf(
     SelectionHandle.TOP_LEFT,
+    SelectionHandle.TOP,
     SelectionHandle.TOP_RIGHT,
-    SelectionHandle.BOTTOM_LEFT,
+    SelectionHandle.RIGHT,
     SelectionHandle.BOTTOM_RIGHT,
+    SelectionHandle.BOTTOM,
+    SelectionHandle.BOTTOM_LEFT,
+    SelectionHandle.LEFT,
 )
 
-/** The corners that lie on the other diagonal, whose arrow has to point the other way. */
-private val TILTED_CORNERS = setOf(SelectionHandle.TOP_LEFT, SelectionHandle.BOTTOM_RIGHT)
+/** One of the action bar's buttons, which all sit on the bar's own colour. */
+@Composable
+private fun BarButton(icon: ImageVector, @StringRes description: Int, onClick: () -> Unit) {
+    HandleButton(
+        icon = icon,
+        description = stringResource(description),
+        container = MaterialTheme.colorScheme.secondaryContainer,
+        content = MaterialTheme.colorScheme.onSecondaryContainer,
+        elevation = 0.dp,
+        onClick = onClick,
+    )
+}
+
+/**
+ * How far the selection has turned or been scaled, while a grip is held.
+ *
+ * Reads the controller's per-sample counter itself, so this chip is the one thing that recomposes
+ * as the finger moves; everything round it is only re-placed.
+ */
+@Composable
+private fun TransformReadout(controller: SelectionController, modifier: Modifier = Modifier) {
+    @Suppress("UNUSED_EXPRESSION")
+    controller.version
+    val grip = controller.grip ?: return
+    val live = controller.live
+    val text = if (grip == SelectionHandle.ROTATE) {
+        stringResource(
+            R.string.editor_selection_angle,
+            Math.toDegrees(live.turnAngle().toDouble()).roundToInt(),
+        )
+    } else {
+        // The factor along the grip's own axis: a corner scales both alike, so either will do.
+        val factor = if (grip.scalesAcross) live.a else live.d
+        stringResource(R.string.editor_zoom_percent_x, (factor * 100f).roundToInt())
+    }
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shadowElevation = 3.dp,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
 
 /** Layout id for the grip on apex [index] of a selected shape. */
 private data class ApexId(val index: Int)
 
 /** Layout id for the duplicate/colour/delete bar. */
 private object ActionBar
+
+/** Layout id for the angle or scale shown while a grip is held. */
+private object Readout
 
 /**
  * Smaller than the frame's grips.

@@ -12,8 +12,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import pl.dakil.notes.editor.canvas.SelectionController
@@ -22,8 +20,9 @@ import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.placedBy
-import pl.dakil.notes.model.placement
+import pl.dakil.notes.model.frame
 import pl.dakil.notes.ui.sheet.imageTintFilter
+import pl.dakil.notes.ui.sheet.inBlockFrame
 import pl.dakil.notes.ui.sheet.SheetPainter
 import kotlin.math.roundToInt
 
@@ -71,7 +70,7 @@ fun SheetImageLayer(
         for (image in images) {
             val drawn = if (image.id in selected && !live.isIdentity) image.placedBy(live) else image
             val r = drawn.rect
-            val at = drawn.placement()
+            val at = drawn.frame()
             val left = at.left * ptToPx
             val top = SheetPainter.documentYToStripPx(at.top, format, ptToPx, paged)
             val width = r.width * ptToPx
@@ -82,14 +81,14 @@ fun SheetImageLayer(
             val pageFoot = SheetPainter.documentYToStripPx((page + 1) * format.height - 0.01f, format, ptToPx, paged)
 
             clipRect(top = pageTop, bottom = pageFoot) {
-                withTransform({ rotate(Math.toDegrees(at.angle.toDouble()).toFloat(), Offset(left, top)) }) {
+                inBlockFrame(at, left, top) {
                     val bitmap = bitmaps[image.src]
                     if (bitmap == null) {
-                        drawRect(placeholder, Offset(left, top), Size(width, height))
+                        drawRect(placeholder, Offset.Zero, Size(width, height))
                     } else {
                         drawImage(
                             image = bitmap,
-                            dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
+                            dstOffset = IntOffset.Zero,
                             dstSize = IntSize(width.roundToInt().coerceAtLeast(1), height.roundToInt().coerceAtLeast(1)),
                             colorFilter = drawn.tint?.let(::imageTintFilter),
                         )

@@ -141,11 +141,19 @@ object NotesIcons {
         )
     }
 
-    /** Arrows out of a corner: the grip that scales a selection about the opposite corner. */
-    val Resize: ImageVector by lazy {
+    /** Two triangles either side of a dashed upright: a selection mirrored left to right. */
+    val FlipHorizontal: ImageVector by lazy {
         strokedIcon(
-            "Resize",
-            "M5 19 L19 5 M5 13 L5 19 L11 19 M13 5 L19 5 L19 11",
+            "FlipHorizontal",
+            "M12 3 L12 5 M12 8 L12 10 M12 14 L12 16 M12 19 L12 21 M9 6 L3 18 L9 18 Z M15 6 L21 18 L15 18 Z",
+        )
+    }
+
+    /** The same turned a quarter: a selection mirrored top to bottom. */
+    val FlipVertical: ImageVector by lazy {
+        strokedIcon(
+            "FlipVertical",
+            "M3 12 L5 12 M8 12 L10 12 M14 12 L16 12 M19 12 L21 12 M6 9 L18 3 L18 9 Z M6 15 L18 21 L18 15 Z",
         )
     }
 

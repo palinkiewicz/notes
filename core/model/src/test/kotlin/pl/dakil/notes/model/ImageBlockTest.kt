@@ -19,12 +19,12 @@ class ImageBlockTest {
     )
 
     @Test
-    fun `a corner drag that scales the axes apart still keeps the picture's aspect`() {
-        // A picture pulled out of its aspect is a picture of something else.
+    fun `a stretch along one axis stretches the picture, and keeps it a plain rectangle`() {
+        // The edge grips exist to change proportions, so the picture goes with the ink round it.
+        // Unturned, the stretch is all in the rect: the file stays as readable as it was.
         val placed = picture().placedBy(Affine.scale(2f, 0.5f, pivotX = 50f, pivotY = 100f))
-        assertEquals(2f, placed.rect.width / placed.rect.height, 0.001f)
-        // The area the drag asked for: 2 × 0.5 is no change at all.
-        assertEquals(200f, placed.rect.width, 0.01f)
+        assertEquals(Rect(50f, 100f, 450f, 150f), placed.rect)
+        assertTrue(placed.transform.isIdentity)
     }
 
     @Test
@@ -95,5 +95,85 @@ class ImageBlockTest {
         assertEquals(turned.placement().angle, moved.placement().angle, 1e-4f)
         assertEquals(turned.placement().top + pageHeight, moved.placement().top, 0.01f)
         assertEquals(moved.placement().top, moved.rect.top, 0.01f)
+    }
+
+    /** Where the point a fraction ([u], [v]) across and down the picture is, on the page. */
+    private fun Block.pixelAt(u: Float, v: Float): Pair<Float, Float> {
+        val x = rect.left + u * rect.width
+        val y = rect.top + v * rect.height
+        return transform.mapX(x, y) to transform.mapY(x, y)
+    }
+
+    private fun assertCarried(before: ImageBlock, after: ImageBlock, m: Affine) {
+        // Checked at three corners of the image, not just its box: a box in the right place showing
+        // the picture the wrong way round is the mistake this guards against.
+        for ((u, v) in listOf(0f to 0f, 1f to 0f, 0f to 1f, 0.3f to 0.8f)) {
+            val (x, y) = before.pixelAt(u, v)
+            val (mx, my) = after.pixelAt(u, v)
+            assertEquals(m.mapX(x, y), mx, 0.01f)
+            assertEquals(m.mapY(x, y), my, 0.01f)
+        }
+    }
+
+    @Test
+    fun `mirroring a picture puts every pixel where the mirror sends it`() {
+        val before = picture().placedBy(Affine.rotate(0.3f, 50f, 100f))
+        for (m in listOf(Affine.scale(-1f, 1f, 200f, 0f), Affine.scale(1f, -1f, 0f, 300f))) {
+            assertCarried(before, before.placedBy(m), m)
+        }
+    }
+
+    @Test
+    fun `a turned picture stretched along the page is sheared, exactly as the ink round it is`() {
+        val before = picture().placedBy(Affine.rotate(0.5f, 50f, 100f))
+        val m = Affine.scale(1.8f, 1f, 50f, 100f)
+        assertCarried(before, before.placedBy(m), m)
+    }
+
+    @Test
+    fun `a picture mirrored twice is the picture it was`() {
+        // Upright and unflipped again, so the descriptor goes back to what it was before.
+        val m = Affine.scale(1f, -1f, 0f, 300f)
+        val back = picture().placedBy(m).placedBy(m)
+        assertTrue(back.transform.isIdentity)
+        assertEquals(picture().rect.left, back.rect.left, 0.01f)
+        assertEquals(picture().rect.top, back.rect.top, 0.01f)
+    }
+
+    private fun box() = TextBlock(BlockId("t"), 1, Rect(0f, 0f, 300f, 40f), markdown = "hello")
+
+    @Test
+    fun `a mirrored text box lands on its mirror image and still reads left to right`() {
+        // Mirrored words are not words. The box goes where its mirror image would be and turns the
+        // mirrored way, but the text in it is not flipped — for either of the page's mirrors.
+        val turned = box().carriedBy(Affine.rotate(0.2f))
+        for (m in listOf(Affine.scale(-1f, 1f, 400f, 0f), Affine.scale(1f, -1f, 0f, 500f))) {
+            val flipped = turned.carriedBy(m)
+            assertEquals(-0.2f, flipped.placement().angle, 1e-4f)
+            assertTrue("reads forwards", flipped.transform.let { it.a * it.d - it.b * it.c } > 0f)
+            val was = turned.worldBounds()
+            val now = flipped.worldBounds()
+            assertEquals(m.mapX((was.left + was.right) / 2f, (was.top + was.bottom) / 2f), (now.left + now.right) / 2f, 0.01f)
+            assertEquals(m.mapY((was.left + was.right) / 2f, (was.top + was.bottom) / 2f), (now.top + now.bottom) / 2f, 0.01f)
+            assertEquals(300f, flipped.rect.width, 0.01f)
+        }
+    }
+
+    @Test
+    fun `a stretched text box stretches its letters but breaks its lines where it did`() {
+        // The width in the rect is where the lines wrap; the stretch is drawn, not reflowed.
+        val stretched = box().carriedBy(Affine.scale(2f, 1f, 0f, 0f))
+        assertEquals(300f, stretched.rect.width, 0.01f)
+        assertEquals(600f, stretched.worldBounds().right, 0.01f)
+        assertEquals(40f, stretched.worldBounds().bottom, 0.01f)
+    }
+
+    @Test
+    fun `an even scale still moves a text box without growing its words`() {
+        // The corner grips' rule, unchanged by the edge grips': only the corner is carried.
+        val scaled = box().carriedBy(Affine.scale(3f, 3f, 600f, 0f))
+        assertTrue(scaled.transform.isIdentity)
+        assertEquals(-1200f, scaled.rect.left, 0.01f)
+        assertEquals(300f, scaled.rect.width, 0.01f)
     }
 }

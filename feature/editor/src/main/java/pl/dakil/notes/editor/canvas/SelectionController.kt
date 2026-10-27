@@ -3,6 +3,7 @@ package pl.dakil.notes.editor.canvas
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import pl.dakil.notes.ink.StrokeOutline
 import pl.dakil.notes.ink.dragHandle
@@ -56,6 +57,20 @@ class SelectionController {
     /** Which apex the grip is holding. Taken back from every drag — see [dragShape]. */
     private var handle = 0
 
+    /**
+     * The frame grip driving the gesture in flight, or null for a move, an apex drag, or nothing.
+     *
+     * The one piece of this class that *is* snapshot state, because it decides what is composed:
+     * the transform readout appears for it, and while the rotate grip is held the other grips and
+     * the action bar step aside. It changes twice per gesture, at the start and the end, so it costs
+     * two recompositions rather than one per sample.
+     */
+    var grip by mutableStateOf<SelectionHandle?>(null)
+        private set
+
+    /** Whether the rotate grip is being dragged. */
+    val isRotating: Boolean get() = grip == SelectionHandle.ROTATE
+
     private var active = false
 
     /** Whether the gesture ever actually moved. A grip pressed and released commits nothing. */
@@ -94,9 +109,11 @@ class SelectionController {
         setLive(Affine.translate(x - anchorX, y - anchorY))
     }
 
-    fun beginTransform() {
+    /** Starts a scale or rotation from the frame's [grip], or a move when there is none. */
+    fun beginTransform(grip: SelectionHandle? = null) {
         active = true
         isMoving = false
+        this.grip = grip
         live = Affine.IDENTITY
         liveShape = null
         moved = false
@@ -128,6 +145,7 @@ class SelectionController {
     fun beginShape(spec: ShapeSpec, handleIndex: Int) {
         active = true
         isMoving = false
+        grip = null
         live = Affine.IDENTITY
         liveShape = spec
         moved = false
@@ -161,6 +179,7 @@ class SelectionController {
     fun cancel() {
         active = false
         isMoving = false
+        grip = null
         moved = false
         live = Affine.IDENTITY
         liveShape = null

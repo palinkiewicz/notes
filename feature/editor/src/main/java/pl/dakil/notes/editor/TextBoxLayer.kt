@@ -2,7 +2,8 @@ package pl.dakil.notes.editor
 
 import androidx.compose.ui.graphics.TransformOrigin
 import pl.dakil.notes.model.carriedBy
-import pl.dakil.notes.model.placement
+import pl.dakil.notes.model.Frame
+import pl.dakil.notes.model.frame
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -27,8 +29,10 @@ import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.SelectionController
 import pl.dakil.notes.ui.sheet.SheetPainter
+import pl.dakil.notes.ui.sheet.inBlockFrame
 import pl.dakil.notes.editor.markdown.MarkdownStaticText
 import pl.dakil.notes.editor.markdown.MarkdownStyles
+import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
 import kotlin.math.min
@@ -66,9 +70,9 @@ fun TextBoxLayer(
     /**
      * The live selection gesture, so a box being carried along with one follows the finger.
      *
-     * Read at *placement* time, which is all a move needs: text is only ever translated by a
-     * selection — never scaled or turned, since a box's width is the reader's choice and its
-     * height is whatever the words need — so nothing has to be measured again as it travels.
+     * Read at *placement* time, and at draw time for a sheared box: a selection moves, turns and
+     * stretches a box but never changes the width its lines break at — see [carriedBy] — so nothing
+     * has to be measured again as it travels.
      */
     controller: SelectionController,
     /** Called when the image tool is active and the user taps bare paper, with document coordinates. */
@@ -92,6 +96,12 @@ fun TextBoxLayer(
             for (box in boxes) {
                 TextBoxContent(
                     box = box,
+                    sheared = {
+                        @Suppress("UNUSED_EXPRESSION")
+                        controller.version
+                        val at = liveFrame(box, moving, controller)
+                        at.takeUnless { it.isOrthogonal }
+                    },
                     state = state,
                     viewModel = viewModel,
                     styles = styles,
@@ -118,28 +128,41 @@ fun TextBoxLayer(
             val live = controller.live
 
             for ((placeable, box) in placed) {
-                val carried = box.id in moving && !live.isIdentity
-                val at = (if (carried) box.carriedBy(live) else box).placement()
+                val at = liveFrame(box, moving, controller)
                 val x = (at.left * ptToPx).roundToInt()
                 val y = SheetPainter.documentYToStripPx(at.top, format, ptToPx, paged).roundToInt()
-                if (at.angle == 0f) {
-                    placeable.place(x, y)
-                } else {
-                    // Turned about its top-left corner, the pivot the block's transform names.
-                    placeable.placeWithLayer(x, y) {
-                        rotationZ = Math.toDegrees(at.angle.toDouble()).toFloat()
+                when {
+                    at.a == 1f && at.b == 0f && at.c == 0f && at.d == 1f -> placeable.place(x, y)
+                    // A turn and a stretch along each of the box's own sides, which a layer can
+                    // draw — and a layer keeps a tap on a task box landing on the box it shows.
+                    at.isOrthogonal -> placeable.placeWithLayer(x, y) {
+                        val down = kotlin.math.hypot(at.c, at.d)
+                        rotationZ = Math.toDegrees(kotlin.math.atan2(at.b, at.a).toDouble()).toFloat()
+                        scaleX = kotlin.math.hypot(at.a, at.b)
+                        scaleY = if (at.a * at.d - at.b * at.c < 0f) -down else down
                         transformOrigin = TransformOrigin(0f, 0f)
                     }
+                    // Sheared, which no layer can draw: placed at its corner and drawn through its
+                    // matrix by TextBoxContent instead.
+                    else -> placeable.place(x, y)
                 }
             }
         }
     }
 }
 
+/** Where [box] stands this frame: carried by the selection gesture when it is part of one. */
+private fun liveFrame(box: TextBlock, moving: Set<BlockId>, controller: SelectionController): Frame {
+    val live = controller.live
+    return (if (box.id in moving && !live.isIdentity) box.carriedBy(live) else box).frame()
+}
+
 /** One box's text, measured at its natural height and shown only as far as the paper reaches. */
 @Composable
 private fun TextBoxContent(
     box: TextBlock,
+    /** The box's frame when it is sheared, so has to be drawn through its matrix; else null. */
+    sheared: () -> Frame?,
     state: EditorUiState,
     viewModel: NoteViewModel,
     styles: MarkdownStyles,
@@ -154,6 +177,11 @@ private fun TextBoxContent(
 
     Layout(
         modifier = modifier
+            .drawWithContent {
+                // Read here, in the draw phase, so a shear in progress repaints without a layout.
+                val at = sheared()
+                if (at == null) drawContent() else inBlockFrame(at, 0f, 0f) { this@drawWithContent.drawContent() }
+            }
             .clipToBounds()
             .drawBehind { if (hidden > 0f) drawOverflowMarker() },
         content = {

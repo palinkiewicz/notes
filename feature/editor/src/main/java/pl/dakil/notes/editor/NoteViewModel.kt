@@ -33,6 +33,8 @@ import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.canvas.InkCallbacks
+import pl.dakil.notes.editor.canvas.SELECTION_PAD_PT
+import pl.dakil.notes.editor.canvas.mirrorMatrix
 import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
@@ -1092,6 +1094,19 @@ class NoteViewModel(
         block = { it.carriedBy(matrix) },
         image = { it.placedBy(matrix) },
     )
+
+    /**
+     * Flips everything selected over about the selection's middle: left to right when [horizontal],
+     * else top to bottom.
+     *
+     * The same path as a drag on a grip, so it is one undo step, and strokes, shapes, boxes and
+     * pictures each take a mirror the way they take any other transform — see [carriedBy] for why
+     * a text box is moved to its mirror image but its words are not flipped.
+     */
+    fun mirrorSelection(horizontal: Boolean) {
+        val selection = _state.value.selection ?: return
+        transformSelection(mirrorMatrix(selection.bounds.inflate(SELECTION_PAD_PT), horizontal))
+    }
 
     /**
      * Recolours the ink selected, and shows the pictures selected in that colour.

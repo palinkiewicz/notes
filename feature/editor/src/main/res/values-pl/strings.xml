@@ -156,6 +156,7 @@
 
     <!--  SELECTION  -->
     <string name="editor_selection_scale">Zmień rozmiar zaznaczenia</string>
+    <string name="editor_selection_stretch">Rozciągnij zaznaczenie</string>
     <string name="editor_selection_rotate">Obróć zaznaczenie</string>
     <string name="editor_selection_apex">Przesuń wierzchołek kształtu</string>
     <string name="editor_selection_duplicate">Duplikuj zaznaczenie</string>
@@ -164,6 +165,8 @@
     <string name="editor_selection_fill">Wypełnij zaznaczenie</string>
     <string name="editor_selection_unfill">Usuń wypełnienie</string>
     <string name="editor_selection_delete">Usuń zaznaczenie</string>
+    <string name="editor_selection_mirror_horizontal">Odbij w poziomie</string>
+    <string name="editor_selection_mirror_vertical">Odbij w pionie</string>
 
     <!--  MARKDOWN EDITOR  -->
     <string name="markdown_placeholder">Napisz coś…</string>

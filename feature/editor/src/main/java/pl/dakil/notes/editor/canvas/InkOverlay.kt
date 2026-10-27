@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -467,18 +468,38 @@ fun InkOverlay(
         // ink, so its weight and its dashes are divided back out of the placement scale.
         if (selection != null && reshaping == null) {
             val scale = zoom().coerceAtLeast(MIN_ZOOM)
-            val box = controller.live.mapBounds(selection.bounds.inflate(SELECTION_PAD_PT))
-            val top = toStripPx(box.top)
             val dash = SELECTION_DASH_PX / scale
-            drawRect(
-                color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8),
-                topLeft = Offset(box.left * ptToPx, top),
-                size = Size(box.width * ptToPx, toStripPx(box.bottom) - top),
-                style = DrawStroke(
-                    width = 1.5f / scale,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)),
-                ),
+            val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+            val style = DrawStroke(
+                width = 1.5f / scale,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)),
             )
+            val padded = selection.bounds.inflate(SELECTION_PAD_PT)
+            if (controller.isRotating) {
+                // Turned with the ink rather than boxed round it. The box round a turning frame
+                // swells and shrinks with the angle, which reads as the selection being scaled as
+                // well as turned; the frame itself, turning at its own size, is what is happening.
+                val m = controller.live
+                val xs = floatArrayOf(padded.left, padded.right, padded.right, padded.left)
+                val ys = floatArrayOf(padded.top, padded.top, padded.bottom, padded.bottom)
+                val outline = Path()
+                for (i in 0..3) {
+                    val x = m.mapX(xs[i], ys[i]) * ptToPx
+                    val y = toStripPx(m.mapY(xs[i], ys[i]))
+                    if (i == 0) outline.moveTo(x, y) else outline.lineTo(x, y)
+                }
+                outline.close()
+                drawPath(outline, color = color, style = style)
+            } else {
+                val box = controller.live.mapBounds(padded)
+                val top = toStripPx(box.top)
+                drawRect(
+                    color = color,
+                    topLeft = Offset(box.left * ptToPx, top),
+                    size = Size(box.width * ptToPx, toStripPx(box.bottom) - top),
+                    style = style,
+                )
+            }
         }
 
         if (lasso.count > 1) {

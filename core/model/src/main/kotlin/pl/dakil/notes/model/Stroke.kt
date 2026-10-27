@@ -182,6 +182,7 @@ class Stroke(
     /** Returns a copy with every point mapped through [m]. Used by lasso move/scale/rotate. */
     fun transformed(m: Affine): Stroke {
         if (m.isIdentity) return this
+        dotStretchedBy(m)?.let { return it }
         val n = xs.size
         val nx = FloatArray(n)
         val ny = FloatArray(n)
@@ -191,11 +192,60 @@ class Stroke(
         }
         // Uniform scale factor, so a scaled selection keeps its visual stroke weight.
         val scale = kotlin.math.sqrt(kotlin.math.abs(m.a * m.d - m.b * m.c))
-        // A sheared square is a parallelogram, which no ShapeSpec can describe; transformedBy says
-        // so by returning null, and the result is honest ink rather than a shape that lies.
+        // A shape the transform takes outside what a ShapeSpec can describe — a stretched arc, a
+        // sheared ellipse — comes back null from transformedBy, and the result is honest ink rather
+        // than a shape that lies.
         return Stroke(
             tool, color, width * scale, blend, nx, ny, widthFactors, tilts, times,
             shape?.transformedBy(m), filled,
+        )
+    }
+
+    /**
+     * A dot pulled out of round by [m], or null when this is not a dot or [m] keeps it round.
+     *
+     * A stroke has one width, so the stretch of an ordinary stroke is carried by its points and its
+     * width only follows the overall scale. A dot has no points to speak of — it is all end cap, a
+     * tap given a second point a hundredth of a point away — so the same rule would leave it a
+     * circle of the averaged size, however far one edge grip pulled it.
+     *
+     * So a dot comes out as the nearest thing a stroke can be to the ellipse [m] makes of it: a short
+     * round-capped segment along the ellipse's long axis, as thick as its short one. That is exact
+     * at both ends of each axis and what the live preview showed, give or take the flat of the sides.
+     */
+    private fun dotStretchedBy(m: Affine): Stroke? {
+        val core = bounds.inflate(-(width * 0.5f + 0.5f))
+        if (maxOf(core.right - core.left, core.bottom - core.top) > width * DOT_EXTENT) return null
+
+        // The singular values of m's linear part: how far it stretches its longest and shortest way.
+        val e = m.a * m.a + m.b * m.b + m.c * m.c + m.d * m.d
+        val det = m.a * m.d - m.b * m.c
+        val root = kotlin.math.sqrt((e * e - 4f * det * det).coerceAtLeast(0f))
+        val long = kotlin.math.sqrt((e + root) / 2f)
+        val short = kotlin.math.sqrt(((e - root) / 2f).coerceAtLeast(0f))
+        if (long - short <= long * 1e-3f) return null
+
+        // The long axis, in page space: the leading eigenvector of m · mᵀ.
+        val angle = 0.5f * kotlin.math.atan2(
+            2f * (m.a * m.b + m.c * m.d),
+            (m.a * m.a + m.c * m.c) - (m.b * m.b + m.d * m.d),
+        )
+        val cx = (core.left + core.right) / 2f
+        val cy = (core.top + core.bottom) / 2f
+        val mx = m.mapX(cx, cy)
+        val my = m.mapY(cx, cy)
+        // The dot as drawn, which a pressure-sensitive tap has narrower than the tool's own width.
+        val factor = widthFactors?.maxOrNull()
+        val half = width * (factor ?: 1f) * 0.5f * (long - short)
+        val dx = kotlin.math.cos(angle) * half
+        val dy = kotlin.math.sin(angle) * half
+        return Stroke(
+            tool, color, width * short, blend,
+            floatArrayOf(mx - dx, mx + dx), floatArrayOf(my - dy, my + dy),
+            factor?.let { floatArrayOf(it, it) },
+            tilts?.let { floatArrayOf(it.first(), it.last()) },
+            times?.let { intArrayOf(it.first(), it.last()) },
+            null, filled,
         )
     }
 
@@ -335,3 +385,9 @@ class Stroke(
         const val WIDTH_FLAT_TOLERANCE = 1e-3f
     }
 }
+
+/**
+ * How long a stroke's centreline may be, as a share of its width, and still be a dot: a tap, or one
+ * that wavered by a fraction of the pen's own size, whose ink is all end cap.
+ */
+private const val DOT_EXTENT = 0.25f

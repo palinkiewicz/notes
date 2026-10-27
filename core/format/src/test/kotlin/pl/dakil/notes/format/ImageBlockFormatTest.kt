@@ -125,4 +125,13 @@ class ImageBlockFormatTest {
     fun `an untinted picture's descriptor does not mention a tint`() {
         assertEquals(null, Schema.writeBlock(image("p1")) { "x" }.get("tint"))
     }
+
+    @Test
+    fun `a stretched and mirrored picture keeps its whole matrix across a save`() {
+        // A picture can be sheared now — turned, then stretched along the page — and the block's
+        // transform is a full matrix in the file already, so nothing new has to be written for it.
+        val skewed = image("p1").copy(transform = pl.dakil.notes.model.Affine(-1f, 0.2f, 0.3f, 1f, 50f, 7f))
+        val back = roundTrip(noteWith(skewed)).sheet.blocks.filterIsInstance<ImageBlock>().single()
+        assertEquals(skewed.transform, back.transform)
+    }
 }
