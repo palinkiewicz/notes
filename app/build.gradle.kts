@@ -14,8 +14,8 @@ android {
         applicationId = "pl.dakil.notes"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.1.2"
+        versionCode = 8
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -31,6 +31,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-DEBUG"
         }
     }
     compileOptions {
