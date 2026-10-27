@@ -33,9 +33,14 @@ class SheetTransform {
     private var rawOffsetX by mutableFloatStateOf(Float.NaN)
     private var rawOffsetY by mutableFloatStateOf(0f)
 
-    /** Viewport size in pixels. Plain fields: they change at window pace, not at input pace. */
-    private var viewportWidth = 0f
-    private var viewportHeight = 0f
+    /**
+     * Viewport size in pixels. They change at window pace, not at input pace, but they are snapshot
+     * state all the same: the window's page range is derived from them, and a plain field would
+     * leave a window that grew taller showing blank paper until the next pan crossed a page edge.
+     * Written from measure with the same value on every pass, which a snapshot write ignores.
+     */
+    private var viewportWidth by mutableFloatStateOf(0f)
+    private var viewportHeight by mutableFloatStateOf(0f)
 
     /** Unzoomed content size in pixels. */
     private var contentWidth = 0f

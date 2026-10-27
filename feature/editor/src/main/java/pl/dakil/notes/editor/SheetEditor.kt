@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
@@ -353,21 +355,40 @@ private fun SheetLayers(
         SheetPainter.stripHeightPx(format, pageCount, ptToPx, paged).toDp()
     }
 
+    // Every layer below gets a render node of its own (`graphicsLayer()` with nothing set, so
+    // nothing goes offscreen and a multiplying highlighter still blends with the paper and text
+    // under it). Without them the whole strip is one display list, and Compose re-runs every draw
+    // lambda in a list when any one of them is invalidated: a pen sample or a pan frame re-recorded
+    // every text box in the note — offscreen ones included — along with the paper and the ink.
+    // The pages under the window, plus one either side. Derived, so the paper and the ink — which
+    // read it inside their draw lambdas — are repainted when a page edge crosses the window and
+    // not on the other frames of a pan, which only move the sheet's layer. See pageWindow.
+    val pages = remember(transform, format, pageCount, ptToPx, paged) {
+        derivedStateOf {
+            SheetPainter.pageWindow(
+                visibleTopPx = transform.visibleTop(),
+                visibleBottomPx = transform.visibleBottom(),
+                format = format,
+                pageCount = pageCount,
+                ptToPx = ptToPx,
+                paged = paged,
+            )
+        }
+    }
+
     Box(Modifier.fillMaxWidth().height(stripHeight)) {
 
         // 1. Paper: the pages, their rule pattern, and the page edges when paged.
-        Canvas(Modifier.matchParentSize()) {
+        Canvas(Modifier.matchParentSize().graphicsLayer()) {
             drawSheet(
                 format = format,
                 pageCount = pageCount,
                 ptToPx = ptToPx,
                 paged = paged,
                 zoom = transform.zoom,
-                // Only the band under the window is emitted, so a fifty-page note costs what a
-                // one-page note costs. Read inside the draw lambda, so panning invalidates the
-                // draw phase alone.
-                visibleTopPx = transform.visibleTop(),
-                visibleBottomPx = transform.visibleBottom(),
+                // Only the pages under the window are emitted, so a fifty-page note costs what a
+                // one-page note costs.
+                pages = pages.value,
             )
         }
 
@@ -378,7 +399,7 @@ private fun SheetLayers(
             paged = paged,
             selected = state.selection?.images.orEmpty(),
             controller = selectionController,
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier.matchParentSize().graphicsLayer(),
         )
 
         // 3. Text: the boxes, each standing where it was put and clipped to its own page.
@@ -415,12 +436,12 @@ private fun SheetLayers(
             // screen, and reading it here instead of at the call site keeps a pinch off the
             // recomposition path entirely.
             zoom = transform::zoom,
-            // Lambdas for the same reason, and read inside the overlay's draw lambda: ink outside
-            // the window is not drawn, so a long note costs a screenful rather than a document.
-            visibleTopPx = transform::visibleTop,
-            visibleBottomPx = transform::visibleBottom,
+            // A lambda for the same reason, and read inside the overlay's draw lambdas: ink off the
+            // pages under the window is not drawn, so a long note costs a screenful rather than a
+            // document.
+            pages = { pages.value },
             rulerEdgeFor = if (state.rulerEnabled && ruler.isPlaced) rulerEdgeFor else null,
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier.matchParentSize().graphicsLayer(),
         )
 
         // 5. The ruler, over the ink it is there to straighten. It takes no pointer input at all —
@@ -429,7 +450,7 @@ private fun SheetLayers(
             RulerOverlay(
                 ruler = ruler,
                 transform = transform,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.matchParentSize().graphicsLayer(),
             )
         }
     }

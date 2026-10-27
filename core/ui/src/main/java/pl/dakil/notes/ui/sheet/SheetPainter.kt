@@ -56,6 +56,7 @@ object SheetPainter {
      *   be divided by it to end up the intended size on the glass. Without that, opening a note at
      *   fit-to-width — around a quarter scale on a phone — would render the rules a quarter of a
      *   pixel wide and the paper would come up blank.
+     * @param pages the pages to paint — see [pageWindow]. Everything else is left blank.
      */
     fun DrawScope.drawSheet(
         format: PageFormat,
@@ -63,18 +64,16 @@ object SheetPainter {
         ptToPx: Float,
         paged: Boolean,
         zoom: Float = 1f,
-        visibleTopPx: Float = 0f,
-        visibleBottomPx: Float = size.height,
+        pages: IntRange = 0 until pageCount,
     ) {
         val paper = Color(format.background.color)
         val pageHeightPx = format.height * ptToPx
         val gapPx = if (paged) PAGE_GAP_PT * ptToPx else 0f
         val edge = EDGE_PX / zoom
 
-        for (page in 0 until pageCount) {
+        for (page in pages.first.coerceAtLeast(0)..pages.last.coerceAtMost(pageCount - 1)) {
             val top = page * (pageHeightPx + gapPx)
             val bottom = top + pageHeightPx
-            if (bottom < visibleTopPx || top > visibleBottomPx) continue
 
             drawRect(color = paper, topLeft = Offset(0f, top), size = Size(size.width, pageHeightPx))
 
@@ -93,6 +92,37 @@ object SheetPainter {
                 )
             }
         }
+    }
+
+    /**
+     * The pages a pass over the window has to paint: those the band [visibleTopPx]..[visibleBottomPx]
+     * of the strip touches, widened by [slack] pages either side and clamped to the document.
+     *
+     * Whole pages, deliberately. A draw pass that culls by the window's exact edges has to be
+     * redrawn on every frame of a pan, because the edges move on every frame — and on a page of
+     * dense handwriting that redraw is thousands of paths. Read through a `derivedStateOf`, a range
+     * of pages changes only when a page edge crosses the window, so a pan within a page repaints
+     * nothing at all and the sheet merely slides under the glass. The slack is there so that a page
+     * is already drawn by the time it slides into view, rather than arriving a frame late.
+     */
+    fun pageWindow(
+        visibleTopPx: Float,
+        visibleBottomPx: Float,
+        format: PageFormat,
+        pageCount: Int,
+        ptToPx: Float,
+        paged: Boolean,
+        slack: Int = 1,
+    ): IntRange {
+        if (pageCount <= 0) return IntRange.EMPTY
+        val stride = pageStridePx(format, ptToPx, paged)
+        if (stride <= 0f || visibleTopPx.isNaN() || visibleBottomPx.isNaN()) return 0 until pageCount
+        val last = (pageCount - 1).toFloat()
+        // Clamped as floats, before the conversion: a band reaching to ±Float.MAX_VALUE would
+        // otherwise saturate the Int and wrap round when the slack is taken off it.
+        val first = (floor(visibleTopPx / stride) - slack).coerceIn(0f, last).toInt()
+        val end = (floor(visibleBottomPx / stride) + slack).coerceIn(-1f, last).toInt()
+        return first..end
     }
 
     /** Distance from one page's top to the next, in pixels — the page plus its gap. */

@@ -3,7 +3,9 @@ package pl.dakil.notes.editor.canvas
 import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -16,7 +18,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerType
@@ -24,7 +28,9 @@ import androidx.compose.ui.input.pointer.RequestDisallowInterceptTouchEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalGraphicsContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.ink.InputIntent
 import pl.dakil.notes.ink.InputRouter
@@ -44,8 +50,10 @@ import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.min
 import pl.dakil.notes.ui.sheet.StrokeRenderer
 import pl.dakil.notes.ui.sheet.SheetPainter
 
@@ -169,15 +177,16 @@ fun InkOverlay(
     /** The scale the sheet is placed at, for anything that must stay a fixed size on screen. */
     zoom: () -> Float = { 1f },
     /**
-     * The band of the strip currently under the window, in unzoomed strip pixels.
+     * The pages to draw — those under the window and a page either side, as `SheetPainter.pageWindow`
+     * works them out.
      *
-     * Lambdas, and read *inside* the draw lambda, for the reason the whole file is built around: a
-     * pan then invalidates the draw phase and nothing recomposes. Ink outside the band is not drawn
-     * at all, which is what stops a fifty-page note costing fifty pages of path building on every
-     * frame.
+     * A lambda, and read *inside* the draw lambdas, for the reason the whole file is built around: a
+     * pan then invalidates the draw phase and nothing recomposes. It should be backed by derived
+     * state, so it changes only when a page edge crosses the window, and a pan within a page
+     * invalidates nothing at all. Ink off these pages is not drawn, which is what stops a fifty-page
+     * note costing fifty pages of drawing.
      */
-    visibleTopPx: () -> Float = { -Float.MAX_VALUE },
-    visibleBottomPx: () -> Float = { Float.MAX_VALUE },
+    pages: () -> IntRange = { 0..Int.MAX_VALUE },
     /**
      * Given a pen-down in document points, the ruler edge that stroke should be drawn against, or
      * null for free-hand. Null itself whenever the ruler is off.
@@ -265,12 +274,18 @@ fun InkOverlay(
 
     // Paged view draws one clipped pass per page, and used to re-scan every block and every stroke
     // in the note inside each of them — O(pages x strokes) bound tests before a line was drawn.
-    // Grouping them once per edit makes a page cost what that page holds.
-    val strokesByPage = remember(sheet, documentVersion, paged, pageCount, selected) {
-        if (paged) strokesByPage(paintOrder, pageCount, format.height, selected) else emptyList()
+    // Grouping them once per edit makes a page cost what that page holds. Continuous view groups
+    // them differently, for the reason given at strokesByTopPage.
+    val buckets = remember(sheet, documentVersion, paged, pageCount, selected) {
+        if (paged) clippedBuckets(strokesByPage(paintOrder, pageCount, format.height, selected))
+        else strokesByTopPage(paintOrder, pageCount, format.height, selected)
     }
 
-    Canvas(
+    val graphicsContext = LocalGraphicsContext.current
+    val pageLayers = remember(graphicsContext) { PageInkLayers(graphicsContext) }
+    DisposableEffect(pageLayers) { onDispose { pageLayers.releaseAll() } }
+
+    Box(
         modifier = modifier
             .stylusProximity(
                 router = router,
@@ -342,187 +357,206 @@ fun InkOverlay(
                 )
             }
     ) {
-        @Suppress("UNUSED_EXPRESSION")
-        inkVersion.intValue
-        // Read for its side effect, exactly like the counter above it: a selection being dragged
-        // bumps this per input sample, and the read is what makes the canvas repaint without
-        // anything recomposing.
-        @Suppress("UNUSED_EXPRESSION")
-        controller.version
-
-        val toStripPx = { y: Float -> SheetPainter.documentYToStripPx(y, format, ptToPx, paged) }
-        // While a shape is live it *is* the stroke under the pen; the builder still holds the
-        // free-hand path it replaced, which must not be drawn underneath it.
-        val live = shape.spec
-        val wet = live == null && !builder.isEmpty && currentTool.tool.isDrawing
-
-        // The one stroke whose apex is being dragged, if any. The preview takes its weight and
-        // colour from the ink it is about to replace, so what is under the grip while it is being
-        // pulled looks like what will be committed when it is let go.
-        val reshaping = if (controller.liveShape != null) selectedInOrder.firstOrNull() else null
-
-        // A page of slack either side of the window, so a fling never outruns the ink and shows it
-        // arriving. Generous on purpose: the saving is against the length of the *note*, and a note
-        // is a great deal longer than three screens.
-        val padPx = format.height * ptToPx
-        val bandTopPx = visibleTopPx() - padPx
-        val bandBottomPx = visibleBottomPx() + padPx
-        val bandTop = SheetPainter.stripPxToDocumentY(bandTopPx, format, ptToPx, paged)
-        val bandBottom = SheetPainter.stripPxToDocumentY(bandBottomPx, format, ptToPx, paged)
-
-        with(renderer) {
-            if (!paged) {
-                // Continuous view has no gaps, so the pages are one uninterrupted surface and a
-                // single pass is both correct and cheapest.
-                for (block in paintOrder) {
-                    if (block !is InkBlock || !block.visible) continue
-                    // Continuous view lays the pages out with no gaps, so document y and strip y
-                    // are the same measure and the pass needs no offset.
-                    val strokes =
-                        if (selected.isEmpty()) block.strokes
-                        else block.strokes.filter { it !in selected }
-                    drawStrokes(strokes, ptToPx, 0f, 1f, bandTop, bandBottom)
+        // The committed ink, a recorded layer per page. Its own render node, and reading nothing
+        // that changes per sample or per frame of a pan: the pen moving repaints the live layer
+        // above it, a pan moves the sheet, and neither replays a stroke into a display list. It is
+        // repainted when a page comes into the window or the document changes, and then each page
+        // whose ink is unchanged is a single call. See PageInkLayers.
+        Canvas(Modifier.matchParentSize().graphicsLayer()) {
+            val window = pages()
+            val pageHeightPx = format.height * ptToPx
+            val stride = SheetPainter.pageStridePx(format, ptToPx, paged)
+            val layerSize = IntSize(ceil(size.width).toInt(), ceil(pageHeightPx).toInt())
+            var firstDrawn = window.first
+            for (page in 0..min(window.last, buckets.pages.size - 1)) {
+                // A page above the window is still drawn while ink recorded on it reaches down into
+                // the window — which only continuous view's buckets ever do.
+                if (buckets.lastPage[page] < window.first) continue
+                val strokes = buckets.pages[page]
+                if (strokes.isEmpty()) continue
+                if (page < firstDrawn) firstDrawn = page
+                val top = page * stride
+                with(pageLayers) {
+                    // Recorded in the page's own pixels, so it is the same recording wherever the
+                    // page sits in the strip — and moving a page leaves it to be recorded only
+                    // because its strokes have become new ones.
+                    val draw: DrawScope.() -> Unit = {
+                        drawPage(page, strokes, top, layerSize, ptToPx) {
+                            with(renderer) { drawStrokes(strokes, ptToPx, -page * pageHeightPx) }
+                        }
+                    }
+                    // A stroke drawn across a page break is a single continuous stroke in the
+                    // document — that is the right model, since the break is presentation — but in
+                    // paged view it must not be *painted* across the join, or the ink appears to
+                    // run down the desk between two sheets of paper.
+                    if (paged) clipRect(top = top, bottom = top + pageHeightPx) { draw() } else draw()
                 }
-                if (reshaping == null && selectedInOrder.isNotEmpty()) {
-                    drawStrokes(
-                        selectedInOrder, ptToPx, 0f, 1f, bandTop, bandBottom, controller.live,
-                    )
-                }
-                if (reshaping != null) drawShapePreview(
-                    controller.outline, ptToPx, toStripPx,
-                    reshaping.width, reshaping.color, reshaping.blend, reshaping.filled, reshaping.core,
-                )
-                if (wet) drawWetStroke(builder, ptToPx, toStripPx)
-                if (live != null) drawShapePreview(
-                    shape.outline, ptToPx, toStripPx,
-                    shape.previewWidth, shape.previewColor, shape.previewBlend, shape.previewFilled,
-                    shape.previewCore,
-                )
-            } else {
-                // One clipped pass per page. A stroke drawn across a page break is a single
-                // continuous stroke in the document — that is the right model, since the break is
-                // presentation — but it must not be *painted* across the join, or the ink appears
-                // to run down the desk between two sheets of paper.
-                val pageHeightPx = format.height * ptToPx
-                val gapPx = SheetPainter.PAGE_GAP_PT * ptToPx
-                for (page in 0 until pageCount) {
-                    val top = page * (pageHeightPx + gapPx)
-                    // Whole pages outside the window are skipped before the clip is even set up:
-                    // a clipRect still costs a save and a restore, and there is no point paying it
-                    // pageCount times to draw nothing.
-                    if (top + pageHeightPx < bandTopPx || top > bandBottomPx) continue
-                    val docTop = page * format.height
-                    val docBottom = docTop + format.height
-                    clipRect(top = top, bottom = top + pageHeightPx) {
-                        // Every page before this one has pushed the paper a gap further down the
-                        // strip. That is the whole difference between document y and strip y here,
-                        // and it is constant across the page — so it is one translation, not a
-                        // per-point mapping.
+            }
+            pageLayers.retain(firstDrawn..window.last)
+        }
+
+        // Everything that moves with the hand: the wet stroke, a shape being held, the selection
+        // under its live transform, and the overlay's own marks. Redrawn per input sample, which is
+        // cheap because none of the note's committed ink is in it.
+        Canvas(Modifier.matchParentSize().graphicsLayer()) {
+            @Suppress("UNUSED_EXPRESSION")
+            inkVersion.intValue
+            // Read for its side effect, exactly like the counter above it: a selection being
+            // dragged bumps this per input sample, and the read is what makes the canvas repaint
+            // without anything recomposing.
+            @Suppress("UNUSED_EXPRESSION")
+            controller.version
+
+            val toStripPx = { y: Float -> SheetPainter.documentYToStripPx(y, format, ptToPx, paged) }
+            // While a shape is live it *is* the stroke under the pen; the builder still holds the
+            // free-hand path it replaced, which must not be drawn underneath it.
+            val live = shape.spec
+            val wet = live == null && !builder.isEmpty && currentTool.tool.isDrawing
+
+            // The one stroke whose apex is being dragged, if any. The preview takes its weight and
+            // colour from the ink it is about to replace, so what is under the grip while it is
+            // being pulled looks like what will be committed when it is let go.
+            val reshaping = if (controller.liveShape != null) selectedInOrder.firstOrNull() else null
+            val moving = reshaping == null && selectedInOrder.isNotEmpty()
+
+            val window = pages()
+            val windowTop = window.first * format.height
+            val windowBottom = (window.last + 1f) * format.height
+
+            with(renderer) {
+                if (!paged) {
+                    // Continuous view has no gaps, so the pages are one uninterrupted surface and a
+                    // single pass is both correct and cheapest. Document y and strip y are the same
+                    // measure there, so the pass needs no offset.
+                    if (moving) {
                         drawStrokes(
-                            strokesByPage[page], ptToPx, page * gapPx, 1f, docTop, docBottom,
+                            selectedInOrder, ptToPx, 0f, 1f, windowTop, windowBottom, controller.live,
                         )
-                        // The selection is drawn after the ink it was lifted out of, under the
-                        // live transform, and culled by where it is *going* rather than where the
-                        // document still says it is — see `drawStrokes`.
-                        if (reshaping == null && selectedInOrder.isNotEmpty()) {
-                            drawStrokes(
-                                selectedInOrder, ptToPx, page * gapPx, 1f,
-                                docTop, docBottom, controller.live,
+                    }
+                    if (reshaping != null) drawShapePreview(
+                        controller.outline, ptToPx, toStripPx,
+                        reshaping.width, reshaping.color, reshaping.blend, reshaping.filled, reshaping.core,
+                    )
+                    if (wet) drawWetStroke(builder, ptToPx, toStripPx)
+                    if (live != null) drawShapePreview(
+                        shape.outline, ptToPx, toStripPx,
+                        shape.previewWidth, shape.previewColor, shape.previewBlend, shape.previewFilled,
+                        shape.previewCore,
+                    )
+                } else if (moving || reshaping != null || wet || live != null) {
+                    // One clipped pass per page, for the reason the committed ink has one. Skipped
+                    // outright when there is nothing live: a clipRect still costs a save and a
+                    // restore, and there is no point paying it per page per frame to draw nothing.
+                    val pageHeightPx = format.height * ptToPx
+                    val gapPx = SheetPainter.PAGE_GAP_PT * ptToPx
+                    for (page in window.first..min(window.last, pageCount - 1)) {
+                        val top = page * (pageHeightPx + gapPx)
+                        val docTop = page * format.height
+                        val docBottom = docTop + format.height
+                        clipRect(top = top, bottom = top + pageHeightPx) {
+                            // The selection is drawn over the ink it was lifted out of, under the
+                            // live transform, and culled by where it is *going* rather than where
+                            // the document still says it is — see `drawStrokes`.
+                            if (moving) {
+                                drawStrokes(
+                                    selectedInOrder, ptToPx, page * gapPx, 1f,
+                                    docTop, docBottom, controller.live,
+                                )
+                            }
+                            if (reshaping != null) drawShapePreview(
+                                controller.outline, ptToPx, toStripPx,
+                                reshaping.width, reshaping.color, reshaping.blend, reshaping.filled,
+                                reshaping.core,
+                            )
+                            // Culled by page for a sharper reason: the wet stroke is tessellated on
+                            // every frame, so drawing it once per page would multiply that by the
+                            // number of pages in the window.
+                            if (wet && builder.maxY >= docTop && builder.minY < docBottom) {
+                                drawWetStroke(builder, ptToPx, toStripPx)
+                            }
+                            if (live != null) drawShapePreview(
+                                shape.outline, ptToPx, toStripPx,
+                                shape.previewWidth, shape.previewColor, shape.previewBlend,
+                                shape.previewFilled, shape.previewCore,
                             )
                         }
-                        if (reshaping != null) drawShapePreview(
-                            controller.outline, ptToPx, toStripPx,
-                            reshaping.width, reshaping.color, reshaping.blend, reshaping.filled,
-                            reshaping.core,
-                        )
-                        // Culled by the same band the committed strokes are, and for a sharper
-                        // reason: the wet stroke is tessellated on every frame, so drawing it once
-                        // per page would multiply that by the length of the note.
-                        if (wet && builder.maxY >= docTop && builder.minY < docBottom) {
-                            drawWetStroke(builder, ptToPx, toStripPx)
-                        }
-                        if (live != null) drawShapePreview(
-                            shape.outline, ptToPx, toStripPx,
-                            shape.previewWidth, shape.previewColor, shape.previewBlend,
-                            shape.previewFilled, shape.previewCore,
-                        )
                     }
                 }
             }
-        }
 
-        if (eraserCursor.visible &&
-            (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
-        ) {
-            val center = Offset(eraserCursor.x * ptToPx, toStripPx(eraserCursor.y))
-            val radiusPx = currentTool.eraserRadius * ptToPx
-            drawCircle(color = Color.White, radius = radiusPx, center = center)
-            drawCircle(
-                color = Color.Black,
-                radius = radiusPx,
-                center = center,
-                style = DrawStroke(width = 1.5f / zoom().coerceAtLeast(MIN_ZOOM)),
-            )
-        }
-
-        // The selection's outline, following the live transform so it stays round what it
-        // contains while that is being dragged. Like the marquee below it this is UI rather than
-        // ink, so its weight and its dashes are divided back out of the placement scale.
-        if (selection != null && reshaping == null) {
-            val scale = zoom().coerceAtLeast(MIN_ZOOM)
-            val dash = SELECTION_DASH_PX / scale
-            val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
-            val style = DrawStroke(
-                width = 1.5f / scale,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)),
-            )
-            val padded = selection.bounds.inflate(SELECTION_PAD_PT)
-            if (controller.isRotating) {
-                // Turned with the ink rather than boxed round it. The box round a turning frame
-                // swells and shrinks with the angle, which reads as the selection being scaled as
-                // well as turned; the frame itself, turning at its own size, is what is happening.
-                val m = controller.live
-                val xs = floatArrayOf(padded.left, padded.right, padded.right, padded.left)
-                val ys = floatArrayOf(padded.top, padded.top, padded.bottom, padded.bottom)
-                val outline = Path()
-                for (i in 0..3) {
-                    val x = m.mapX(xs[i], ys[i]) * ptToPx
-                    val y = toStripPx(m.mapY(xs[i], ys[i]))
-                    if (i == 0) outline.moveTo(x, y) else outline.lineTo(x, y)
-                }
-                outline.close()
-                drawPath(outline, color = color, style = style)
-            } else {
-                val box = controller.live.mapBounds(padded)
-                val top = toStripPx(box.top)
-                drawRect(
-                    color = color,
-                    topLeft = Offset(box.left * ptToPx, top),
-                    size = Size(box.width * ptToPx, toStripPx(box.bottom) - top),
-                    style = style,
+            if (eraserCursor.visible &&
+                (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
+            ) {
+                val center = Offset(eraserCursor.x * ptToPx, toStripPx(eraserCursor.y))
+                val radiusPx = currentTool.eraserRadius * ptToPx
+                drawCircle(color = Color.White, radius = radiusPx, center = center)
+                drawCircle(
+                    color = Color.Black,
+                    radius = radiusPx,
+                    center = center,
+                    style = DrawStroke(width = 1.5f / zoom().coerceAtLeast(MIN_ZOOM)),
                 )
             }
-        }
 
-        if (lasso.count > 1) {
-            val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
-            // The marquee is UI, not ink: it should be the same weight however far the page is
-            // zoomed, so its width is divided back out of the placement scale.
-            val outlineWidth = 2f / zoom()
-            for (i in 1 until lasso.count) {
+            // The selection's outline, following the live transform so it stays round what it
+            // contains while that is being dragged. Like the marquee below it this is UI rather than
+            // ink, so its weight and its dashes are divided back out of the placement scale.
+            if (selection != null && reshaping == null) {
+                val scale = zoom().coerceAtLeast(MIN_ZOOM)
+                val dash = SELECTION_DASH_PX / scale
+                val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+                val style = DrawStroke(
+                    width = 1.5f / scale,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)),
+                )
+                val padded = selection.bounds.inflate(SELECTION_PAD_PT)
+                if (controller.isRotating) {
+                    // Turned with the ink rather than boxed round it. The box round a turning frame
+                    // swells and shrinks with the angle, which reads as the selection being scaled as
+                    // well as turned; the frame itself, turning at its own size, is what is happening.
+                    val m = controller.live
+                    val xs = floatArrayOf(padded.left, padded.right, padded.right, padded.left)
+                    val ys = floatArrayOf(padded.top, padded.top, padded.bottom, padded.bottom)
+                    val outline = Path()
+                    for (i in 0..3) {
+                        val x = m.mapX(xs[i], ys[i]) * ptToPx
+                        val y = toStripPx(m.mapY(xs[i], ys[i]))
+                        if (i == 0) outline.moveTo(x, y) else outline.lineTo(x, y)
+                    }
+                    outline.close()
+                    drawPath(outline, color = color, style = style)
+                } else {
+                    val box = controller.live.mapBounds(padded)
+                    val top = toStripPx(box.top)
+                    drawRect(
+                        color = color,
+                        topLeft = Offset(box.left * ptToPx, top),
+                        size = Size(box.width * ptToPx, toStripPx(box.bottom) - top),
+                        style = style,
+                    )
+                }
+            }
+
+            if (lasso.count > 1) {
+                val color = if (darkTheme) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+                // The marquee is UI, not ink: it should be the same weight however far the page is
+                // zoomed, so its width is divided back out of the placement scale.
+                val outlineWidth = 2f / zoom()
+                for (i in 1 until lasso.count) {
+                    drawLine(
+                        color = color,
+                        start = Offset(lasso.xs[i - 1] * ptToPx, lasso.stripYs[i - 1]),
+                        end = Offset(lasso.xs[i] * ptToPx, lasso.stripYs[i]),
+                        strokeWidth = outlineWidth,
+                    )
+                }
                 drawLine(
-                    color = color,
-                    start = Offset(lasso.xs[i - 1] * ptToPx, lasso.stripYs[i - 1]),
-                    end = Offset(lasso.xs[i] * ptToPx, lasso.stripYs[i]),
+                    color = color.copy(alpha = 0.4f),
+                    start = Offset(lasso.xs[lasso.count - 1] * ptToPx, lasso.stripYs[lasso.count - 1]),
+                    end = Offset(lasso.xs[0] * ptToPx, lasso.stripYs[0]),
                     strokeWidth = outlineWidth,
                 )
             }
-            drawLine(
-                color = color.copy(alpha = 0.4f),
-                start = Offset(lasso.xs[lasso.count - 1] * ptToPx, lasso.stripYs[lasso.count - 1]),
-                end = Offset(lasso.xs[0] * ptToPx, lasso.stripYs[0]),
-                strokeWidth = outlineWidth,
-            )
         }
     }
 }
@@ -568,6 +602,60 @@ internal fun strokesByPage(
         }
     }
     return pages
+}
+
+/**
+ * Committed strokes bucketed by page for recording, with how far down each bucket's ink reaches.
+ *
+ * [lastPage] is the last page any stroke in a bucket touches: a page has to be drawn while *that*
+ * is in view, not only while it is itself.
+ */
+internal class PageBuckets(val pages: List<List<Stroke>>, val lastPage: IntArray)
+
+/** [strokesByPage] for paged view, where every stroke in a bucket is clipped to that one page. */
+internal fun clippedBuckets(pages: List<List<Stroke>>): PageBuckets =
+    PageBuckets(pages, IntArray(pages.size) { it })
+
+/**
+ * Groups committed strokes for continuous view, where each one goes on **one** page only: the page
+ * its centreline starts on.
+ *
+ * Paged view can split a stroke at a break because the break is a gap the clip falls in. In
+ * continuous view the two pages meet, and a stroke clipped at the join on both sides gets the
+ * anti-aliased edge of two clips along one line — a hairline seam through every stroke written
+ * across it. Recorded whole on the page where it starts, the stroke is drawn exactly as the single
+ * unclipped pass used to draw it, and [PageBuckets.lastPage] keeps that page on screen for as long
+ * as the stroke's tail is.
+ *
+ * The one thing given up is paint order *across* buckets: a stroke that runs down onto the next
+ * page is painted under that page's strokes even where one of them is older. That takes a stroke
+ * crossing a page edge to be overlapped by an earlier one on the page below.
+ */
+internal fun strokesByTopPage(
+    blocks: List<Block>,
+    pageCount: Int,
+    pageHeight: Float,
+    /** Strokes to leave out — the selection, as for [strokesByPage]. */
+    exclude: Set<Stroke> = emptySet(),
+): PageBuckets {
+    val pages = List(pageCount) { ArrayList<Stroke>() }
+    val lastPage = IntArray(pageCount) { it }
+    if (pageCount == 0 || pageHeight <= 0f) return PageBuckets(pages, lastPage)
+
+    for (block in blocks) {
+        if (block !is InkBlock || !block.visible) continue
+        for (stroke in block.strokes) {
+            if (stroke in exclude) continue
+            val core = stroke.coreBounds
+            val page = floor(core.top / pageHeight).toInt().coerceIn(0, pageCount - 1)
+            pages[page].add(stroke)
+            // The page the stroke ends on, by the same test the clipped buckets use: a stroke that
+            // stops exactly on a page edge does not reach the page below it.
+            val reach = (ceil(core.bottom / pageHeight).toInt() - 1).coerceIn(page, pageCount - 1)
+            if (reach > lastPage[page]) lastPage[page] = reach
+        }
+    }
+    return PageBuckets(pages, lastPage)
 }
 
 /**

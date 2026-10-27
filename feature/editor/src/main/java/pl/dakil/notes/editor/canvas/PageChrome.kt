@@ -98,6 +98,9 @@ fun PageChrome(
         val placeables = measurables.map { it.layoutId to it.measure(loose) }
 
         layout(constraints.maxWidth, constraints.maxHeight) {
+            // Each placed with a layer of its own, so a pan moves the headers' render nodes and
+            // nothing more. Placed plainly, a header that moves is drawn into its parent's display
+            // list at the new spot — so every frame of a pan re-recorded the editor around it.
             val viewportWidth = constraints.maxWidth.toFloat()
             val zoom = transform.zoom
             val originX = transform.offsetX
@@ -110,7 +113,7 @@ fun PageChrome(
                     // Below the last page, so it reads as "the document continues here" rather
                     // than as a permanent fixture of the editor.
                     val lastBottom = originY + tops.last() * zoom + pageHeightPx
-                    placeable.place(
+                    placeable.placeWithLayer(
                         x = (originX + (pageWidthPx - placeable.width) / 2f).roundToInt(),
                         y = (lastBottom + GAP_PX).roundToInt(),
                     )
@@ -123,7 +126,7 @@ fun PageChrome(
                     // where you would have to zoom out to reach them.
                     val top = originY + tops[page] * zoom
                     val right = min(originX + pageWidthPx, viewportWidth)
-                    placeable.place(
+                    placeable.placeWithLayer(
                         x = (right - placeable.width).roundToInt(),
                         y = (top - placeable.height - GAP_PX).roundToInt(),
                     )

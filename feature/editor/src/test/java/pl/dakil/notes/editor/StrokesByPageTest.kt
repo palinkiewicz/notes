@@ -1,10 +1,14 @@
 package pl.dakil.notes.editor
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import pl.dakil.notes.editor.canvas.sameStrokes
 import pl.dakil.notes.editor.canvas.strokesByPage
+import pl.dakil.notes.editor.canvas.strokesByTopPage
 import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.InkBlock
@@ -143,5 +147,94 @@ class StrokesByPageTest {
         val pages = strokesByPage(listOf(layer(s)), pageCount = 2, pageHeight = pageHeight)
 
         assertEquals(listOf(s), pages[0])
+    }
+
+    // ---- Continuous view: one page per stroke ---------------------------------------------------
+
+    @Test
+    fun `in continuous view a stroke across a page break is recorded on the page it starts on only`() {
+        // The two pages meet with no gap, so clipping a stroke at the join from both sides would
+        // leave the anti-aliased edges of two clips along one line: a hairline seam through it.
+        val s = stroke(80f, 130f)
+        val buckets = strokesByTopPage(listOf(layer(s)), pageCount = 3, pageHeight = pageHeight)
+
+        assertEquals(listOf(s), buckets.pages[0])
+        assertTrue(buckets.pages[1].isEmpty())
+    }
+
+    @Test
+    fun `a page whose ink runs down onto the next is drawn for as long as that next page is`() {
+        // Otherwise scrolling the top page out of the window would take the tail of the stroke,
+        // still on screen on the page below, away with it.
+        val s = stroke(80f, 230f)
+        val buckets = strokesByTopPage(listOf(layer(s)), pageCount = 3, pageHeight = pageHeight)
+
+        assertArrayEquals(intArrayOf(2, 1, 2), buckets.lastPage)
+    }
+
+    @Test
+    fun `a stroke that stops exactly on a page edge does not reach the page below`() {
+        // The same centreline rule the clipped buckets follow: reaching a page by its very edge is
+        // not being on it, and holding it open would draw a page for nothing.
+        val s = stroke(50f, 100f)
+        val buckets = strokesByTopPage(listOf(layer(s)), pageCount = 2, pageHeight = pageHeight)
+
+        assertArrayEquals(intArrayOf(0, 1), buckets.lastPage)
+    }
+
+    @Test
+    fun `in continuous view a stroke off either end of the document is kept on the nearest page`() {
+        // Dragging a selection above the first page or below the last is possible, and the ink
+        // must still be drawn rather than indexing a bucket that does not exist.
+        val above = stroke(-40f, -10f)
+        val below = stroke(250f, 280f)
+        val buckets = strokesByTopPage(listOf(layer(above, below)), pageCount = 2, pageHeight = pageHeight)
+
+        assertEquals(listOf(above), buckets.pages[0])
+        assertEquals(listOf(below), buckets.pages[1])
+    }
+
+    @Test
+    fun `in continuous view the selection is left out too, and paint order is kept`() {
+        val first = stroke(10f, 20f)
+        val selected = stroke(30f, 40f)
+        val last = stroke(50f, 60f)
+        val buckets = strokesByTopPage(
+            listOf(layer(first, selected, last)),
+            pageCount = 1,
+            pageHeight = pageHeight,
+            exclude = setOf(selected),
+        )
+
+        assertEquals(2, buckets.pages[0].size)
+        assertSame(first, buckets.pages[0][0])
+        assertSame(last, buckets.pages[0][1])
+    }
+
+    // ---- When a page's recording is stale --------------------------------------------------------
+
+    @Test
+    fun `a page made of the same stroke instances is not recorded again`() {
+        // Every edit rebuilds the bucket lists, so the lists themselves are always new; a page whose
+        // ink nobody touched has to be recognised by what is in them, or one stroke written on page
+        // one would re-record all the others.
+        val a = stroke(10f, 20f)
+        val b = stroke(30f, 40f)
+        assertTrue(sameStrokes(listOf(a, b), listOf(a, b)))
+    }
+
+    @Test
+    fun `a stroke replaced by an identical-looking one makes the page stale`() {
+        // Moving a page or a selection replaces its strokes with new instances at new places; the
+        // geometry is what changed, so identity is the only thing it is safe to compare.
+        val a = stroke(10f, 20f)
+        assertFalse(sameStrokes(listOf(a), listOf(stroke(10f, 20f))))
+    }
+
+    @Test
+    fun `reordering the strokes on a page makes it stale, because order is paint order`() {
+        val a = stroke(10f, 20f)
+        val b = stroke(30f, 40f)
+        assertFalse(sameStrokes(listOf(a, b), listOf(b, a)))
     }
 }

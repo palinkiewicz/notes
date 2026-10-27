@@ -1,6 +1,7 @@
 package pl.dakil.notes.editor
 
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import pl.dakil.notes.model.carriedBy
 import pl.dakil.notes.model.Frame
 import pl.dakil.notes.model.frame
@@ -177,6 +178,10 @@ private fun TextBoxContent(
 
     Layout(
         modifier = modifier
+            // A render node per box, so its text is recorded once and replayed from then on. Without
+            // it every box shares the strip's display list, and anything else in the strip being
+            // repainted — the ink under the pen, a pan — re-recorded the text of the whole note.
+            .graphicsLayer()
             .drawWithContent {
                 // Read here, in the draw phase, so a shear in progress repaints without a layout.
                 val at = sheared()
