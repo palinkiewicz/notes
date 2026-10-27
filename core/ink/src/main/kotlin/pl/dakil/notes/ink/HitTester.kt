@@ -117,10 +117,21 @@ object HitTester {
      *
      * [radius] is a reach around the fingertip, in document points, and is added to half the
      * stroke's own width — a hairline drawn at 0.5 pt has to be as easy to hit as a highlighter.
+     *
+     * [include] narrows the search to one level of the drawing order, which is how a tap finds the
+     * stroke on top when the strokes on top are not the last ones drawn. The index is still into
+     * [strokes], so it stays a position in the layer the selection refers to.
      */
-    fun strokeAt(strokes: List<Stroke>, x: Float, y: Float, radius: Float): Int? {
+    fun strokeAt(
+        strokes: List<Stroke>,
+        x: Float,
+        y: Float,
+        radius: Float,
+        include: (Stroke) -> Boolean = { true },
+    ): Int? {
         for (i in strokes.indices.reversed()) {
             val stroke = strokes[i]
+            if (!include(stroke)) continue
             if (!stroke.bounds.inflate(radius).contains(x, y)) continue
             if (strokeIntersectsSegment(stroke, x, y, x, y, radius)) return i
             // A filled stroke is its interior as much as its outline: what the user is pointing at

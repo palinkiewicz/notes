@@ -53,6 +53,13 @@
     <string name="settings_zoom_indicator">Zoom indicator</string>
     <string name="settings_inertial_scroll">Inertial scrolling</string>
     <string name="settings_inertial_scroll_description">Let a swiped sheet keep gliding and slow to a stop. When off, it stops the moment you lift your finger.</string>
+    <string name="settings_drawing_order">Drawing order</string>
+    <string name="settings_drawing_order_summary">What is drawn on top of what</string>
+    <string name="settings_drawing_order_description">Higher in the list is drawn on top. Tools in the same box are mixed, in the order you drew them. Move a tool into a neighbouring box to mix it in, or out of one to give it a layer of its own.</string>
+    <string name="settings_drawing_order_mixed">Mixed, in the order drawn</string>
+    <string name="settings_drawing_order_raise">Bring %1$s forward</string>
+    <string name="settings_drawing_order_lower">Send %1$s backward</string>
+    <string name="settings_drawing_order_reset">Reset</string>
     <string name="settings_zoom_indicator_description">How long the zoom percentage stays on screen after zooming. Off keeps it hidden unless zoom is locked.</string>
     <string name="settings_text_notes">Text notes</string>
     <string name="settings_pandoc_text_notes">Pandoc sizes and colours</string>

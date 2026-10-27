@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import pl.dakil.notes.model.RenderOrder
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,6 +41,7 @@ fun LibraryList(
     selection: Set<StoreRef>,
     handlers: LibraryItemHandlers,
     loadPreview: PreviewLoader,
+    renderOrder: RenderOrder,
     dateFormat: DateFormat,
     showPath: Boolean,
     contentPadding: PaddingValues,
@@ -52,6 +54,7 @@ fun LibraryList(
                 selected = item.ref in selection,
                 handlers = handlers,
                 loadPreview = loadPreview,
+                renderOrder = renderOrder,
                 dateFormat = dateFormat,
                 showPath = showPath,
             )
@@ -65,6 +68,7 @@ private fun LibraryRow(
     selected: Boolean,
     handlers: LibraryItemHandlers,
     loadPreview: PreviewLoader,
+    renderOrder: RenderOrder,
     dateFormat: DateFormat,
     showPath: Boolean,
 ) {
@@ -97,6 +101,7 @@ private fun LibraryRow(
                 NotePreviewBox(
                     note = item,
                     load = loadPreview,
+                    order = renderOrder,
                     modifier = Modifier
                         .width(THUMBNAIL_WIDTH)
                         .height(THUMBNAIL_HEIGHT)

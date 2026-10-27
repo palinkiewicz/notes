@@ -233,6 +233,17 @@ class EraserGeometryTest {
     }
 
     @Test
+    fun `a tap narrowed to one tool passes over later strokes of another`() {
+        // A pen drawn first can still be on top of a highlighter drawn after it, once the drawing
+        // order says so; the tap has to find the pen there, and still by its place in the layer.
+        val pen = line()
+        val highlighter = Stroke(ToolId.HIGHLIGHTER, -1, 2f, BlendId.MULTIPLY, pen.xs, pen.ys)
+        val strokes = listOf(pen, highlighter)
+        assertEquals(0, HitTester.strokeAt(strokes, 50f, 0f, radius = 4f) { it.tool == ToolId.PEN })
+        assertNull(HitTester.strokeAt(strokes, 50f, 0f, radius = 4f) { it.tool == ToolId.MARKER })
+    }
+
+    @Test
     fun `a tap inside a filled stroke selects it`() {
         // The user is pointing at the shape they can see. Its outline is 60pt away from the middle
         // of it, so without the fill test a tap in the centre of a solid disc finds bare paper.

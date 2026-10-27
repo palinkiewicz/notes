@@ -5,12 +5,14 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import pl.dakil.notes.editor.markdown.ImageSource
 import pl.dakil.notes.model.ExportColorPreset
+import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.Sheet
 import java.io.File
 
 /**
  * Renders an ink sheet in the chosen [format], applying [preset] to everything but typed text.
- * [pages] are 0-based; null means every page.
+ * [pages] are 0-based; null means every page. [order] is the user's drawing order, so a page prints
+ * stacked the way the screen shows it.
  */
 fun exportInk(
     context: Context,
@@ -18,11 +20,12 @@ fun exportInk(
     preset: ExportColorPreset,
     format: ExportFormat,
     pages: List<Int>?,
+    order: RenderOrder,
 ): List<File> {
     val selected = pages?.filter { it < sheet.pageCount() } ?: List(sheet.pageCount()) { it }
     return when (format) {
-        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, preset, selected))
-        ExportFormat.PNG -> InkPageExporter.exportToPngs(context, sheet, preset, selected)
+        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, preset, selected, order))
+        ExportFormat.PNG -> InkPageExporter.exportToPngs(context, sheet, preset, selected, order)
     }
 }
 

@@ -40,6 +40,8 @@ import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.ink.HitTester
 import pl.dakil.notes.ink.PathSplitter
 import pl.dakil.notes.ink.toStroke
+import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.Block
 import pl.dakil.notes.model.BlockId
@@ -162,6 +164,8 @@ data class EditorUiState(
     val zoomIndicatorSeconds: Int = 3,
     /** Whether a swiped sheet coasts on after the finger lifts. */
     val inertialScroll: Boolean = false,
+    /** What is painted over what; see `AppSettings.renderOrder`. */
+    val renderOrder: RenderOrder = RenderOrder.DEFAULT,
     val saveState: SaveState = SaveState.Idle,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -264,6 +268,7 @@ class NoteViewModel(
                         zoomPresets = app.zoomPresets,
                         zoomIndicatorSeconds = app.zoomIndicatorSeconds,
                         inertialScroll = app.inertialScroll,
+                        renderOrder = app.renderOrder,
                         measurementUnit = app.measurementUnit,
                         imageInsertMode = app.imageInsertMode,
                     )
@@ -1163,34 +1168,44 @@ class NoteViewModel(
     /**
      * A tap with the select tool: take hold of whatever is under it, or let go if that is bare paper.
      *
-     * Searched topmost-first, so where two things overlap the one on top is the one meant. Ink is
-     * asked before text for the same reason: the ink is drawn over it.
+     * Searched topmost-first through the user's drawing order, so where two things overlap the one
+     * that is drawn on top is the one meant — the pen over a photograph, or the text over a
+     * highlighter, whichever way round the order has them. Inside a level of ink the last stroke
+     * drawn is on top, as it is when painted.
      */
     fun selectAt(x: Float, y: Float, radius: Float) {
-        val sheet = _state.value.sheet ?: return
+        val current = _state.value
+        val sheet = current.sheet ?: return
+        val order = current.renderOrder
         val topDown = sheet.blocksInPaintOrder().asReversed()
 
-        for (block in topDown) {
-            if (block !is InkBlock || !block.visible || block.locked) continue
-            val hit = HitTester.strokeAt(block.strokes, x, y, radius) ?: continue
-            select(Selection(mapOf(block.id to listOf(hit)), emptySet(), block.strokes[hit].bounds))
-            return
-        }
-        for (block in topDown) {
-            if (block !is TextBlock) continue
-            val r = block.worldBounds()
-            if (!r.contains(x, y)) continue
-            select(Selection(emptyMap(), setOf(block.id), r))
-            return
-        }
-        // Last: a picture is under everything written on it, and ink drawn over a photo is meant to
-        // be picked up before the photo is.
-        for (block in topDown) {
-            if (block !is ImageBlock) continue
-            val r = block.worldBounds()
-            if (!r.contains(x, y)) continue
-            select(Selection(images = setOf(block.id), bounds = r))
-            return
+        for (level in order.levels.indices.reversed()) {
+            val members = order.levels[level]
+            when {
+                RenderLayer.TEXT in members -> for (block in topDown) {
+                    if (block !is TextBlock) continue
+                    val r = block.worldBounds()
+                    if (!r.contains(x, y)) continue
+                    select(Selection(emptyMap(), setOf(block.id), r))
+                    return
+                }
+
+                RenderLayer.IMAGES in members -> for (block in topDown) {
+                    if (block !is ImageBlock) continue
+                    val r = block.worldBounds()
+                    if (!r.contains(x, y)) continue
+                    select(Selection(images = setOf(block.id), bounds = r))
+                    return
+                }
+
+                else -> for (block in topDown) {
+                    if (block !is InkBlock || !block.visible || block.locked) continue
+                    val hit = HitTester.strokeAt(block.strokes, x, y, radius) { order.levelOf(it.tool) == level }
+                        ?: continue
+                    select(Selection(mapOf(block.id to listOf(hit)), emptySet(), block.strokes[hit].bounds))
+                    return
+                }
+            }
         }
         clearSelection()
     }

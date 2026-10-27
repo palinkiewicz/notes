@@ -43,6 +43,14 @@ class LocaleSafeKeysTest {
     }
 
     @Test
+    fun `drawing order keys are the same in Turkish as anywhere else`() {
+        for (layer in RenderLayer.entries) {
+            assertEquals(layer, RenderLayer.fromKey(layer.key))
+        }
+        assertEquals(RenderOrder.DEFAULT, RenderOrder.decode(RenderOrder.DEFAULT.encode()))
+    }
+
+    @Test
     fun `view mode keys are the same in Turkish as anywhere else`() {
         for (mode in ViewMode.entries) {
             assertEquals(mode, ViewMode.fromKey(mode.key))

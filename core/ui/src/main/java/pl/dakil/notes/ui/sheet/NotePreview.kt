@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.InkBlock
+import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.frame
@@ -56,6 +58,8 @@ fun InkNotePreview(
      * with no bitmap yet is drawn as a plain tile in its place.
      */
     images: Map<String, ImageBitmap> = emptyMap(),
+    /** The user's drawing order, so the card stacks the page the way the editor does. */
+    order: RenderOrder = RenderOrder.DEFAULT,
 ) {
     val format = sheet.format
     BoxWithConstraints(modifier) {
@@ -90,31 +94,24 @@ fun InkNotePreview(
             // Page 0 only: everything below the first page break belongs to a page this card is
             // not showing, and the strip is one continuous coordinate space.
             clipRect(bottom = format.height * ptToPx) {
-                // First, as on the sheet: a picture is under everything written on it.
-                for (block in sheet.blocks) {
-                    if (block !is ImageBlock || block.rect.top >= format.height) continue
-                    val r = block.rect
-                    val at = block.frame()
-                    val bitmap = images[block.src]
-                    inBlockFrame(at, at.left * ptToPx, at.top * ptToPx) {
-                        if (bitmap == null) {
-                            drawRect(Color(IMAGE_TILE), Offset.Zero, Size(r.width * ptToPx, r.height * ptToPx))
-                        } else {
-                            drawImage(
-                                image = bitmap,
-                                dstOffset = IntOffset.Zero,
-                                dstSize = IntSize((r.width * ptToPx).roundToInt().coerceAtLeast(1), (r.height * ptToPx).roundToInt().coerceAtLeast(1)),
-                                colorFilter = block.tint?.let(::imageTintFilter),
-                            )
+                val paintOrder = sheet.blocksInPaintOrder()
+                // Level by level, as on the sheet.
+                for ((level, members) in order.levels.withIndex()) {
+                    when {
+                        RenderLayer.IMAGES in members -> for (block in sheet.blocks) {
+                            if (block !is ImageBlock || block.rect.top >= format.height) continue
+                            drawImageBlock(block, images[block.src], ptToPx)
                         }
-                    }
-                }
-                for (block in sheet.blocksInPaintOrder()) {
-                    when (block) {
-                        is InkBlock -> if (block.visible) {
+
+                        RenderLayer.TEXT in members -> for (block in paintOrder) {
+                            if (block is TextBlock) drawTextBlock(block, measurer, textStyle, ptToPx, format.height)
+                        }
+
+                        else -> for (block in paintOrder) {
+                            if (block !is InkBlock || !block.visible) continue
                             with(renderer) {
                                 drawStrokes(
-                                    strokes = block.strokes,
+                                    strokes = block.strokes.filter { order.levelOf(it.tool) == level },
                                     ptToPx = ptToPx,
                                     stripOffsetPx = 0f,
                                     docTop = 0f,
@@ -122,12 +119,27 @@ fun InkNotePreview(
                                 )
                             }
                         }
-
-                        is TextBlock -> drawTextBlock(block, measurer, textStyle, ptToPx, format.height)
-                        else -> Unit
                     }
                 }
             }
+        }
+    }
+}
+
+/** One picture in its frame, or a plain tile where it is still being decoded. */
+private fun DrawScope.drawImageBlock(block: ImageBlock, bitmap: ImageBitmap?, ptToPx: Float) {
+    val r = block.rect
+    val at = block.frame()
+    inBlockFrame(at, at.left * ptToPx, at.top * ptToPx) {
+        if (bitmap == null) {
+            drawRect(Color(IMAGE_TILE), Offset.Zero, Size(r.width * ptToPx, r.height * ptToPx))
+        } else {
+            drawImage(
+                image = bitmap,
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize((r.width * ptToPx).roundToInt().coerceAtLeast(1), (r.height * ptToPx).roundToInt().coerceAtLeast(1)),
+                colorFilter = block.tint?.let(::imageTintFilter),
+            )
         }
     }
 }

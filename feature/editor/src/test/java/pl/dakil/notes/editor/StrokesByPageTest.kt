@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import pl.dakil.notes.editor.canvas.inkLevels
 import pl.dakil.notes.editor.canvas.sameStrokes
 import pl.dakil.notes.editor.canvas.strokesByPage
 import pl.dakil.notes.editor.canvas.strokesByTopPage
@@ -13,6 +14,8 @@ import pl.dakil.notes.model.BlendId
 import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Rect
+import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ToolId
 
@@ -28,8 +31,8 @@ class StrokesByPageTest {
 
     private val pageHeight = 100f
 
-    private fun stroke(top: Float, bottom: Float) = Stroke(
-        ToolId.PEN, -1, 2f, BlendId.NORMAL,
+    private fun stroke(top: Float, bottom: Float, tool: ToolId = ToolId.PEN) = Stroke(
+        tool, -1, 2f, BlendId.NORMAL,
         xs = floatArrayOf(0f, 10f),
         ys = floatArrayOf(top, bottom),
     )
@@ -236,5 +239,57 @@ class StrokesByPageTest {
         val a = stroke(10f, 20f)
         val b = stroke(30f, 40f)
         assertFalse(sameStrokes(listOf(a, b), listOf(b, a)))
+    }
+
+    // ---- Drawing order ----------------------------------------------------------------------------
+
+    @Test
+    fun `tools sharing a level keep the order they were drawn in`() {
+        // The default mixes every pen but the highlighter, so a pencil line drawn over a pen line
+        // still paints over it — which is how ink behaved before there was any order to set.
+        val pen = stroke(10f, 20f, ToolId.PEN)
+        val pencil = stroke(10f, 20f, ToolId.PENCIL)
+        val levels = inkLevels(
+            listOf(layer(pen, pencil)), RenderOrder.DEFAULT, pageCount = 1, pageHeight = pageHeight,
+            paged = true, selected = emptySet(),
+        )
+
+        val pens = levels.getValue(RenderOrder.DEFAULT.levelOf(RenderLayer.PEN)).buckets.pages[0]
+        assertEquals(2, pens.size)
+        assertSame(pen, pens[0])
+        assertSame(pencil, pens[1])
+    }
+
+    @Test
+    fun `each level is given only its own tools' strokes`() {
+        val highlighter = stroke(10f, 20f, ToolId.HIGHLIGHTER)
+        val pen = stroke(10f, 20f, ToolId.PEN)
+        val order = RenderOrder.DEFAULT
+        val levels = inkLevels(
+            listOf(layer(pen, highlighter)), order, pageCount = 1, pageHeight = pageHeight,
+            paged = false, selected = emptySet(),
+        )
+
+        assertEquals(listOf(highlighter), levels.getValue(order.levelOf(RenderLayer.HIGHLIGHTER)).buckets.pages[0])
+        assertEquals(listOf(pen), levels.getValue(order.levelOf(RenderLayer.PEN)).buckets.pages[0])
+        // Pictures and text are not ink and get no entry, however the order stacks them.
+        assertFalse(levels.containsKey(order.levelOf(RenderLayer.TEXT)))
+    }
+
+    @Test
+    fun `a selected stroke is lifted out of its level and handed back as that level's selection`() {
+        // Drawn live under the drag at its own level's depth, and not also where it was.
+        val pen = stroke(10f, 20f, ToolId.PEN)
+        val highlighter = stroke(10f, 20f, ToolId.HIGHLIGHTER)
+        val order = RenderOrder.DEFAULT
+        val levels = inkLevels(
+            listOf(layer(pen, highlighter)), order, pageCount = 1, pageHeight = pageHeight,
+            paged = true, selected = setOf(highlighter),
+        )
+
+        val marked = levels.getValue(order.levelOf(RenderLayer.HIGHLIGHTER))
+        assertEquals(emptyList<Stroke>(), marked.buckets.pages[0])
+        assertEquals(listOf(highlighter), marked.selected)
+        assertEquals(emptyList<Stroke>(), levels.getValue(order.levelOf(RenderLayer.PEN)).selected)
     }
 }

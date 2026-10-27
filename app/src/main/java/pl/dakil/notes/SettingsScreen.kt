@@ -20,6 +20,7 @@ import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.settings.AppearanceSettingsScreen
+import pl.dakil.notes.settings.DrawingOrderSettingsScreen
 import pl.dakil.notes.settings.EditorSettingsScreen
 import pl.dakil.notes.settings.PaperColoursSettingsScreen
 import pl.dakil.notes.settings.PaperThemesScreen
@@ -39,8 +40,8 @@ import pl.dakil.notes.ui.motion.screenTransitionGround
 
 /** The pages of the settings section. The root is the index; the rest are pushed over it. */
 private enum class SettingsPage {
-    ROOT, APPEARANCE, EDITOR, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE, BACKUP, SYNC,
-    SYNC_DRIVE, SYNC_WEBDAV;
+    ROOT, APPEARANCE, EDITOR, DRAWING_ORDER, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE,
+    BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV;
 
     /**
      * Where back goes — the system gesture and the toolbar arrow alike, so the two cannot disagree.
@@ -49,6 +50,7 @@ private enum class SettingsPage {
      */
     val parent: SettingsPage
         get() = when (this) {
+            DRAWING_ORDER -> INPUT
             PAPER_THEMES, SAVED_COLORS -> PAPER_COLOURS
             SYNC_DRIVE, SYNC_WEBDAV -> SYNC
             else -> ROOT
@@ -128,6 +130,12 @@ fun SettingsScreen(
                     onNavigateBack = back,
                 )
 
+                SettingsPage.DRAWING_ORDER -> DrawingOrderSettingsScreen(
+                    current = current,
+                    settings = settings,
+                    onNavigateBack = back,
+                )
+
                 SettingsPage.PAPER_COLOURS -> PaperColoursSettingsScreen(
                     current = current,
                     settings = settings,
@@ -151,6 +159,7 @@ fun SettingsScreen(
                 SettingsPage.INPUT -> InputSettingsScreen(
                     current = current,
                     settings = settings,
+                    onOpenDrawingOrder = { page = SettingsPage.DRAWING_ORDER },
                     onNavigateBack = back,
                 )
 

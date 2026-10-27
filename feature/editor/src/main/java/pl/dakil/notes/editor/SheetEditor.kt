@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -23,11 +24,15 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.data.NoteViewState
+import pl.dakil.notes.editor.canvas.InkLevelLayer
 import pl.dakil.notes.editor.canvas.InkOverlay
+import pl.dakil.notes.editor.canvas.LiveInk
+import pl.dakil.notes.editor.canvas.inkLevels
 import pl.dakil.notes.editor.canvas.PageChrome
 import pl.dakil.notes.editor.canvas.RULER_END_MARGIN
 import pl.dakil.notes.editor.canvas.RULER_SNAP_BAND
@@ -42,13 +47,17 @@ import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.ZoomChip
 import pl.dakil.notes.editor.canvas.sheetTransformGestures
 import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
+import pl.dakil.notes.model.InkBlock
+import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.ViewMode
 
 /**
  * The note surface: one sheet of paper carrying Markdown text with ink drawn over it.
  *
- * There is no text mode and no drawing mode. Three layers are stacked in a single strip — paper,
- * then text boxes, then ink — and the ink overlay on top decides who receives each event: a stylus
+ * There is no text mode and no drawing mode. Paper, pictures, text boxes and ink are stacked in a
+ * single strip — in the order the user's drawing-order setting gives them, above the paper — and
+ * the ink overlay on top of all of it decides who receives each event: a stylus
  * draws unless the text tool is out, a finger draws only when a drawing tool is selected, and
  * anything the overlay declines falls through to the boxes underneath, or past them to pan and zoom.
  *
@@ -305,7 +314,12 @@ private val CHROME_TOP = 60.dp
 private val CHROME_BOTTOM = 72.dp
 
 /**
- * Paper, text and ink, stacked in that order and all in the same coordinate space.
+ * Paper, then pictures, text and ink in the drawing order, all in the same coordinate space.
+ *
+ * The order is drawing only. Every layer that paints is stacked by `zIndex` at its level, but the
+ * only ones that take input are the text boxes and the ink overlay, and the overlay stays on top of
+ * them whatever the order — so raising the pen over the text or burying the highlighter under it
+ * changes what is seen, never who gets a tap.
  *
  * Everything here is in unzoomed document pixels. Because the whole stack is scaled at placement,
  * the ink overlay's pointer coordinates arrive already mapped back through the transform, so no
@@ -376,9 +390,35 @@ private fun SheetLayers(
         }
     }
 
+    // Each kind of ink at its level, the selection lifted out of it, grouped once per edit. In
+    // paint order, so a selection spanning two layers is redrawn in the order it was drawn in.
+    val order = state.renderOrder
+    val documentVersion = state.documentVersion
+    val selection = state.selection
+    val live = remember { LiveInk() }
+    val levels = remember(sheet, documentVersion, paged, pageCount, selection, order) {
+        val paintOrder = sheet.blocksInPaintOrder()
+        // The selected strokes, pulled out of the document once per selection rather than looked
+        // up per frame. `Stroke` declares no `equals`, so a plain HashSet is already keyed by
+        // identity — which is the right key, since a selection means *these* strokes and not ones
+        // that look alike.
+        val selected = HashSet<Stroke>()
+        if (selection != null) {
+            for ((blockId, indices) in selection.strokesByBlock) {
+                val block = sheet.block(blockId) as? InkBlock ?: continue
+                for (i in indices) block.strokes.getOrNull(i)?.let(selected::add)
+            }
+        }
+        inkLevels(paintOrder, order, pageCount, format.height, paged, selected)
+    }
+    val drawingLevel = if (state.tool.tool.isDrawing) order.levelOf(state.tool.tool) else -1
+    // Paper at 0, the ordered layers above it, and the input and the ruler over every one of them.
+    fun z(level: Int) = level + 1f
+    val overlayZ = z(order.levels.size)
+
     Box(Modifier.fillMaxWidth().height(stripHeight)) {
 
-        // 1. Paper: the pages, their rule pattern, and the page edges when paged.
+        // Paper: the pages, their rule pattern, and the page edges when paged.
         Canvas(Modifier.matchParentSize().graphicsLayer()) {
             drawSheet(
                 format = format,
@@ -392,17 +432,18 @@ private fun SheetLayers(
             )
         }
 
-        // 2. Pictures, on the paper and under everything written on it.
+        // Pictures, wherever the order has them — on the paper and under everything written on it,
+        // unless the user has said otherwise.
         SheetImageLayer(
             sheet = sheet,
             ptToPx = ptToPx,
             paged = paged,
             selected = state.selection?.images.orEmpty(),
             controller = selectionController,
-            modifier = Modifier.matchParentSize().graphicsLayer(),
+            modifier = Modifier.matchParentSize().zIndex(z(order.levelOf(RenderLayer.IMAGES))).graphicsLayer(),
         )
 
-        // 3. Text: the boxes, each standing where it was put and clipped to its own page.
+        // Text: the boxes, each standing where it was put and clipped to its own page.
         TextBoxLayer(
             sheet = sheet,
             state = state,
@@ -415,18 +456,36 @@ private fun SheetLayers(
             zoom = transform::zoom,
             controller = selectionController,
             onImageToolTap = onImageToolTap,
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier.matchParentSize().zIndex(z(order.levelOf(RenderLayer.TEXT))),
         )
 
-        // 4. Ink: over everything, and the arbiter of who gets each pointer event.
+        // Ink, one layer per level of it. Draw-only: none of them takes a pointer.
+        for ((level, ink) in levels) {
+            key(level) {
+                InkLevelLayer(
+                    ink = ink,
+                    live = live,
+                    drawsHere = level == drawingLevel,
+                    controller = selectionController,
+                    format = format,
+                    pageCount = pageCount,
+                    ptToPx = ptToPx,
+                    paged = paged,
+                    pages = { pages.value },
+                    modifier = Modifier.matchParentSize().zIndex(z(level)),
+                )
+            }
+        }
+
+        // Input: over everything, and the arbiter of who gets each pointer event.
         InkOverlay(
             sheet = sheet,
             tool = state.tool,
             inputConfig = state.inputConfig,
             ptToPx = ptToPx,
             paged = paged,
-            documentVersion = state.documentVersion,
             callbacks = viewModel.inkCallbacks,
+            live = live,
             textToolActive = state.textToolActive,
             imageToolActive = state.imageToolActive,
             selection = state.selection,
@@ -441,16 +500,16 @@ private fun SheetLayers(
             // document.
             pages = { pages.value },
             rulerEdgeFor = if (state.rulerEnabled && ruler.isPlaced) rulerEdgeFor else null,
-            modifier = Modifier.matchParentSize().graphicsLayer(),
+            modifier = Modifier.matchParentSize().zIndex(overlayZ).graphicsLayer(),
         )
 
-        // 5. The ruler, over the ink it is there to straighten. It takes no pointer input at all —
+        // The ruler, over the ink it is there to straighten. It takes no pointer input at all —
         // two fingers on it are handled by the one gesture authority, in sheetTransformGestures.
         if (state.rulerEnabled) {
             RulerOverlay(
                 ruler = ruler,
                 transform = transform,
-                modifier = Modifier.matchParentSize().graphicsLayer(),
+                modifier = Modifier.matchParentSize().zIndex(overlayZ + 1f).graphicsLayer(),
             )
         }
     }

@@ -10,6 +10,8 @@ import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.DarkThemeOption
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PressureCurve
+import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.editor.R as EditorR
 
 /**
  * What each stored choice is called on screen.
@@ -102,4 +104,18 @@ fun SyncFrequency.label(): String = stringResource(
         SyncFrequency.DAILY -> R.string.frequency_daily
         SyncFrequency.WEEKLY -> R.string.frequency_weekly
     }
+)
+
+/** The tool names the toolbar already uses, so a layer here is called what its button is called. */
+@Composable
+fun RenderLayer.label(): String = stringResource(
+    when (this) {
+        RenderLayer.IMAGES -> EditorR.string.editor_tool_image
+        RenderLayer.TEXT -> EditorR.string.editor_tool_text
+        RenderLayer.HIGHLIGHTER -> EditorR.string.editor_tool_highlighter
+        RenderLayer.PEN -> EditorR.string.editor_tool_pen
+        RenderLayer.FOUNTAIN_PEN -> EditorR.string.editor_tool_fountain
+        RenderLayer.PENCIL -> EditorR.string.editor_tool_pencil
+        RenderLayer.MARKER -> EditorR.string.editor_tool_marker
+    },
 )

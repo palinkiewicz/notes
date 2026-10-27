@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import pl.dakil.notes.model.RenderOrder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,6 +50,8 @@ interface PreviewLoader {
 fun NotePreviewBox(
     note: LibraryItem.Note,
     load: PreviewLoader,
+    /** The user's drawing order; see `AppSettings.renderOrder`. */
+    order: RenderOrder,
     modifier: Modifier = Modifier,
 ) {
     val sheet by produceState(load.peek(note), note.ref, note.modifiedAt) {
@@ -57,7 +60,7 @@ fun NotePreviewBox(
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), Alignment.Center) {
         val current = sheet
         if (current != null) {
-            InkNotePreview(current.sheet, Modifier.fillMaxSize(), images = current.images)
+            InkNotePreview(current.sheet, Modifier.fillMaxSize(), images = current.images, order = order)
         } else {
             Icon(
                 imageVector = if (note.summary.kind == NoteKind.INK) NotesIcons.InkNote else NotesIcons.TextNote,

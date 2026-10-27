@@ -19,6 +19,7 @@ import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PaperThemes
 import pl.dakil.notes.model.PressureCurve
+import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.ViewMode
 import java.util.Locale
 
@@ -188,6 +189,13 @@ data class AppSettings(
      */
     val inertialScroll: Boolean = false,
     /**
+     * What a sheet paints on top of what — pictures, text and each kind of pen.
+     *
+     * A setting of this device rather than of the note, so it reaches every sheet, its printout and
+     * its thumbnail alike, and a note synced to someone else is shown in *their* order.
+     */
+    val renderOrder: RenderOrder = RenderOrder.DEFAULT,
+    /**
      * Whether each tool's colour, width and opacity — and which pen was in hand — survive a restart.
      *
      * On by default: a pen that turns back to black every time the app is reopened is the surprise.
@@ -269,6 +277,7 @@ class SettingsRepository(context: Context) {
         savedColors = readSavedColors(),
         zoomPresets = readZoomPresets(),
         inertialScroll = prefs.getBoolean(KEY_INERTIAL_SCROLL, false),
+        renderOrder = RenderOrder.decode(prefs.getString(KEY_RENDER_ORDER, null)),
         rememberTools = prefs.getBoolean(KEY_REMEMBER_TOOLS, true),
         zoomIndicatorSeconds = prefs.getInt(KEY_ZOOM_INDICATOR, 3).coerceIn(0, MAX_ZOOM_INDICATOR_SECONDS),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
@@ -367,6 +376,11 @@ class SettingsRepository(context: Context) {
 
     fun setInertialScroll(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_INERTIAL_SCROLL, enabled).apply()
+
+    /** The default is stored as no key at all, so a later, better default reaches whoever never chose. */
+    fun setRenderOrder(order: RenderOrder) = prefs.edit().apply {
+        if (order.isDefault) remove(KEY_RENDER_ORDER) else putString(KEY_RENDER_ORDER, order.encode())
+    }.apply()
 
     fun setRememberTools(enabled: Boolean) =
         prefs.edit().putBoolean(KEY_REMEMBER_TOOLS, enabled).apply()
@@ -591,6 +605,7 @@ class SettingsRepository(context: Context) {
         const val KEY_REMEMBER_INK = "view.rememberInk"
         const val KEY_REMEMBER_TEXT = "view.rememberText"
         const val KEY_INERTIAL_SCROLL = "view.inertialScroll"
+        const val KEY_RENDER_ORDER = "view.renderOrder"
         const val KEY_REMEMBER_TOOLS = "tools.remember"
         const val KEY_TOOL_STATE = "tools.state"
         const val KEY_RECENT_COLORS = "ui.recentColors"

@@ -29,6 +29,7 @@ import kotlin.math.roundToInt
 fun InputSettingsScreen(
     current: AppSettings,
     settings: SettingsRepository,
+    onOpenDrawingOrder: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     Scaffold(
@@ -74,6 +75,11 @@ fun InputSettingsScreen(
                     settings.setRememberTools(it)
                     if (!it) settings.clearToolState()
                 },
+            )
+            NavigationRow(
+                title = stringResource(R.string.settings_drawing_order),
+                summary = stringResource(R.string.settings_drawing_order_summary),
+                onClick = onOpenDrawingOrder,
             )
 
             SectionHeader(stringResource(R.string.settings_palm_rejection))

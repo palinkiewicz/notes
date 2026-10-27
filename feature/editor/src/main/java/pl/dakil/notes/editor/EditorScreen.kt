@@ -312,7 +312,7 @@ fun EditorScreen(
                 exporting = true
                 coroutineScope.launch {
                     val result = withContext(Dispatchers.Default) {
-                        runCatching { exportInk(context, note.sheet, preset, format, pages) }
+                        runCatching { exportInk(context, note.sheet, preset, format, pages, state.renderOrder) }
                     }
                     exporting = false
                     exportOpen = false

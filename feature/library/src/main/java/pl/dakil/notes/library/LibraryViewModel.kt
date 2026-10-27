@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import pl.dakil.notes.model.RenderOrder
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
@@ -49,6 +50,8 @@ data class LibraryUiState(
     val sort: NoteSort = NoteSort.MODIFIED_DESC,
     val filter: LibraryFilter = LibraryFilter.ALL,
     val layout: LibraryLayout = LibraryLayout.CARDS,
+    /** What a thumbnail paints over what, as the editor does; see `AppSettings.renderOrder`. */
+    val renderOrder: RenderOrder = RenderOrder.DEFAULT,
     val query: String = "",
     val searchResults: List<LibraryItem>? = null,
     val selection: Set<StoreRef> = emptySet(),
@@ -147,6 +150,12 @@ class LibraryViewModel(
             .map { it.libraryLayout }
             .distinctUntilChanged()
             .onEach { layout -> _state.update { it.copy(layout = layout) } }
+            .launchIn(viewModelScope)
+
+        settings.settings
+            .map { it.renderOrder }
+            .distinctUntilChanged()
+            .onEach { order -> _state.update { it.copy(renderOrder = order) } }
             .launchIn(viewModelScope)
 
         // `drop(1)`: the flow replays its current value on subscription, and that one is the root

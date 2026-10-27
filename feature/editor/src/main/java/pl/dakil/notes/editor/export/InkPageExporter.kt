@@ -6,6 +6,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.InkBlock
+import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.RenderOrder
 import androidx.compose.ui.geometry.Offset
 import pl.dakil.notes.model.frame
 import pl.dakil.notes.ui.sheet.imageTintFilter
@@ -50,7 +53,13 @@ object InkPageExporter {
     private const val PNG_DPI = 150f
 
     /** [pages] are 0-based and ascending; see [pl.dakil.notes.model.PageSelection]. */
-    fun exportToPdf(context: Context, sheet: Sheet, preset: ExportColorPreset, pages: List<Int>): File {
+    fun exportToPdf(
+        context: Context,
+        sheet: Sheet,
+        preset: ExportColorPreset,
+        pages: List<Int>,
+        order: RenderOrder,
+    ): File {
         val format = sheet.format
         val fontResolver = createFontFamilyResolver(context)
         val strokeRenderer = StrokeRenderer()
@@ -64,7 +73,7 @@ object InkPageExporter {
             val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
             val pdfPage = document.startPage(info)
             drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(1f)) {
-                drawPage(sheet, page, format, ptToPx = 1f, preset, strokeRenderer, fontResolver)
+                drawPage(sheet, page, format, ptToPx = 1f, preset, order, strokeRenderer, fontResolver)
             }
             document.finishPage(pdfPage)
         }
@@ -74,7 +83,13 @@ object InkPageExporter {
         return file
     }
 
-    fun exportToPngs(context: Context, sheet: Sheet, preset: ExportColorPreset, pages: List<Int>): List<File> {
+    fun exportToPngs(
+        context: Context,
+        sheet: Sheet,
+        preset: ExportColorPreset,
+        pages: List<Int>,
+        order: RenderOrder,
+    ): List<File> {
         val format = sheet.format
         val ptToPx = PNG_DPI / 72f
         val fontResolver = createFontFamilyResolver(context)
@@ -89,7 +104,7 @@ object InkPageExporter {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
-                drawPage(sheet, page, format, ptToPx, preset, strokeRenderer, fontResolver)
+                drawPage(sheet, page, format, ptToPx, preset, order, strokeRenderer, fontResolver)
             }
             val file = File(dir, "export_${page + 1}.png")
             FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -113,6 +128,7 @@ object InkPageExporter {
         format: PageFormat,
         ptToPx: Float,
         preset: ExportColorPreset,
+        order: RenderOrder,
         strokeRenderer: StrokeRenderer,
         fontResolver: FontFamily.Resolver,
     ) {
@@ -149,9 +165,42 @@ object InkPageExporter {
         val pageTop = pageIndex * format.height
         val pageBottom = pageTop + format.height
 
-        // Under the ink, as on the sheet. Decoded at the size it prints, one at a time, so a page of
-        // photographs does not hold all of them at full resolution at once.
-        clipRect(bottom = format.height * ptToPx) {
+        // Level by level, in the order the screen paints them, so a page prints the way it looked.
+        val paintOrder = sheet.blocksInPaintOrder()
+        for ((level, members) in order.levels.withIndex()) {
+            when {
+                RenderLayer.IMAGES in members -> drawImages(sheet, pageIndex, pageTop, ptToPx)
+
+                RenderLayer.TEXT in members -> for (block in sheet.textBlocks()) {
+                    if (sheet.pageOf(block) != pageIndex) continue
+                    drawTextBlock(block, pageTop, ptToPx, fontResolver)
+                }
+
+                else -> {
+                    val strokes = paintOrder.flatMap { block ->
+                        if (block !is InkBlock || !block.visible) emptyList()
+                        else block.strokes.filter { order.levelOf(it.tool) == level }.map { it.recolored(preset) }
+                    }
+                    with(strokeRenderer) {
+                        drawStrokes(
+                            strokes = strokes,
+                            ptToPx = ptToPx,
+                            stripOffsetPx = -pageTop * ptToPx,
+                            docTop = pageTop,
+                            docBottom = pageBottom,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The page's pictures. Decoded at the size they print, one at a time, so a page of photographs
+     * does not hold all of them at full resolution at once.
+     */
+    private fun DrawScope.drawImages(sheet: Sheet, pageIndex: Int, pageTop: Float, ptToPx: Float) {
+        clipRect(bottom = sheet.format.height * ptToPx) {
             for (block in sheet.blocks) {
                 if (block !is ImageBlock || sheet.pageOf(block) != pageIndex) continue
                 val r = block.rect
@@ -171,25 +220,6 @@ object InkPageExporter {
                 }
                 bitmap.asAndroidBitmap().recycle()
             }
-        }
-
-        for (layer in sheet.inkLayers()) {
-            if (!layer.visible) continue
-            val recolored = layer.strokes.map { it.recolored(preset) }
-            with(strokeRenderer) {
-                drawStrokes(
-                    strokes = recolored,
-                    ptToPx = ptToPx,
-                    stripOffsetPx = -pageTop * ptToPx,
-                    docTop = pageTop,
-                    docBottom = pageBottom,
-                )
-            }
-        }
-
-        for (block in sheet.textBlocks()) {
-            if (sheet.pageOf(block) != pageIndex) continue
-            drawTextBlock(block, pageTop, ptToPx, fontResolver)
         }
     }
 

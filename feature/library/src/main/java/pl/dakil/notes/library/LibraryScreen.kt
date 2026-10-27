@@ -327,6 +327,7 @@ private fun LibraryContent(
             selection = state.selection,
             handlers = handlers,
             loadPreview = loadPreview,
+            renderOrder = state.renderOrder,
             dateFormat = dateFormat,
             showPath = state.isSearching,
             contentPadding = padding,
@@ -337,6 +338,7 @@ private fun LibraryContent(
             selection = state.selection,
             handlers = handlers,
             loadPreview = loadPreview,
+            renderOrder = state.renderOrder,
             dateFormat = dateFormat,
             showPath = state.isSearching,
             contentPadding = PaddingValues(bottom = bottom),
@@ -417,6 +419,7 @@ private fun LibrarySearchBar(
                 selection = state.selection,
                 handlers = handlers,
                 loadPreview = loadPreview,
+                renderOrder = state.renderOrder,
                 dateFormat = dateFormat,
                 // Results can come from any folder beneath this one, so each says where it lives.
                 showPath = true,

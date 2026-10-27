@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import pl.dakil.notes.model.RenderOrder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -44,6 +45,7 @@ fun LibraryCards(
     selection: Set<StoreRef>,
     handlers: LibraryItemHandlers,
     loadPreview: PreviewLoader,
+    renderOrder: RenderOrder,
     dateFormat: DateFormat,
     showPath: Boolean,
     contentPadding: PaddingValues,
@@ -64,6 +66,7 @@ fun LibraryCards(
                 selected = item.ref in selection,
                 handlers = handlers,
                 loadPreview = loadPreview,
+                renderOrder = renderOrder,
                 dateFormat = dateFormat,
                 showPath = showPath,
             )
@@ -77,6 +80,7 @@ private fun LibraryCard(
     selected: Boolean,
     handlers: LibraryItemHandlers,
     loadPreview: PreviewLoader,
+    renderOrder: RenderOrder,
     dateFormat: DateFormat,
     showPath: Boolean,
 ) {
@@ -98,7 +102,7 @@ private fun LibraryCard(
     ) {
         when (item) {
             is LibraryItem.Folder -> FolderCardBody(item)
-            is LibraryItem.Note -> NoteCardBody(item, loadPreview, dateFormat, showPath)
+            is LibraryItem.Note -> NoteCardBody(item, loadPreview, renderOrder, dateFormat, showPath)
         }
     }
 }
@@ -134,6 +138,7 @@ private fun FolderCardBody(folder: LibraryItem.Folder) {
 private fun NoteCardBody(
     note: LibraryItem.Note,
     loadPreview: PreviewLoader,
+    renderOrder: RenderOrder,
     dateFormat: DateFormat,
     showPath: Boolean,
 ) {
@@ -144,6 +149,7 @@ private fun NoteCardBody(
         NotePreviewBox(
             note = note,
             load = loadPreview,
+            order = renderOrder,
             modifier = Modifier.fillMaxWidth().aspectRatio(PREVIEW_ASPECT),
         )
     }
