@@ -10,6 +10,9 @@
     <string name="editor_tags">Tagi</string>
     <string name="editor_undo">Cofnij</string>
     <string name="editor_redo">Ponów</string>
+    <string name="editor_go_to_page">Przejdź do strony</string>
+    <string name="editor_go_to_page_label">Numer strony (1–%1$d)</string>
+    <string name="editor_go_to_page_confirm">Przejdź</string>
     <string name="editor_page_setup">Ustawienia strony</string>
     <string name="editor_show_formatted">Pokaż sformatowany tekst</string>
     <string name="editor_edit_source">Edytuj źródło Markdown</string>

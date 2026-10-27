@@ -39,29 +39,26 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
-import pl.dakil.notes.data.ImageInsertMode
 import pl.dakil.notes.data.LibraryLayout
-import pl.dakil.notes.data.MAX_ZOOM_INDICATOR_SECONDS
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.DarkThemeOption
-import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.ui.components.flatTopAppBarColors
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.theme.colorSchemeFor
 import pl.dakil.notes.ui.theme.resolveDark
-import kotlin.math.roundToInt
 
-/** Everything about how the app looks: its colours, its dark mode, and how it lays notes out. */
+/**
+ * How the app itself looks: its colours, its dark mode, and how the library lays notes out.
+ *
+ * Not how a note looks — paper and ink colours are under Paper & colours, and how the editors behave
+ * is under Editor. This screen used to hold all three, and grew until nothing could be found on it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppearanceSettingsScreen(
     current: AppSettings,
     settings: SettingsRepository,
-    /** Wipes the remembered positions of ink notes (true) or text notes (false). */
-    onForgetPositions: (ink: Boolean) -> Unit,
-    onOpenPaperThemes: () -> Unit,
-    onOpenSavedColors: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     Scaffold(
@@ -146,92 +143,6 @@ fun AppearanceSettingsScreen(
                 selected = current.libraryLayout,
                 options = LibraryLayout.entries.map { it to it.label() },
                 onSelect = settings::setLibraryLayout,
-            )
-
-            SectionHeader(stringResource(R.string.settings_reopening))
-
-            // Switching one off forgets what it had kept: "don't remember" should leave nothing
-            // written down, not merely stop reading it.
-            SwitchRow(
-                title = stringResource(R.string.settings_remember_ink),
-                summary = stringResource(R.string.settings_remember_ink_description),
-                checked = current.rememberInkPosition,
-                onCheckedChange = {
-                    settings.setRememberInkPosition(it)
-                    if (!it) onForgetPositions(true)
-                },
-            )
-            SwitchRow(
-                title = stringResource(R.string.settings_remember_text),
-                summary = stringResource(R.string.settings_remember_text_description),
-                checked = current.rememberTextPosition,
-                onCheckedChange = {
-                    settings.setRememberTextPosition(it)
-                    if (!it) onForgetPositions(false)
-                },
-            )
-
-            SectionHeader(stringResource(R.string.settings_sheet))
-
-            SliderRow(
-                title = stringResource(R.string.settings_zoom_indicator),
-                summary = stringResource(R.string.settings_zoom_indicator_description),
-                value = current.zoomIndicatorSeconds.toFloat(),
-                range = 0f..MAX_ZOOM_INDICATOR_SECONDS.toFloat(),
-                steps = MAX_ZOOM_INDICATOR_SECONDS - 1,
-                format = {
-                    if (it.roundToInt() == 0) stringResource(R.string.settings_off)
-                    else stringResource(R.string.settings_seconds_x, it.roundToInt())
-                },
-                onChange = { settings.setZoomIndicatorSeconds(it.roundToInt()) },
-            )
-            SwitchRow(
-                title = stringResource(R.string.settings_inertial_scroll),
-                summary = stringResource(R.string.settings_inertial_scroll_description),
-                checked = current.inertialScroll,
-                onCheckedChange = settings::setInertialScroll,
-            )
-
-            SectionHeader(stringResource(R.string.settings_text_notes))
-
-            SwitchRow(
-                title = stringResource(R.string.settings_pandoc_text_notes),
-                summary = stringResource(R.string.settings_pandoc_text_notes_description),
-                checked = current.pandocTextNotes,
-                onCheckedChange = settings::setPandocTextNotes,
-            )
-
-            SectionHeader(stringResource(R.string.settings_images))
-
-            SelectRow(
-                title = stringResource(R.string.settings_image_insert),
-                summary = stringResource(R.string.settings_image_insert_description),
-                selected = current.imageInsertMode,
-                options = ImageInsertMode.entries.map { it to it.label() },
-                onSelect = settings::setImageInsertMode,
-            )
-
-            SectionHeader(stringResource(R.string.settings_paper))
-
-            NavigationRow(
-                title = stringResource(R.string.settings_paper_themes),
-                summary = stringResource(R.string.settings_paper_themes_summary),
-                icon = NotesIcons.PageSetup,
-                onClick = onOpenPaperThemes,
-            )
-            NavigationRow(
-                title = stringResource(R.string.settings_saved_colours),
-                summary = stringResource(R.string.settings_saved_colours_summary),
-                icon = NotesIcons.Palette,
-                onClick = onOpenSavedColors,
-            )
-
-            SelectRow(
-                title = stringResource(R.string.settings_measurements),
-                summary = stringResource(R.string.settings_measurements_description),
-                selected = current.measurementUnit,
-                options = MeasurementUnit.entries.map { it to it.label() },
-                onSelect = settings::setMeasurementUnit,
             )
         }
     }

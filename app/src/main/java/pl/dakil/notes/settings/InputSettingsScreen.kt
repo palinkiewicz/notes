@@ -56,6 +56,8 @@ fun InputSettingsScreen(
         ) {
             val input = current.input
 
+            SectionHeader(stringResource(R.string.settings_drawing))
+
             SwitchRow(
                 title = stringResource(R.string.settings_finger_drawing),
                 summary = stringResource(R.string.settings_finger_drawing_description),
@@ -73,6 +75,8 @@ fun InputSettingsScreen(
                     if (!it) settings.clearToolState()
                 },
             )
+
+            SectionHeader(stringResource(R.string.settings_palm_rejection))
 
             SliderRow(
                 title = stringResource(R.string.settings_palm_window),
@@ -96,6 +100,8 @@ fun InputSettingsScreen(
                 },
                 onChange = settings::setPalmTouchMajorThreshold,
             )
+
+            SectionHeader(stringResource(R.string.settings_pressure))
 
             SliderRow(
                 title = stringResource(R.string.settings_smoothing),
@@ -127,6 +133,8 @@ fun InputSettingsScreen(
                 options = PressureCurvePresets.map { it to it.label() },
                 onSelect = settings::setPressureCurve,
             )
+
+            SectionHeader(stringResource(R.string.settings_auto_shape))
 
             SwitchRow(
                 title = stringResource(R.string.settings_auto_shape),

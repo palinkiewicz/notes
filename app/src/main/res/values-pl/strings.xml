@@ -14,11 +14,22 @@
     <!--  SETTINGS  -->
     <string name="settings_title">Ustawienia</string>
     <string name="settings_appearance">Wygląd</string>
-    <string name="settings_appearance_summary">Motyw, kolory i układ</string>
-    <string name="settings_input">Wprowadzanie</string>
+    <string name="settings_appearance_summary">Motyw, tryb ciemny i układ biblioteki</string>
+    <string name="settings_input">Pióro i wprowadzanie</string>
     <string name="settings_input_summary">Rysik, odrzucanie dłoni i nacisk</string>
     <string name="settings_about">O aplikacji</string>
     <string name="settings_about_summary">Wersja i twórcy</string>
+    <string name="settings_section_general">Ogólne</string>
+    <string name="settings_section_notes">Notatki</string>
+    <string name="settings_section_data">Twoje dane</string>
+    <string name="settings_editor">Edytor</string>
+    <string name="settings_editor_summary">Ponowne otwieranie, przewijanie, notatki tekstowe i obrazy</string>
+    <string name="settings_paper_colours">Papier i kolory</string>
+    <string name="settings_paper_colours_summary">Motywy papieru, zapisane kolory i jednostki</string>
+    <string name="settings_colours">Kolory</string>
+    <string name="settings_drawing">Rysowanie</string>
+    <string name="settings_palm_rejection">Odrzucanie dłoni</string>
+    <string name="settings_pressure">Nacisk i wygładzanie</string>
 
     <!--  APPEARANCE SETTINGS  -->
     <string name="settings_theme_colors">Kolory motywu</string>

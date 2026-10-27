@@ -616,7 +616,23 @@ class NoteViewModel(
         commitEdit(Edit.SetPages(sheet.pages, added + 1))
         // A page added below the fold, with the view left where it was, is indistinguishable from
         // a button that does nothing.
-        _state.update { it.copy(scrollRequest = ScrollRequest(added, it.documentVersion)) }
+        requestScroll(added)
+    }
+
+    /** Scrolls the view to page [index], counted from zero. Not an edit, so read-only notes allow it. */
+    fun goToPage(index: Int) {
+        val sheet = _state.value.sheet ?: return
+        if (index !in 0 until sheet.pageCount()) return
+        requestScroll(index)
+    }
+
+    // A counter rather than the document version: going to a page is not an edit, so the version
+    // would not move between two jumps to the same page and the second would be swallowed.
+    private var scrollTokens = 0
+
+    private fun requestScroll(page: Int) {
+        val token = ++scrollTokens
+        _state.update { it.copy(scrollRequest = ScrollRequest(page, token)) }
     }
 
     /** Copies page [index] and its ink onto a new page directly after it. */
@@ -624,7 +640,7 @@ class NoteViewModel(
         val sheet = _state.value.sheet ?: return
         if (_state.value.isReadOnly || !sheet.canEditPage(index)) return
         commitEdit(Edit.ReplaceSheet(sheet, sheet.withPageDuplicated(index)))
-        _state.update { it.copy(scrollRequest = ScrollRequest(index + 1, it.documentVersion)) }
+        requestScroll(index + 1)
     }
 
     /** Removes page [index] along with the ink on it. */

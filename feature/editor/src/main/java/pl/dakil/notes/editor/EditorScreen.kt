@@ -94,6 +94,7 @@ fun EditorScreen(
     var exportOpen by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var moreMenuOpen by remember { mutableStateOf(false) }
+    var goingToPage by remember { mutableStateOf(false) }
     var editingPen by remember { mutableStateOf<Pair<ToolId, InkTarget>?>(null) }
     var editingPageColor by remember { mutableStateOf<PageColorTarget?>(null) }
     // Held here rather than in the toolbar: the sheet and the app bar close it too.
@@ -262,6 +263,17 @@ fun EditorScreen(
 
     InsertImageDialogs(imageInsert, onLink = { _, url -> placeImageFromLink(url) })
 
+    if (goingToPage && sheet != null) {
+        GoToPageDialog(
+            pageCount = sheet.pageCount(),
+            onDismiss = { goingToPage = false },
+            onConfirm = { page ->
+                goingToPage = false
+                viewModel.goToPage(page - 1)
+            },
+        )
+    }
+
     if (renaming) {
         RenameNoteDialog(
             initial = title,
@@ -385,6 +397,15 @@ fun EditorScreen(
                             Icon(NotesIcons.More, contentDescription = stringResource(R.string.editor_more))
                         }
                         DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_go_to_page)) },
+                                leadingIcon = { Icon(NotesIcons.GoToPage, contentDescription = null) },
+                                enabled = sheet != null,
+                                onClick = {
+                                    moreMenuOpen = false
+                                    goingToPage = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.editor_page_setup)) },
                                 leadingIcon = { Icon(NotesIcons.PageSetup, contentDescription = null) },

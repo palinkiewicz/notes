@@ -20,6 +20,8 @@ import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.settings.AppearanceSettingsScreen
+import pl.dakil.notes.settings.EditorSettingsScreen
+import pl.dakil.notes.settings.PaperColoursSettingsScreen
 import pl.dakil.notes.settings.PaperThemesScreen
 import pl.dakil.notes.settings.SavedColorsScreen
 import pl.dakil.notes.settings.InputSettingsScreen
@@ -37,22 +39,24 @@ import pl.dakil.notes.ui.motion.screenTransitionGround
 
 /** The pages of the settings section. The root is the index; the rest are pushed over it. */
 private enum class SettingsPage {
-    ROOT, APPEARANCE, INPUT, STORAGE, BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV, PAPER_THEMES, SAVED_COLORS;
+    ROOT, APPEARANCE, EDITOR, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE, BACKUP, SYNC,
+    SYNC_DRIVE, SYNC_WEBDAV;
 
-    /** Where back goes. The two palette screens open from Appearance and return to it. */
+    /**
+     * Where back goes — the system gesture and the toolbar arrow alike, so the two cannot disagree.
+     * A page missing from here falls back to the root, which is how Drive and WebDAV setup used to
+     * skip straight past Sync.
+     */
     val parent: SettingsPage
         get() = when (this) {
-            PAPER_THEMES, SAVED_COLORS -> APPEARANCE
+            PAPER_THEMES, SAVED_COLORS -> PAPER_COLOURS
+            SYNC_DRIVE, SYNC_WEBDAV -> SYNC
             else -> ROOT
         }
 
-    /** How far down the stack, so going back animates as going back. */
+    /** How far down the stack, so going back animates as going back. Derived, never listed. */
     val depth: Int
-        get() = when (this) {
-            ROOT -> 0
-            SYNC_DRIVE, SYNC_WEBDAV, PAPER_THEMES, SAVED_COLORS -> 2
-            else -> 1
-        }
+        get() = if (this == ROOT) 0 else parent.depth + 1
 }
 
 /**
@@ -63,8 +67,8 @@ private enum class SettingsPage {
  * without making the default any simpler — it is one level down from the tools themselves, split in
  * two so neither list is long enough to scroll past what you came for.
  *
- * A saved enum rather than a nav graph, for the same reason the app shell uses one: four pages with
- * a single way in and out is not a state machine that needs a library.
+ * A saved enum rather than a nav graph, for the same reason the app shell uses one: a shallow tree
+ * of pages, each with a single way in and out, is not a state machine that needs a library.
  */
 @Composable
 fun SettingsScreen(
@@ -97,9 +101,14 @@ fun SettingsScreen(
         label = "settingsPage",
     ) { target ->
         Box(Modifier.fillMaxSize().then(blockInputWhileExiting())) {
+            // `target`, not `page`: the outgoing screen is still composed during the transition,
+            // and its arrow has to lead to its own parent.
+            val back = { page = target.parent }
             when (target) {
                 SettingsPage.ROOT -> SettingsRootScreen(
                     onNavigateToAppearance = { page = SettingsPage.APPEARANCE },
+                    onNavigateToEditor = { page = SettingsPage.EDITOR },
+                    onNavigateToPaperColours = { page = SettingsPage.PAPER_COLOURS },
                     onNavigateToInput = { page = SettingsPage.INPUT },
                     onNavigateToStorage = { page = SettingsPage.STORAGE },
                     onNavigateToBackup = { page = SettingsPage.BACKUP },
@@ -109,41 +118,53 @@ fun SettingsScreen(
                 SettingsPage.APPEARANCE -> AppearanceSettingsScreen(
                     current = current,
                     settings = settings,
+                    onNavigateBack = back,
+                )
+
+                SettingsPage.EDITOR -> EditorSettingsScreen(
+                    current = current,
+                    settings = settings,
                     onForgetPositions = viewStates::clear,
+                    onNavigateBack = back,
+                )
+
+                SettingsPage.PAPER_COLOURS -> PaperColoursSettingsScreen(
+                    current = current,
+                    settings = settings,
                     onOpenPaperThemes = { page = SettingsPage.PAPER_THEMES },
                     onOpenSavedColors = { page = SettingsPage.SAVED_COLORS },
-                    onNavigateBack = { page = SettingsPage.ROOT },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.PAPER_THEMES -> PaperThemesScreen(
                     current = current,
                     settings = settings,
-                    onNavigateBack = { page = SettingsPage.APPEARANCE },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.SAVED_COLORS -> SavedColorsScreen(
                     current = current,
                     settings = settings,
-                    onNavigateBack = { page = SettingsPage.APPEARANCE },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.INPUT -> InputSettingsScreen(
                     current = current,
                     settings = settings,
-                    onNavigateBack = { page = SettingsPage.ROOT },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.STORAGE -> StorageSettingsScreen(
                     viewModel = viewModel(
                         factory = StorageSettingsViewModel.factory(libraryRoot, settings)
                     ),
-                    onNavigateBack = { page = SettingsPage.ROOT },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.BACKUP -> BackupSettingsScreen(
                     current = current,
                     viewModel = backupSyncViewModel,
-                    onNavigateBack = { page = SettingsPage.ROOT },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.SYNC -> SyncSettingsScreen(
@@ -151,19 +172,19 @@ fun SettingsScreen(
                     viewModel = backupSyncViewModel,
                     onNavigateToDrive = { page = SettingsPage.SYNC_DRIVE },
                     onNavigateToWebDav = { page = SettingsPage.SYNC_WEBDAV },
-                    onNavigateBack = { page = SettingsPage.ROOT },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.SYNC_DRIVE -> DriveSetupScreen(
                     current = current,
                     viewModel = backupSyncViewModel,
-                    onNavigateBack = { page = SettingsPage.SYNC },
+                    onNavigateBack = back,
                 )
 
                 SettingsPage.SYNC_WEBDAV -> WebDavSetupScreen(
                     current = current,
                     viewModel = backupSyncViewModel,
-                    onNavigateBack = { page = SettingsPage.SYNC },
+                    onNavigateBack = back,
                 )
             }
         }

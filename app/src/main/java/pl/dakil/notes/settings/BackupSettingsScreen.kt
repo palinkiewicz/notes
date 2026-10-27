@@ -88,7 +88,6 @@ fun BackupSettingsScreen(
                     ?: stringResource(R.string.settings_backup_destination_none),
                 enabled = !state.busy,
                 onClick = { folderPicker.launch(null) },
-                leading = { Icon(NotesIcons.Folder, contentDescription = null) },
                 trailing = if (state.busy) {
                     { CircularProgressIndicator(Modifier.size(24.dp)) }
                 } else {

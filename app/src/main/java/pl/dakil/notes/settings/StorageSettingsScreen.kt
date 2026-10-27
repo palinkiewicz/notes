@@ -87,7 +87,6 @@ fun StorageSettingsScreen(
                     ?: stringResource(R.string.settings_storage_internal_summary),
                 enabled = !state.busy,
                 onClick = { picker.launch(null) },
-                leading = { Icon(pl.dakil.notes.ui.icons.NotesIcons.Folder, contentDescription = null) },
                 trailing = if (state.busy) {
                     { CircularProgressIndicator(Modifier.size(24.dp)) }
                 } else {

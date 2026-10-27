@@ -27,14 +27,22 @@ import pl.dakil.notes.ui.icons.NotesIcons
 /**
  * The settings index.
  *
- * Six rows and nothing else. Everything a casual note-taker never has to look at is one level
- * down, which is not the same as hiding it behind an "advanced mode": both subscreens are named on
- * the first screen, and neither is a mode you can be stuck in.
+ * Rows and section headers and nothing else. Everything a casual note-taker never has to look at is
+ * one level down, which is not the same as hiding it behind an "advanced mode": every subscreen is
+ * named on the first screen, and none is a mode you can be stuck in.
+ *
+ * Grouped by topic rather than by note kind: images and reopening apply to both kinds, and a split
+ * by kind would have to put them in one place and leave the other kind to wonder where they went.
+ *
+ * The only screen in settings with icons. Here they tell the destinations apart at a glance; inside
+ * a subscreen every row is a setting of the same kind, and an icon per row would be decoration.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsRootScreen(
     onNavigateToAppearance: () -> Unit,
+    onNavigateToEditor: () -> Unit,
+    onNavigateToPaperColours: () -> Unit,
     onNavigateToInput: () -> Unit,
     onNavigateToStorage: () -> Unit,
     onNavigateToBackup: () -> Unit,
@@ -61,11 +69,28 @@ fun SettingsRootScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
+            SectionHeader(stringResource(R.string.settings_section_general))
+
             NavigationRow(
                 title = stringResource(R.string.settings_appearance),
                 summary = stringResource(R.string.settings_appearance_summary),
                 icon = NotesIcons.Palette,
                 onClick = onNavigateToAppearance,
+            )
+
+            SectionHeader(stringResource(R.string.settings_section_notes))
+
+            NavigationRow(
+                title = stringResource(R.string.settings_editor),
+                summary = stringResource(R.string.settings_editor_summary),
+                icon = NotesIcons.Note,
+                onClick = onNavigateToEditor,
+            )
+            NavigationRow(
+                title = stringResource(R.string.settings_paper_colours),
+                summary = stringResource(R.string.settings_paper_colours_summary),
+                icon = NotesIcons.PageSetup,
+                onClick = onNavigateToPaperColours,
             )
             NavigationRow(
                 title = stringResource(R.string.settings_input),
@@ -73,6 +98,9 @@ fun SettingsRootScreen(
                 icon = NotesIcons.Pen,
                 onClick = onNavigateToInput,
             )
+
+            SectionHeader(stringResource(R.string.settings_section_data))
+
             NavigationRow(
                 title = stringResource(R.string.settings_storage),
                 summary = stringResource(R.string.settings_storage_summary),

@@ -260,6 +260,14 @@ object NotesIcons {
         )
     }
 
+    /** An arrow entering a sheet: jump the view to a page by its number. */
+    val GoToPage: ImageVector by lazy {
+        strokedIcon(
+            "GoToPage",
+            "M9.5 8.5 v-5 h10 v17 h-10 v-5 M3 12 h11 M11 9 L14 12 L11 15",
+        )
+    }
+
     /** Move this page one position towards the front of the note. */
     val MoveUp: ImageVector by lazy {
         strokedIcon("MoveUp", "M12 20 v-15 M5.5 11.5 L12 5 L18.5 11.5")

@@ -14,11 +14,22 @@
     <!--  SETTINGS  -->
     <string name="settings_title">Settings</string>
     <string name="settings_appearance">Appearance</string>
-    <string name="settings_appearance_summary">Theme, colours and layout</string>
-    <string name="settings_input">Input</string>
+    <string name="settings_appearance_summary">Theme, dark mode and library layout</string>
+    <string name="settings_input">Pen &amp; input</string>
     <string name="settings_input_summary">Stylus, palm rejection and pressure</string>
     <string name="settings_about">About app</string>
     <string name="settings_about_summary">Version and credits</string>
+    <string name="settings_section_general">General</string>
+    <string name="settings_section_notes">Notes</string>
+    <string name="settings_section_data">Your data</string>
+    <string name="settings_editor">Editor</string>
+    <string name="settings_editor_summary">Reopening, scrolling, text notes and images</string>
+    <string name="settings_paper_colours">Paper &amp; colours</string>
+    <string name="settings_paper_colours_summary">Paper themes, saved colours and units</string>
+    <string name="settings_colours">Colours</string>
+    <string name="settings_drawing">Drawing</string>
+    <string name="settings_palm_rejection">Palm rejection</string>
+    <string name="settings_pressure">Pressure and smoothing</string>
 
     <!--  APPEARANCE SETTINGS  -->
     <string name="settings_theme_colors">Theme colours</string>
