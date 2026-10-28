@@ -57,6 +57,8 @@ object SheetPainter {
      *   fit-to-width — around a quarter scale on a phone — would render the rules a quarter of a
      *   pixel wide and the paper would come up blank.
      * @param pages the pages to paint — see [pageWindow]. Everything else is left blank.
+     * @param patternless pages that get the paper colour and no pattern: those a PDF page is the
+     *   paper of, where rules would show only in the margins it was fitted into.
      */
     fun DrawScope.drawSheet(
         format: PageFormat,
@@ -65,6 +67,7 @@ object SheetPainter {
         paged: Boolean,
         zoom: Float = 1f,
         pages: IntRange = 0 until pageCount,
+        patternless: Set<Int> = emptySet(),
     ) {
         val paper = Color(format.background.color)
         val pageHeightPx = format.height * ptToPx
@@ -79,8 +82,10 @@ object SheetPainter {
 
             // The pattern is clipped to its own page so rules never run through the gap between
             // sheets — which is what makes paged view look like paper rather than a striped wall.
-            clipRect(top = top, bottom = bottom) {
-                drawPattern(format, ptToPx, top, pageHeightPx, zoom)
+            if (page !in patternless) {
+                clipRect(top = top, bottom = bottom) {
+                    drawPattern(format, ptToPx, top, pageHeightPx, zoom)
+                }
             }
 
             if (paged) {

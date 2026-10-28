@@ -245,7 +245,9 @@ private fun EditableTextBox(
     var hidden by remember(box.id) { mutableStateOf(0f) }
 
     CompositionLocalProvider(
-        LocalDensity provides Density(density.density * scale, density.fontScale),
+        // The paper's density — the screen's own, unless the strip is measured smaller than
+        // usual (see StripScale) — times the placement scale: the type as large as it is on paper.
+        LocalDensity provides Density(ptToPx * DP_PER_PT * scale, density.fontScale),
     ) {
         Layout(
             modifier = Modifier

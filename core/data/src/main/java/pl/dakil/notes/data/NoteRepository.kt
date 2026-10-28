@@ -16,13 +16,17 @@ import pl.dakil.notes.format.DakNote
 import pl.dakil.notes.format.DakNoteFormatException
 import pl.dakil.notes.format.DakNoteReader
 import pl.dakil.notes.format.DakNoteWriter
+import pl.dakil.notes.format.FileMediaSpool
 import pl.dakil.notes.format.FrontmatterCodec
+import pl.dakil.notes.format.MediaSink
 import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageSize
+import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.sync.ConflictNaming
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /** What the UI needs to know about the save state, so it can be honest rather than reassuring. */
@@ -75,6 +79,8 @@ class NoteRepository(
     private val deviceId: () -> String = { "LOCAL" },
     /** Where each note was last being read; kept in step with renames, moves and deletes. */
     private val viewStates: NoteViewStates? = null,
+    /** Where a note's PDFs go when it is opened; see [MediaSink]. */
+    private val media: MediaSink = MediaSink.InMemory,
 ) {
 
     private val writeLock = Mutex()
@@ -145,16 +151,29 @@ class NoteRepository(
         @OptIn(FlowPreview::class)
         scope.launch {
             saveRequests
-                .debounce(AUTOSAVE_DEBOUNCE_MS)
+                .debounce { pending -> debounceFor(pending) }
                 .conflate()
                 .collect { pending -> performSave(pending) }
         }
     }
 
+    /**
+     * Longer for a note carrying a large PDF: every save rewrites the whole file, PDF and all, and
+     * at tens of megabytes that is worth doing less often than once per pause in the handwriting.
+     */
+    private fun debounceFor(pending: PendingSave): Long {
+        if (pending !is PendingSave.Ink) return AUTOSAVE_DEBOUNCE_MS
+        val attached = pending.note.sheet.blocks
+            .filterIsInstance<PdfPageBlock>()
+            .distinctBy { it.src }
+            .sumOf { it.data.size }
+        return if (attached > LARGE_NOTE_BYTES) LARGE_AUTOSAVE_DEBOUNCE_MS else AUTOSAVE_DEBOUNCE_MS
+    }
+
     // ---- Loading -------------------------------------------------------------------------------
 
     suspend fun load(ref: StoreRef): Result<Note> = runCatching {
-        store.read(ref) { DakNoteReader.read(it) }
+        store.read(ref) { DakNoteReader.read(it, media) }
     }.onSuccess { note ->
         remember(ref)
         lastContent[ref.value] = note
@@ -196,6 +215,27 @@ class NoteRepository(
             // title, and a heading the user did not type is one they have to delete.
             NoteKind.TEXT -> writeText(ref, "", path)
         }
+        ref
+    }
+
+    /**
+     * Reads a PDF from [uri] into the media spool, ready to become a note or pages of one. Blocking.
+     *
+     * [scratch] is somewhere app-private to stage the copy while it is checked and hashed.
+     */
+    fun importPdf(resolver: android.content.ContentResolver, uri: android.net.Uri, scratch: File): ImportedPdf =
+        PdfImport.read(resolver, uri, media as? FileMediaSpool ?: FileMediaSpool(File(scratch, "media")), scratch)
+
+    /** Creates an ink note from [pdf], one page per page of it, in [parent]. */
+    suspend fun createFromPdf(
+        parent: StoreRef,
+        title: String,
+        pdf: ImportedPdf,
+        path: String = "",
+    ): Result<StoreRef> = runCatching {
+        val kind = NoteKind.INK
+        val ref = store.newChild(parent, "${title.sanitizeFileName()}.${kind.extension}", kind.mimeType)
+        writeInk(ref, DakNote.newPdfNote(title = title, src = pdf.src, data = pdf.data, pages = pdf.pages, now = clock()), path)
         ref
     }
 
@@ -304,11 +344,18 @@ class NoteRepository(
 
         val name = ConflictNaming.nameFor(current.name, clock(), deviceId())
         val target = store.siblingOf(ref, name) ?: return null
-        return runCatching {
-            val bytes = store.read(ref) { it.readBytes() }
-            store.write(target) { out -> out.write(bytes) }
-            store.metadata(target)?.name ?: name
-        }.getOrNull()
+        // Through a temporary file rather than an array: a note with a PDF in it can be tens of
+        // megabytes, and this runs on the save path.
+        val temp = File.createTempFile("conflict-", ".tmp")
+        return try {
+            runCatching {
+                store.read(ref) { input -> temp.outputStream().use { input.copyTo(it) } }
+                store.write(target) { out -> temp.inputStream().use { it.copyTo(out) } }
+                store.metadata(target)?.name ?: name
+            }.getOrNull()
+        } finally {
+            temp.delete()
+        }
     }
 
     /** Records what is on disk now, so the next save can tell whether anyone else has been there. */
@@ -529,7 +576,8 @@ class NoteRepository(
             if (index.isCurrent(entry.ref, entry.modifiedAt, entry.sizeBytes)) continue
             when (kind) {
                 NoteKind.INK -> {
-                    val note = runCatching { store.read(entry.ref) { DakNoteReader.read(it) } }
+                    // Words and tags only: a PDF is read past rather than copied for the index.
+                    val note = runCatching { store.read(entry.ref) { DakNoteReader.read(it, MediaSink.Discard) } }
                         .getOrNull() ?: continue
                     index.put(entry.ref, note, path, entry.modifiedAt, entry.sizeBytes)
                 }
@@ -695,7 +743,7 @@ class NoteRepository(
      * more than a tidy name, and the index then goes on reporting what the file actually says.
      */
     private suspend fun retitle(ref: StoreRef, title: String, path: String) {
-        val note = runCatching { store.read(ref) { DakNoteReader.read(it) } }.getOrNull() ?: return
+        val note = runCatching { store.read(ref) { DakNoteReader.read(it, media) } }.getOrNull() ?: return
         if (note.readOnly || note.meta.title == title) return
         writeInk(ref, note.copy(meta = note.meta.copy(title = title)), path)
     }
@@ -703,7 +751,7 @@ class NoteRepository(
     /** Rewrites an ink note's tags in place, without going through the editor. */
     suspend fun setTags(ref: StoreRef, tags: List<String>, path: String? = null): Result<Unit> = runCatching {
         writeLock.withLock {
-            val note = store.read(ref) { DakNoteReader.read(it) }
+            val note = store.read(ref) { DakNoteReader.read(it, media) }
             if (!note.readOnly) writeInk(ref, note.copy(meta = note.meta.copy(tags = tags)), path)
         }
     }
@@ -753,5 +801,9 @@ class NoteRepository(
          * who backgrounds the app right after writing does not notice a gap.
          */
         const val AUTOSAVE_DEBOUNCE_MS = 1_500L
+
+        /** For a note carrying more than [LARGE_NOTE_BYTES] of PDF; see [debounceFor]. */
+        const val LARGE_AUTOSAVE_DEBOUNCE_MS = 4_000L
+        const val LARGE_NOTE_BYTES = 16L * 1024 * 1024
     }
 }

@@ -1,5 +1,7 @@
 package pl.dakil.notes.editor
 
+import pl.dakil.notes.editor.canvas.StripScale
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,6 +52,7 @@ import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.pdfPageIndices
 import pl.dakil.notes.model.ViewMode
 
 /**
@@ -88,7 +91,12 @@ fun SheetEditor(
     // One typographic point is 1/72", one dp is 1/160", so a point is 160/72 dp. This is the single
     // conversion between the document's coordinates and the screen's, and it is deliberately free
     // of zoom: the zoom lives in the placement transform, never in the geometry.
-    val ptToPx = with(density) { (160f / 72f).dp.toPx() }
+    val basePtToPx = with(density) { (160f / 72f).dp.toPx() }
+    // Smaller only for a strip too tall to measure at that scale; see StripScale.
+    val stripScale = remember(sheet.format, sheet.pageCount(), state.view, basePtToPx) {
+        StripScale.of(sheet.format, sheet.pageCount(), basePtToPx, state.view == ViewMode.PAGED)
+    }
+    val ptToPx = basePtToPx / stripScale
 
     // Seeded from where the note was left, when the user asked for that; otherwise it opens at the
     // top and fits the width. Saved-instance state still wins, so a rotation keeps the live view.
@@ -97,6 +105,7 @@ fun SheetEditor(
             viewModel.savedView()?.let { restore(it.zoom, it.offsetX, it.offsetY) }
         }
     }
+    transform.useUnit(stripScale)
     SaveViewOnLeave {
         transform.pose()?.let { viewModel.rememberView(NoteViewState.Ink(it[0], it[1], it[2])) }
     }
@@ -412,6 +421,15 @@ private fun SheetLayers(
         inkLevels(paintOrder, order, pageCount, format.height, paged, selected)
     }
     val drawingLevel = if (state.tool.tool.isDrawing) order.levelOf(state.tool.tool) else -1
+    val pdfPages = remember(sheet) { sheet.pdfPageIndices() }
+
+    // The page in the middle of the screen, for "insert after this page". Into a plain field, not
+    // state: nothing is drawn from it, and a pan must not recompose anything to keep it current.
+    LaunchedEffect(transform, format, ptToPx, paged, pageCount) {
+        snapshotFlow {
+            SheetPainter.stripPageAt((transform.visibleTop() + transform.visibleBottom()) / 2f, format, ptToPx, paged)
+        }.collect { page -> if (page >= 0) viewModel.viewedPage = page.coerceAtMost(pageCount - 1) }
+    }
     // Paper at 0, the ordered layers above it, and the input and the ruler over every one of them.
     fun z(level: Int) = level + 1f
     val overlayZ = z(order.levels.size)
@@ -429,8 +447,20 @@ private fun SheetLayers(
                 // Only the pages under the window are emitted, so a fifty-page note costs what a
                 // one-page note costs.
                 pages = pages.value,
+                patternless = pdfPages,
             )
         }
+
+        // PDF pages: the paper itself where there is one, so over the paper colour and under
+        // everything the order places — on its own level between the two, whatever that order is.
+        SheetPdfLayer(
+            sheet = sheet,
+            ptToPx = ptToPx,
+            paged = paged,
+            transform = transform,
+            pages = pages,
+            modifier = Modifier.matchParentSize().zIndex(PDF_Z).graphicsLayer(),
+        )
 
         // Pictures, wherever the order has them — on the paper and under everything written on it,
         // unless the user has said otherwise.
@@ -515,3 +545,6 @@ private fun SheetLayers(
         }
     }
 }
+
+/** Above the paper, at 0, and below the lowest ordered level, at 1. */
+private const val PDF_Z = 0.5f

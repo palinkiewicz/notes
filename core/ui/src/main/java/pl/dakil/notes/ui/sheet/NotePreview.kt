@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.InkBlock
+import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.Sheet
@@ -91,6 +92,21 @@ fun InkNotePreview(
         // strokes paint straight over the title and date below the thumbnail and out of the card.
         Canvas(Modifier.fillMaxSize().clipToBounds()) {
             drawRect(Color(format.background.color))
+            // The first page's PDF, if it has one: the paper, under every level.
+            for (block in sheet.blocks) {
+                if (block !is PdfPageBlock || sheet.pageOf(block) != 0) continue
+                val r = block.rect
+                val topLeft = Offset(r.left * ptToPx, r.top * ptToPx)
+                val size = Size(r.width * ptToPx, r.height * ptToPx)
+                drawRect(Color.White, topLeft, size)
+                images[pdfPageKey(block)]?.let { bitmap ->
+                    drawImage(
+                        image = bitmap,
+                        dstOffset = IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()),
+                        dstSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)),
+                    )
+                }
+            }
             // Page 0 only: everything below the first page break belongs to a page this card is
             // not showing, and the strip is one continuous coordinate space.
             clipRect(bottom = format.height * ptToPx) {
@@ -125,6 +141,9 @@ fun InkNotePreview(
         }
     }
 }
+
+/** What a rendered PDF page is known by in the same map as [pictureKey]'s pictures. */
+fun pdfPageKey(block: PdfPageBlock): String = "${block.src}#page${block.page}"
 
 /**
  * What a decoded picture is known by in a map of them: its source, and its crop when it has one.

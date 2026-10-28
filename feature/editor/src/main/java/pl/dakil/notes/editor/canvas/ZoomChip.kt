@@ -348,4 +348,4 @@ private fun ZoomMenu(
     }
 }
 
-private fun SheetTransform.percent(): Int = (zoom * 100f).roundToInt()
+private fun SheetTransform.percent(): Int = (userZoom * 100f).roundToInt()

@@ -231,6 +231,15 @@ object NotesIcons {
         )
     }
 
+    /** A page with its corner turned and a pen line across it: a PDF to write on. */
+    val Pdf: ImageVector by lazy {
+        strokedIcon(
+            "Pdf",
+            "M5.5 3.5 h9 l4 4 v13 h-13 Z M14.5 3.5 v4 h4 " +
+                "M8 13 h8 M8 16.5 h5 M14 18.5 l4.5 -4.5",
+        )
+    }
+
     /** A funnel: narrow the list to one kind of thing. */
     val Filter: ImageVector by lazy {
         strokedIcon("Filter", "M3.5 5 h17 l-6.5 7.5 v6.5 l-4 -2 v-4.5 Z")

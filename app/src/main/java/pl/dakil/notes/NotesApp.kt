@@ -1,5 +1,7 @@
 package pl.dakil.notes
 
+import kotlinx.coroutines.flow.filterNotNull
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
@@ -134,6 +136,24 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
         appScope.launch {
             saving?.join()
             libraryViewModel.reloadFromIndex()
+        }
+    }
+
+    // A PDF handed over by another app: closed into the library, made a note of at its root, and
+    // opened. Whatever was open is flushed first by closeEditor, so its last edit lands before the
+    // new note takes the editor.
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        container.incomingPdf.filterNotNull().collect { uri ->
+            container.incomingPdf.value = null
+            if (openNote != null) closeEditor()
+            destination = Destination.LIBRARY
+            libraryViewModel.importPdf(
+                context.contentResolver,
+                uri,
+                context.cacheDir.resolve("import"),
+                intoRoot = true,
+            ) { openNote = it.value }
         }
     }
 

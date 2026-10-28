@@ -41,4 +41,18 @@ class PageSelectionTest {
         assertNull(PageSelection.parse("1-", pageCount = 3))
         assertNull(PageSelection.parse(",", pageCount = 3))
     }
+
+    @Test
+    fun `a choice of pages is written back as the ranges a user would type`() {
+        assertEquals("1-3, 5", PageSelection.format(listOf(4, 0, 1, 2), pageCount = 9))
+        assertEquals("2", PageSelection.format(listOf(1), pageCount = 9))
+        // All of them is the blank field, which is how parse reads all of them.
+        assertEquals("", PageSelection.format(listOf(0, 1, 2), pageCount = 3))
+    }
+
+    @Test
+    fun `formatting and parsing a choice of pages agree`() {
+        val chosen = listOf(0, 2, 3, 4, 8)
+        assertEquals(chosen, PageSelection.parse(PageSelection.format(chosen, 10), 10))
+    }
 }

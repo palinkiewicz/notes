@@ -24,7 +24,14 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.content.ContentResolver
+import android.net.Uri
+import java.io.File
+import pl.dakil.notes.data.ImportedPdf
 import pl.dakil.notes.data.NoteRepository
+import pl.dakil.notes.data.PdfImportException
+import pl.dakil.notes.model.withFormatRefitted
+import pl.dakil.notes.model.withPdfPagesInserted
 import pl.dakil.notes.data.NoteViewState
 import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SaveState
@@ -201,6 +208,12 @@ data class EditorUiState(
     @StringRes val errorRes: Int? = null,
     /** Every tag in use across the library, for the tag editor's autocomplete. */
     val knownTags: List<String> = emptyList(),
+    /** A PDF read and waiting for the user to choose which of its pages go in, and where. */
+    val pdfInsert: ImportedPdf? = null,
+    /** A PDF is being read for insertion. */
+    val pdfReading: Boolean = false,
+    /** Why the last PDF could not be read, for a snackbar; cleared once shown. */
+    @StringRes val pdfError: Int? = null,
 ) {
     val sheet: Sheet? get() = note?.sheet
     val isReadOnly: Boolean get() = note?.readOnly == true
@@ -613,7 +626,8 @@ class NoteViewModel(
         if (note.meta.view != view) commitEdit(Edit.SetMeta(note.meta, note.meta.copy(view = view)))
     }
 
-    fun setPageFormat(format: PageFormat) = applyDocument { it.withSheet(it.sheet.copy(format = format)) }
+    // Refitted, not just replaced: a PDF page sized to the old paper would hang off the new one.
+    fun setPageFormat(format: PageFormat) = applyDocument { it.withSheet(it.sheet.withFormatRefitted(format)) }
 
     fun setPageBackground(background: PageBackground) {
         val sheet = _state.value.sheet ?: return
@@ -691,6 +705,58 @@ class NoteViewModel(
         if (moved === sheet) return false
         commitEdit(Edit.ReplaceSheet(sheet, moved))
         return true
+    }
+
+    // ---- PDF pages -----------------------------------------------------------------------------
+
+    /**
+     * The page the middle of the screen is on, kept up to date by the sheet as the view moves.
+     *
+     * A plain field rather than state: nothing is drawn from it. It is read once, when the PDF page
+     * picker opens, to offer "after this page" as the place the pages go.
+     */
+    var viewedPage: Int = 0
+
+    /** Reads the PDF at [uri] and opens the page picker for it. */
+    fun preparePdfInsert(resolver: ContentResolver, uri: Uri, scratch: File) {
+        if (_state.value.isReadOnly) return
+        _state.update { it.copy(pdfReading = true) }
+        viewModelScope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) { repository.importPdf(resolver, uri, scratch) } }
+            _state.update {
+                result.fold(
+                    onSuccess = { pdf -> it.copy(pdfReading = false, pdfInsert = pdf) },
+                    onFailure = { cause -> it.copy(pdfReading = false, pdfError = pdfErrorOf(cause)) },
+                )
+            }
+        }
+    }
+
+    fun cancelPdfInsert() = _state.update { it.copy(pdfInsert = null) }
+
+    fun clearPdfError() = _state.update { it.copy(pdfError = null) }
+
+    /**
+     * Inserts [pages] of the PDF being picked from, in that order, so that the first becomes page
+     * [at], and scrolls there. One step of undo, however many pages.
+     */
+    fun insertPdfPages(pages: List<Int>, at: Int) {
+        val pdf = _state.value.pdfInsert ?: return
+        val sheet = _state.value.sheet ?: return
+        _state.update { it.copy(pdfInsert = null) }
+        if (_state.value.isReadOnly || pages.isEmpty()) return
+        val chosen = pages.mapNotNull { pdf.pages.getOrNull(it) }
+        val inserted = sheet.withPdfPagesInserted(at.coerceIn(0, sheet.pageCount()), pdf.src, pdf.data, chosen)
+        if (inserted === sheet) return
+        commitEdit(Edit.ReplaceSheet(sheet, inserted))
+        requestScroll(at)
+    }
+
+    private fun pdfErrorOf(cause: Throwable): Int = when ((cause as? PdfImportException)?.reason) {
+        PdfImportException.Reason.PROTECTED -> R.string.editor_pdf_error_protected
+        PdfImportException.Reason.TOO_LARGE -> R.string.editor_pdf_error_too_large
+        PdfImportException.Reason.NOT_PDF -> R.string.editor_pdf_error_not_pdf
+        else -> R.string.editor_pdf_error_unreadable
     }
 
     // ---- Text boxes ----------------------------------------------------------------------------

@@ -52,7 +52,40 @@ class SheetTransform {
     private var insetTop = 0f
     private var insetBottom = 0f
 
+    /**
+     * The placement scale: strip pixels to screen pixels. What drawing and input work in.
+     *
+     * Not what the user reads as the zoom — see [unit] and [userZoom].
+     */
     val zoom: Float get() = rawZoom
+
+    /**
+     * How much smaller than usual the strip is measured; see [StripScale]. 1 for nearly every note.
+     *
+     * Snapshot state, because everything that turns [zoom] into something the user reads divides
+     * by it.
+     */
+    private var unitState by mutableFloatStateOf(1f)
+    val unit: Float get() = unitState
+
+    /** The zoom as the user knows it — 1 is the paper at its real size — whatever [unit] is. */
+    val userZoom: Float get() = rawZoom / unit
+
+    /**
+     * Measures the strip at 1/[next] of the usual scale from now on.
+     *
+     * The placement scale is multiplied by the change, which keeps every point of the paper on the
+     * same pixel of the glass: the offsets are screen pixels and do not move. Called from
+     * composition with the same value almost every time, which is a no-op.
+     */
+    fun useUnit(next: Float) {
+        if (next == unit || next <= 0f) return
+        rawZoom *= next / unit
+        unitState = next
+    }
+
+    private fun minZoom(): Float = MIN_ZOOM * unit
+    private fun maxZoom(): Float = MAX_ZOOM * unit
 
     /**
      * While set, a pinch cannot change the scale — panning is unaffected.
@@ -116,7 +149,7 @@ class SheetTransform {
     fun fitWidthIfUnset() {
         if (settled || viewportWidth <= 0f || contentWidth <= 0f) return
         settled = true
-        rawZoom = ((viewportWidth - EDGE_PAD * 2f) / contentWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        rawZoom = ((viewportWidth - EDGE_PAD * 2f) / contentWidth).coerceIn(minZoom(), maxZoom())
         rawOffsetX = Float.NaN
         rawOffsetY = EDGE_PAD + insetTop
     }
@@ -128,7 +161,9 @@ class SheetTransform {
      * against a note that has since lost pages settles itself rather than showing empty desk.
      */
     fun restore(zoom: Float, offsetX: Float, offsetY: Float) {
-        rawZoom = zoom.coerceIn(MIN_ZOOM, MAX_ZOOM)
+        // [zoom] is a user zoom — see [pose] — so a pose saved before a note grew long enough to
+        // need a different [unit] still opens at the size it was left at.
+        rawZoom = (zoom * unit).coerceIn(minZoom(), maxZoom())
         rawOffsetX = offsetX
         rawOffsetY = offsetY
         settled = true
@@ -138,7 +173,7 @@ class SheetTransform {
      * The pose to remember, as `[zoom, offsetX, offsetY]`, or null before the view has one — a
      * sheet closed before its first layout was never looked at.
      */
-    fun pose(): FloatArray? = if (settled) floatArrayOf(rawZoom, rawOffsetX, rawOffsetY) else null
+    fun pose(): FloatArray? = if (settled) floatArrayOf(userZoom, rawOffsetX, rawOffsetY) else null
 
     /** Scales by [factor] about the screen point ([focusX], [focusY]), which stays put. */
     fun zoomAround(factor: Float, focusX: Float, focusY: Float) {
@@ -154,17 +189,17 @@ class SheetTransform {
      * document to change scale would mean scrolling back to whatever they were reading.
      */
     fun zoomTo(target: Float) {
-        applyZoom(target, viewportWidth * 0.5f, viewportHeight * 0.5f)
+        applyZoom(target * unit, viewportWidth * 0.5f, viewportHeight * 0.5f)
         settled = true
         // Bumped even when the scale did not move, so that picking the value you are already at
         // still holds the indicator on screen rather than dismissing it.
         zoomEpochState++
     }
 
-    /** The scale at which the page spans the width of the window — what a note opens at. */
+    /** The user zoom at which the page spans the width of the window — what a note opens at. */
     fun fitWidthZoom(): Float =
-        if (viewportWidth <= 0f || contentWidth <= 0f) rawZoom
-        else ((viewportWidth - EDGE_PAD * 2f) / contentWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        if (viewportWidth <= 0f || contentWidth <= 0f) userZoom
+        else ((viewportWidth - EDGE_PAD * 2f) / contentWidth).coerceIn(minZoom(), maxZoom()) / unit
 
     /**
      * The scale at which *one* page spans the height of the window.
@@ -175,12 +210,12 @@ class SheetTransform {
      * window height would open with its own controls sitting over its first line.
      */
     fun fitHeightZoom(pageHeightPx: Float): Float =
-        if (viewportHeight <= 0f || pageHeightPx <= 0f) rawZoom
-        else ((viewportHeight - insetTop - EDGE_PAD * 2f) / pageHeightPx).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        if (viewportHeight <= 0f || pageHeightPx <= 0f) userZoom
+        else ((viewportHeight - insetTop - EDGE_PAD * 2f) / pageHeightPx).coerceIn(minZoom(), maxZoom()) / unit
 
     /** Returns true when the scale actually moved. */
     private fun applyZoom(target: Float, focusX: Float, focusY: Float): Boolean {
-        val clamped = target.coerceIn(MIN_ZOOM, MAX_ZOOM)
+        val clamped = target.coerceIn(minZoom(), maxZoom())
         if (clamped == rawZoom) return false
 
         // The content point under the focus, in unzoomed pixels — the invariant of the gesture.
@@ -341,7 +376,9 @@ class SheetTransform {
         private const val SCROLL_MS = 320
 
         val Saver: Saver<SheetTransform, List<Float>> = Saver(
-            save = { listOf(it.rawZoom, it.rawOffsetX, it.rawOffsetY, if (it.zoomLocked) 1f else 0f) },
+            // The user zoom, not the placement scale: the restored transform starts at a unit of
+            // 1 and is given the strip's real one on its first composition, which scales it back.
+            save = { listOf(it.userZoom, it.rawOffsetX, it.rawOffsetY, if (it.zoomLocked) 1f else 0f) },
             restore = { saved ->
                 SheetTransform().apply {
                     rawZoom = saved[0]

@@ -28,6 +28,7 @@ dependencies {
     api(project(":core:model"))
     api(project(":core:data"))
     implementation(project(":core:ink"))
+    implementation(project(":core:pdf"))
     testImplementation(project(":core:format"))
     implementation(project(":core:ui"))
     implementation(libs.androidx.activity.compose)

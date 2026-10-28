@@ -49,6 +49,7 @@ fun NewNoteFab(
     onOpenChange: (Boolean) -> Unit,
     onCreate: (NoteKind) -> Unit,
     onCreateFolder: () -> Unit,
+    onImportPdf: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // The single `+` glyph doubles as the close affordance: a quarter turn makes it an ×, which
@@ -67,12 +68,22 @@ fun NewNoteFab(
         MenuItem(
             visible = open,
             // The lowest item is nearest the thumb, so it animates in first and out last.
-            index = 2,
+            index = 3,
             icon = NotesIcons.NewFolder,
             label = stringResource(R.string.library_new_folder),
             onClick = {
                 onOpenChange(false)
                 onCreateFolder()
+            },
+        )
+        MenuItem(
+            visible = open,
+            index = 2,
+            icon = NotesIcons.Pdf,
+            label = stringResource(R.string.library_new_from_pdf),
+            onClick = {
+                onOpenChange(false)
+                onImportPdf()
             },
         )
         MenuItem(

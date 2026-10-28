@@ -1,5 +1,13 @@
 package pl.dakil.notes.library
 
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
@@ -156,6 +164,13 @@ fun LibraryScreen(
         viewModel.goUp()
     }
 
+    val context = LocalContext.current
+    val importingLabel = stringResource(R.string.library_importing_pdf)
+    val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        viewModel.importPdf(context.contentResolver, uri, context.cacheDir.resolve("import"), intoRoot = false, onOpenNote)
+    }
+
     val handlers = LibraryItemHandlers(
         onOpen = { item ->
             when {
@@ -180,8 +195,17 @@ fun LibraryScreen(
         moving = moving != null,
     )
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val importErrorMessage = state.importError?.let { stringResource(it) }
+    LaunchedEffect(importErrorMessage) {
+        importErrorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(importErrorMessage)
+        viewModel.dismissImportError()
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         // Neither the search bar nor the selection app bar is in the `topBar` slot — the search bar
         // has to be free to expand over the whole screen — so both apply the status bar inset
         // themselves, as every top-edge M3 component does. Letting the Scaffold pad for it as well
@@ -208,6 +232,7 @@ fun LibraryScreen(
                     onOpenChange = { newMenuOpen = it },
                     onCreate = { kind -> viewModel.createNote("", kind, onOpenNote) },
                     onCreateFolder = { newFolder = true },
+                    onImportPdf = { pickPdf.launch(arrayOf("application/pdf")) },
                 )
             }
         },
@@ -252,6 +277,13 @@ fun LibraryScreen(
                         onTag = viewModel::toggleTag,
                     )
                     HorizontalDivider()
+                    if (state.importing) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().semantics {
+                                contentDescription = importingLabel
+                            },
+                        )
+                    }
 
                     when {
                         state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {

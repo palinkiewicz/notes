@@ -35,5 +35,23 @@ object PageSelection {
         return pages.toList().takeIf { it.isNotEmpty() }
     }
 
+    /**
+     * The inverse of [parse]: 0-based [pages] written the way a user would type them, runs as ranges
+     * — `1-3, 5`. Every one of [pageCount] pages is the blank that [parse] reads as all of them.
+     */
+    fun format(pages: Collection<Int>, pageCount: Int): String {
+        val sorted = pages.filter { it in 0 until pageCount }.toSortedSet().toList()
+        if (sorted.size == pageCount) return ""
+        val parts = ArrayList<String>()
+        var i = 0
+        while (i < sorted.size) {
+            var j = i
+            while (j + 1 < sorted.size && sorted[j + 1] == sorted[j] + 1) j++
+            parts += if (j == i) "${sorted[i] + 1}" else "${sorted[i] + 1}-${sorted[j] + 1}"
+            i = j + 1
+        }
+        return parts.joinToString(", ")
+    }
+
     private val DASH_SPACING = Regex("""\s*-\s*""")
 }

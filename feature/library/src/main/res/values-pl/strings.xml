@@ -91,4 +91,10 @@
     <string name="library_error_delete_x">Nie udało się usunąć: %1$s</string>
     <string name="library_error_move_x">Nie udało się przenieść: %1$s</string>
 
+    <string name="library_new_from_pdf">Z pliku PDF</string>
+    <string name="library_importing_pdf">Importowanie PDF…</string>
+    <string name="library_error_pdf_protected">Ten plik PDF jest chroniony hasłem i nie można go otworzyć</string>
+    <string name="library_error_pdf_too_large">Ten plik PDF jest za duży do zaimportowania (limit to 100 MB)</string>
+    <string name="library_error_pdf_not_pdf">To nie jest plik PDF</string>
+    <string name="library_error_pdf_unreadable">Nie udało się odczytać tego pliku PDF</string>
 </resources>

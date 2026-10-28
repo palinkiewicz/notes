@@ -8,6 +8,12 @@ import androidx.compose.ui.unit.IntSize
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.Rect as ModelRect
 import pl.dakil.notes.model.InkBlock
+import pl.dakil.notes.model.PdfPageBlock
+import pl.dakil.notes.pdf.PdfComposer
+import pl.dakil.notes.pdf.PdfFile
+import pl.dakil.notes.ui.sheet.PdfPages
+import androidx.compose.ui.graphics.nativeCanvas
+import kotlin.math.ceil
 import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.RenderOrder
 import androidx.compose.ui.geometry.Offset
@@ -53,43 +59,133 @@ import java.io.FileOutputStream
  */
 object InkPageExporter {
 
-    /** [pages] are 0-based and ascending; see [pl.dakil.notes.model.PageSelection]. */
-    fun exportToPdf(
+    /** What a PDF export made, and whether any PDF page in it had to be drawn as a picture. */
+    class PdfExport(val file: File, val rasterisedPdfPages: Boolean)
+
+    /**
+     * [pages] are 0-based and ascending; see [pl.dakil.notes.model.PageSelection].
+     *
+     * A note with PDF pages is exported in two passes. The note's own content — ink, text,
+     * pictures — is drawn through [PdfDocument] as it always has been, minus the paper on the pages
+     * a PDF is the paper of. [PdfComposer] then puts each of those PDF pages under it, copied from the
+     * original file as vectors: text that was selectable stays selectable, a scan keeps every pixel.
+     * A PDF page that cannot be copied — an encrypted file, a filter this cannot undo — is drawn as
+     * a picture at [ExportOptions.pdfImages]' resolution instead, and the result says so.
+     */
+    suspend fun exportToPdf(
         context: Context,
         sheet: Sheet,
         options: ExportOptions,
         pages: List<Int>,
         order: RenderOrder,
-    ): File {
+        forceRaster: Boolean = false,
+    ): PdfExport {
         val format = sheet.format
         val preset = options.preset
-        val fontResolver = createFontFamilyResolver(context)
-        val strokeRenderer = StrokeRenderer()
-        val document = PdfDocument()
-        // A PDF page's coordinate space is points, so no density scaling is needed at all here —
-        // unlike PNG, which has to pick a resolution first.
-        val widthPt = format.width.toInt().coerceAtLeast(1)
-        val heightPt = format.height.toInt().coerceAtLeast(1)
-        for ((index, page) in pages.withIndex()) {
-            // The PDF's own numbering runs 1..n over what was exported; the content is the page asked for.
-            val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
-            val pdfPage = document.startPage(info)
-            drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(1f)) {
-                drawPage(
-                    sheet, page, format, ptToPx = 1f, preset, transparent = false, order, strokeRenderer,
-                    fontResolver, decodeWidth = options.pdfImages::decodeWidthPx,
+        val pdfBlocks = sheet.blocks.filterIsInstance<PdfPageBlock>().groupBy { sheet.pageOf(it) }
+        val sources = HashMap<String, PdfFile?>()
+        try {
+            fun sourceOf(block: PdfPageBlock): PdfFile? = sources.getOrPut(block.src) {
+                if (forceRaster) return@getOrPut null
+                PdfPages.fileFor(block, context.cacheDir)?.let { runCatching { PdfFile.open(it) }.getOrNull() }
+            }
+            fun embeddable(block: PdfPageBlock): Boolean =
+                sourceOf(block)?.let { PdfComposer.canEmbed(it, block.page) } == true
+
+            val vector = pages.associateWith { page -> pdfBlocks[page].orEmpty().filter(::embeddable) }
+            val composing = vector.values.any { it.isNotEmpty() }
+            var rasterised = false
+
+            val fontResolver = createFontFamilyResolver(context)
+            val strokeRenderer = StrokeRenderer()
+            val document = PdfDocument()
+            // A PDF page's coordinate space is points, so no density scaling is needed at all here —
+            // unlike PNG, which has to pick a resolution first. Whole points, as PdfDocument takes;
+            // rounded up when composing, so the fraction the composer adds back is never clipped off.
+            val widthPt = (if (composing) ceil(format.width) else format.width).toInt().coerceAtLeast(1)
+            val heightPt = (if (composing) ceil(format.height) else format.height).toInt().coerceAtLeast(1)
+            for ((index, page) in pages.withIndex()) {
+                val embedded = vector.getValue(page)
+                val drawn = pdfBlocks[page].orEmpty().filter { it !in embedded }
+                if (drawn.isNotEmpty()) rasterised = true
+                val backdrops = drawn.map { block ->
+                    block to renderBackdrop(context, block, options.pdfImages.decodeWidthPx(block.rect.width))
+                }
+                // The PDF's own numbering runs 1..n over what was exported; the content is the page asked for.
+                val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
+                val pdfPage = document.startPage(info)
+                drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(1f)) {
+                    drawPage(
+                        sheet, page, format, ptToPx = 1f, preset,
+                        // The composer paints the paper under the PDF page; painted here, it would
+                        // cover the page it is meant to be under.
+                        transparent = embedded.isNotEmpty(), order, strokeRenderer,
+                        fontResolver, decodeWidth = options.pdfImages::decodeWidthPx,
+                        pdfBackdrops = backdrops, patternless = pdfBlocks[page] != null,
+                    )
+                }
+                document.finishPage(pdfPage)
+                backdrops.forEach { it.second?.recycle() }
+            }
+
+            if (!composing) {
+                val file = File(exportDir(context), "export.pdf")
+                FileOutputStream(file).use { document.writeTo(it) }
+                document.close()
+                return PdfExport(file, rasterised)
+            }
+
+            // The overlay goes beside the export folder, not in it: that folder is emptied by
+            // [exportDir], and the overlay has to outlive the call that makes it.
+            val work = context.cacheDir.resolve("pdf-compose").apply { mkdirs() }
+            val overlayFile = File(work, "overlay.pdf")
+            FileOutputStream(overlayFile).use { document.writeTo(it) }
+            document.close()
+            val paper = backgroundOf(format, preset)
+            val composed = pages.mapIndexed { index, page ->
+                val pageTop = page * format.height
+                PdfComposer.Page(
+                    width = format.width,
+                    height = format.height,
+                    overlayPage = index,
+                    paper = if (vector.getValue(page).isEmpty()) null else paper,
+                    backdrops = vector.getValue(page).map { b ->
+                        PdfComposer.Backdrop(sourceOf(b)!!, b.page, b.rect.left, b.rect.top - pageTop, b.rect.width, b.rect.height)
+                    },
                 )
             }
-            document.finishPage(pdfPage)
+            val file = File(exportDir(context), "export.pdf")
+            val ok = runCatching {
+                PdfFile.open(overlayFile).use { overlay ->
+                    FileOutputStream(file).use { PdfComposer.compose(overlay, composed, it) }
+                }
+            }.isSuccess
+            overlayFile.delete()
+            // A source the reader understood and the composer then could not copy: drawn as
+            // pictures rather than not exported at all.
+            if (!ok) return exportToPdf(context, sheet, options, pages, order, forceRaster = true)
+            return PdfExport(file, rasterised)
+        } finally {
+            sources.values.forEach { runCatching { it?.close() } }
         }
-        val file = File(exportDir(context), "export.pdf")
-        FileOutputStream(file).use { document.writeTo(it) }
-        document.close()
-        return file
     }
 
+    /**
+     * A PDF page as a picture [widthPx] wide (zero: at 300 dpi of the width it prints at), for a page
+     * that cannot be carried across as vectors, or for an export that is pictures anyway.
+     */
+    private suspend fun renderBackdrop(context: Context, block: PdfPageBlock, widthPx: Int): Bitmap? {
+        val file = PdfPages.fileFor(block, context.cacheDir) ?: return null
+        val width = (if (widthPx > 0) widthPx else (block.rect.width / 72f * 300f).roundToInt()).coerceIn(16, MAX_BACKDROP_PX)
+        val height = (width * block.rect.height / block.rect.width.coerceAtLeast(1f)).roundToInt().coerceAtLeast(16)
+        return PdfPages.renderBitmap(file, block.page, width, height)
+    }
+
+    /** A PDF page drawn as a picture is held to this, however fine a resolution is asked for. */
+    private const val MAX_BACKDROP_PX = 6000
+
     /** One PNG or JPEG per page, at the size [options] asks for; see [RasterScale]. */
-    fun exportToImages(
+    suspend fun exportToImages(
         context: Context,
         sheet: Sheet,
         options: ExportOptions,
@@ -107,7 +203,12 @@ object InkPageExporter {
         // but the last before anyone could save or share them.
         val dir = exportDir(context)
         val files = ArrayList<File>()
+        val pdfBlocks = sheet.blocks.filterIsInstance<PdfPageBlock>().groupBy { sheet.pageOf(it) }
         for (page in pages) {
+            // Rendered at the size it is drawn, like a picture is decoded at it.
+            val backdrops = pdfBlocks[page].orEmpty().map { block ->
+                block to renderBackdrop(context, block, (block.rect.width * ptToPx).roundToInt())
+            }
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
@@ -116,8 +217,10 @@ object InkPageExporter {
                     strokeRenderer, fontResolver,
                     // Decoded at the size it is drawn: a bitmap's pixels are the only ones it has.
                     decodeWidth = { widthPt -> (widthPt * ptToPx).roundToInt() },
+                    pdfBackdrops = backdrops, patternless = pdfBlocks[page] != null,
                 )
             }
+            backdrops.forEach { it.second?.recycle() }
             val file = options.rasterFile(dir, page)
             writeRaster(bitmap, file, options)
             bitmap.recycle()
@@ -146,15 +249,12 @@ object InkPageExporter {
         strokeRenderer: StrokeRenderer,
         fontResolver: FontFamily.Resolver,
         decodeWidth: (printWidthPt: Float) -> Int,
+        /** PDF pages drawn here as pictures, on white, under everything else on the page. */
+        pdfBackdrops: List<Pair<PdfPageBlock, Bitmap?>> = emptyList(),
+        /** A PDF page is this page's paper, so no pattern is drawn on it. */
+        patternless: Boolean = false,
     ) {
-        // INTELLIGENT's white background is applied here, by the caller, rather than inside
-        // ExportColorPreset.apply — the rule does not hold for every colour on the sheet, only this
-        // one field.
-        val backgroundColor = if (preset == ExportColorPreset.INTELLIGENT) {
-            0xFFFFFFFF.toInt()
-        } else {
-            preset.apply(format.background.color)
-        }
+        val backgroundColor = backgroundOf(format, preset)
         if (!transparent) drawRect(color = Color(backgroundColor), size = size)
 
         val pattern = format.background.pattern
@@ -167,18 +267,28 @@ object InkPageExporter {
                 ),
             ),
         )
-        with(SheetPainter) {
-            drawPattern(
-                format = transformedFormat,
-                ptToPx = ptToPx,
-                pageTopPx = 0f,
-                pageHeightPx = format.height * ptToPx,
-                zoom = 1f,
-            )
+        if (!patternless) {
+            with(SheetPainter) {
+                drawPattern(
+                    format = transformedFormat,
+                    ptToPx = ptToPx,
+                    pageTopPx = 0f,
+                    pageHeightPx = format.height * ptToPx,
+                    zoom = 1f,
+                )
+            }
         }
 
         val pageTop = pageIndex * format.height
         val pageBottom = pageTop + format.height
+
+        for ((block, bitmap) in pdfBackdrops) {
+            val r = block.rect
+            val dst = android.graphics.RectF(r.left * ptToPx, (r.top - pageTop) * ptToPx, r.right * ptToPx, (r.bottom - pageTop) * ptToPx)
+            val canvas = drawContext.canvas.nativeCanvas
+            canvas.drawRect(dst, android.graphics.Paint().apply { color = android.graphics.Color.WHITE })
+            if (bitmap != null) canvas.drawBitmap(bitmap, null, dst, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+        }
 
         // Level by level, in the order the screen paints them, so a page prints the way it looked.
         val paintOrder = sheet.blocksInPaintOrder()
@@ -284,6 +394,14 @@ object InkPageExporter {
             paragraph.paint(drawContext.canvas)
         }
     }
+
+    /**
+     * The paper colour as exported. INTELLIGENT's white background is applied here rather than
+     * inside ExportColorPreset.apply — the rule does not hold for every colour on the sheet, only
+     * this one field.
+     */
+    private fun backgroundOf(format: PageFormat, preset: ExportColorPreset): Int =
+        if (preset == ExportColorPreset.INTELLIGENT) 0xFFFFFFFF.toInt() else preset.apply(format.background.color)
 
     /** Fixed rather than theme-derived: there is no composition here to read a colour scheme from. */
     private val TEXT_COLOR = Color(0xFF1B1B1F)

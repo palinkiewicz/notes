@@ -1,6 +1,9 @@
 package pl.dakil.notes.library
 
 import pl.dakil.notes.model.RenderOrder
+import android.content.ContentResolver
+import android.net.Uri
+import java.io.File
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
@@ -26,6 +29,7 @@ import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.NoteRepository.Companion.childPath
 import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.NoteStore
+import pl.dakil.notes.data.PdfImportException
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.format.NoteKind
@@ -33,8 +37,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.model.Sheet
+import pl.dakil.notes.ui.sheet.PdfPages
 import pl.dakil.notes.ui.sheet.decodePicture
+import pl.dakil.notes.ui.sheet.pdfPageKey
 import pl.dakil.notes.ui.sheet.pictureKey
 
 /** One level of the folder hierarchy, kept as a stack so "up" is always unambiguous. */
@@ -59,6 +66,13 @@ data class LibraryUiState(
     /** Items the user has asked to delete and not yet confirmed. */
     val pendingDelete: List<LibraryItem>? = null,
     val isLoading: Boolean = true,
+    /** A PDF is being read into a new note. */
+    val importing: Boolean = false,
+    /**
+     * Why the last PDF could not be imported. A snackbar, not [errorRes]: a file that would not open
+     * says nothing about the library, which should stay on screen behind the message.
+     */
+    @StringRes val importError: Int? = null,
     /**
      * A failure message that came up from the store or the file format.
      *
@@ -348,6 +362,51 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Makes a new ink note from the PDF at [uri], titled after its file, and opens it.
+     *
+     * In the folder on screen, or — for a PDF another app handed over, which arrives with no
+     * folder in mind — at the root of the library. [scratch] is where the copy is staged.
+     */
+    fun importPdf(
+        resolver: ContentResolver,
+        uri: Uri,
+        scratch: File,
+        intoRoot: Boolean,
+        onCreated: (StoreRef) -> Unit,
+    ) {
+        _state.update { it.copy(importing = true) }
+        viewModelScope.launch {
+            val result = runCatching {
+                val pdf = withContext(Dispatchers.IO) { repository.importPdf(resolver, uri, scratch) }
+                val parent = (if (intoRoot) store.root() else _state.value.current) ?: store.root()
+                    ?: error("No library to put the note in")
+                val path = if (intoRoot) "" else _state.value.path
+                repository.createFromPdf(parent, pdf.title ?: untitledName, pdf, path).getOrThrow()
+            }
+            _state.update { it.copy(importing = false) }
+            result.fold(
+                onSuccess = { ref ->
+                    reload()
+                    onCreated(ref)
+                },
+                onFailure = { cause ->
+                    val reason = (cause as? PdfImportException)?.reason
+                    _state.update {
+                        it.copy(
+                            importError = when (reason) {
+                                PdfImportException.Reason.PROTECTED -> R.string.library_error_pdf_protected
+                                PdfImportException.Reason.TOO_LARGE -> R.string.library_error_pdf_too_large
+                                PdfImportException.Reason.NOT_PDF -> R.string.library_error_pdf_not_pdf
+                                else -> R.string.library_error_pdf_unreadable
+                            },
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     fun createFolder(name: String) {
         val parent = _state.value.current ?: return
         viewModelScope.launch {
@@ -481,7 +540,8 @@ class LibraryViewModel(
         val key = note.ref.value
         val stampedAt = note.modifiedAt
         val sheet = repository.load(note.ref).getOrNull()?.sheet ?: return null
-        val thumbnail = withContext(Dispatchers.Default) { NoteThumbnail(sheet, thumbnailImages(sheet)) }
+        val images = withContext(Dispatchers.Default) { thumbnailImages(sheet) } + thumbnailPdf(sheet)
+        val thumbnail = NoteThumbnail(sheet, images)
         synchronized(previews) { previews[key] = stampedAt to thumbnail }
         return thumbnail
     }
@@ -505,6 +565,23 @@ class LibraryViewModel(
     }
 
     /**
+     * The first page's PDF page, rendered at a card's width.
+     *
+     * Read from the file the repository spooled it into when it loaded the note, which is the only
+     * form a renderer can open; a note read some other way simply shows white paper.
+     */
+    private suspend fun thumbnailPdf(sheet: Sheet): Map<String, ImageBitmap> {
+        val format = sheet.format
+        val block = sheet.blocks.firstOrNull { it is PdfPageBlock && sheet.pageOf(it) == 0 } as? PdfPageBlock
+            ?: return emptyMap()
+        val file = block.data.file ?: return emptyMap()
+        val width = (THUMBNAIL_PAGE_PX * block.rect.width / format.width.coerceAtLeast(1f)).toInt().coerceAtLeast(16)
+        val height = (width * block.rect.height / block.rect.width.coerceAtLeast(1f)).toInt().coerceAtLeast(16)
+        val bitmap = PdfPages.render(file, block.page, width, height) ?: return emptyMap()
+        return mapOf(pdfPageKey(block) to bitmap)
+    }
+
+    /**
      * The preview already in memory, if there is one, without suspending.
      *
      * A card's first frame is drawn before any coroutine can answer it, so without this every card
@@ -517,6 +594,8 @@ class LibraryViewModel(
             return sheet.takeIf { stamp == note.modifiedAt }
         }
     }
+
+    fun dismissImportError() = _state.update { it.copy(importError = null) }
 
     fun dismissError() =
         _state.update { it.copy(error = null, errorRes = null, errorArg = null) }

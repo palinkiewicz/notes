@@ -257,7 +257,36 @@ data class Sheet(
                 }
             },
         )
-        return copy(blocks = moved, pages = pageCount() + 1)
+        return copy(blocks = moved, pages = pageCount() + 1).withPdfBlocksSnapped()
+    }
+
+    /**
+     * Inserts [count] blank pages so that the first of them is page [at], sliding everything from
+     * page [at] on down to make room.
+     *
+     * The same cut a duplication makes, without the copy: a stroke crossing the boundary above the
+     * new paper is split there, and the half below goes down with the page it is on. [at] may be
+     * [pageCount], which appends.
+     */
+    fun withPagesInserted(at: Int, count: Int): Sheet {
+        if (count <= 0 || at !in 0..pageCount()) return this
+        val height = format.height
+        val boundary = at * height
+        val shift = count * height
+        val down = Affine.translate(0f, shift)
+
+        val moved = mapBlocks(
+            ink = { stroke ->
+                buildList {
+                    addAll(stroke.clippedToBand(ABOVE_ALL, boundary))
+                    for (piece in stroke.clippedToBand(boundary, BELOW_ALL)) add(piece.transformed(down))
+                }
+            },
+            placed = { block ->
+                listOf(if (pageOf(block) < at) block else block.translated(0f, shift))
+            },
+        )
+        return copy(blocks = moved, pages = pageCount() + count).withPdfBlocksSnapped()
     }
 
     /** Removes page [index] along with everything on it, sliding what is below up one page. */
@@ -283,7 +312,7 @@ data class Sheet(
                 }
             },
         )
-        return copy(blocks = moved, pages = (pageCount() - 1).coerceAtLeast(1))
+        return copy(blocks = moved, pages = (pageCount() - 1).coerceAtLeast(1)).withPdfBlocksSnapped()
     }
 
     /**
@@ -327,7 +356,7 @@ data class Sheet(
                 )
             },
         )
-        return copy(blocks = moved)
+        return copy(blocks = moved).withPdfBlocksSnapped()
     }
 
     /**
@@ -376,8 +405,15 @@ data class Sheet(
      * page is judged by its centreline: a box whose last line pokes past the boundary is still on
      * the page it starts on. Deciding otherwise would let a box hold open the page below it, or —
      * worse — send it there behind the user's back the moment they typed one line too many.
+     *
+     * A PDF page is the one exception, judged by its middle. It fills its page, so its top lies on
+     * the page boundary, and one rounding error in the float sum that put it there — `k·H` divided
+     * back by `H` coming out a hair under `k` — would hand it to the page above.
      */
-    fun pageOf(block: Block): Int = pageAt(block.worldBounds().top)
+    fun pageOf(block: Block): Int {
+        val bounds = block.worldBounds()
+        return pageAt(if (block is PdfPageBlock) (bounds.top + bounds.bottom) / 2f else bounds.top)
+    }
 
     /** The page index containing strip coordinate [y]. */
     fun pageAt(y: Float): Int =

@@ -254,4 +254,19 @@
     <string name="markdown_block_ordered">Numbers</string>
 
     <string name="editor_conflict_saved">A newer version was on disk. It was kept as \"%1$s\".</string>
+    <string name="editor_export_pdf_rasterised">Some PDF pages could not be copied and were exported as images</string>
+    <string name="editor_insert_pdf">Insert PDF pages</string>
+    <string name="editor_pdf_insert_title">Insert PDF pages</string>
+    <string name="editor_pdf_insert_confirm">Insert %1$d</string>
+    <string name="editor_pdf_after_page">After page %1$d</string>
+    <string name="editor_pdf_at_start">At the start</string>
+    <string name="editor_pdf_at_end">At the end</string>
+    <string name="editor_pdf_pages_field">Pages</string>
+    <string name="editor_pdf_all_pages">All %1$d</string>
+    <string name="editor_pdf_select_all">All</string>
+    <string name="editor_pdf_select_none">None</string>
+    <string name="editor_pdf_error_protected">This PDF is password-protected and cannot be opened</string>
+    <string name="editor_pdf_error_too_large">This PDF is too large to insert (the limit is 100 MB)</string>
+    <string name="editor_pdf_error_not_pdf">This file is not a PDF</string>
+    <string name="editor_pdf_error_unreadable">Could not read this PDF</string>
 </resources>

@@ -255,4 +255,19 @@
     <string name="markdown_block_ordered">Numery</string>
 
     <string name="editor_conflict_saved">Na dysku była nowsza wersja. Zachowano ją jako \"%1$s\".</string>
+    <string name="editor_export_pdf_rasterised">Niektórych stron PDF nie dało się skopiować i wyeksportowano je jako obrazy</string>
+    <string name="editor_insert_pdf">Wstaw strony z PDF</string>
+    <string name="editor_pdf_insert_title">Wstaw strony z PDF</string>
+    <string name="editor_pdf_insert_confirm">Wstaw %1$d</string>
+    <string name="editor_pdf_after_page">Po stronie %1$d</string>
+    <string name="editor_pdf_at_start">Na początku</string>
+    <string name="editor_pdf_at_end">Na końcu</string>
+    <string name="editor_pdf_pages_field">Strony</string>
+    <string name="editor_pdf_all_pages">Wszystkie %1$d</string>
+    <string name="editor_pdf_select_all">Wszystkie</string>
+    <string name="editor_pdf_select_none">Żadna</string>
+    <string name="editor_pdf_error_protected">Ten plik PDF jest chroniony hasłem i nie można go otworzyć</string>
+    <string name="editor_pdf_error_too_large">Ten plik PDF jest za duży do wstawienia (limit to 100 MB)</string>
+    <string name="editor_pdf_error_not_pdf">To nie jest plik PDF</string>
+    <string name="editor_pdf_error_unreadable">Nie udało się odczytać tego pliku PDF</string>
 </resources>

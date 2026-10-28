@@ -36,6 +36,37 @@ class SheetTransformTest {
     }
 
     @Test
+    fun `measuring the strip smaller keeps every point of the paper on the same pixel of the glass`() {
+        // What a note crossing fifty pages does: its strip is re-measured at half the scale, and
+        // the user must not see anything move.
+        val t = phone()
+        t.fitWidthIfUnset()
+        t.zoomAround(3f, 540f, 1100f)
+        val before = t.contentToScreenX(300f) to t.contentToScreenY(1500f)
+        val userZoom = t.userZoom
+
+        t.useUnit(2f)
+        t.setContent(PAGE_W / 2f, PAGE_H * 4 / 2f)
+
+        assertEquals(before.first, t.contentToScreenX(150f), 1e-2f)
+        assertEquals(before.second, t.contentToScreenY(750f), 1e-2f)
+        assertEquals("the zoom the user reads does not change", userZoom, t.userZoom, 1e-5f)
+    }
+
+    @Test
+    fun `a remembered pose is the zoom the user saw, whatever scale the strip was measured at`() {
+        val t = phone()
+        t.fitWidthIfUnset()
+        t.useUnit(4f)
+        t.zoomTo(1.5f)
+        val pose = t.pose()!!
+        assertEquals(1.5f, pose[0], 1e-5f)
+
+        val reopened = phone().apply { restore(pose[0], pose[1], pose[2]); useUnit(4f) }
+        assertEquals(t.zoom, reopened.zoom, 1e-4f)
+    }
+
+    @Test
     fun `zoom keeps the document under the fingers`() {
         val t = phone()
         t.fitWidthIfUnset()

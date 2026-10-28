@@ -6,8 +6,11 @@ import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Note
 import pl.dakil.notes.model.NoteMeta
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.InMemoryMedia
+import pl.dakil.notes.model.MediaData
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.PageFormat
+import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.TextBlock
@@ -61,8 +64,13 @@ object DakNoteReader {
         null
     }
 
-    fun read(input: InputStream): Note {
-        val entries = readEntries(input)
+    /**
+     * Reads a whole note. [media] decides where its large entries go — see [MediaSink]; by default
+     * everything is read onto the heap.
+     */
+    fun read(input: InputStream, media: MediaSink = MediaSink.InMemory): Note {
+        val container = readEntries(input, media)
+        val entries = container.bytes
 
         val manifestBytes = entries[DakNote.ENTRY_MANIFEST]
             ?: throw DakNoteFormatException("Missing ${DakNote.ENTRY_MANIFEST}; not a .daknote file")
@@ -82,9 +90,9 @@ object DakNoteReader {
 
         val sheet = hydrateFlowText(
             if (manifest.formatVersion >= 2) {
-                readSheet(entries, consumed)
+                readSheet(container, consumed)
             } else {
-                migrateV1(manifest, entries, consumed)
+                migrateV1(manifest, container, consumed)
             }
         )
 
@@ -99,13 +107,14 @@ object DakNoteReader {
             meta = manifest.meta.copy(view = view),
             sheet = sheet,
             readOnly = readOnly,
-            foreignEntries = entries.filterKeys { it !in consumed },
+            foreignEntries = entries.filterKeys { it !in consumed } + container.unconsumedMedia(consumed),
         )
     }
 
     // ---- v2 ------------------------------------------------------------------------------------
 
-    private fun readSheet(entries: Map<String, ByteArray>, consumed: MutableSet<String>): Sheet {
+    private fun readSheet(container: Container, consumed: MutableSet<String>): Sheet {
+        val entries = container.bytes
         val bytes = entries[DakNote.ENTRY_SHEET] ?: return Sheet()
         consumed += DakNote.ENTRY_SHEET
 
@@ -120,7 +129,7 @@ object DakNoteReader {
         val blocks = ArrayList<Block>()
         json.array("blocks")?.items?.forEach { item ->
             val blockJson = item as? JsonObject ?: return@forEach
-            blocks += Schema.readBlock(blockJson) { src -> entries[src]?.also { consumed += src } }
+            blocks += container.readBlock(blockJson, consumed)
         }
 
         return Sheet(
@@ -190,9 +199,10 @@ object DakNoteReader {
      */
     private fun migrateV1(
         manifest: Schema.ManifestData,
-        entries: Map<String, ByteArray>,
+        container: Container,
         consumed: MutableSet<String>,
     ): Sheet {
+        val entries = container.bytes
         var format = PageFormat.DEFAULT
         val blocks = ArrayList<Block>()
         var pageIndex = 0
@@ -221,7 +231,7 @@ object DakNoteReader {
 
             json.array("blocks")?.items?.forEach { item ->
                 val blockJson = item as? JsonObject ?: return@forEach
-                val block = Schema.readBlock(blockJson) { src -> entries[src]?.also { consumed += src } }
+                val block = container.readBlock(blockJson, consumed)
 
                 // v1 document-flow text filled its page's text column, and the file usually says
                 // so in the block's own rect. Only when it does not — a flow block was allowed to
@@ -268,6 +278,7 @@ object DakNoteReader {
             )
             is TextBlock -> block.copy(rect = rect)
             is ImageBlock -> block.copy(rect = rect)
+            is PdfPageBlock -> block.copy(rect = rect)
             is OpaqueBlock -> block.copy(rect = rect)
         }
     }
@@ -283,14 +294,49 @@ object DakNoteReader {
 
     // ---- Container -----------------------------------------------------------------------------
 
-    private fun readEntries(input: InputStream): Map<String, ByteArray> {
+    /**
+     * A note's entries: the small ones as bytes, the large ones as handles into a [MediaSink].
+     */
+    private class Container(val bytes: Map<String, ByteArray>, val media: Map<String, MediaData>) {
+
+        fun readBlock(json: JsonObject, consumed: MutableSet<String>): Block = Schema.readBlock(
+            json,
+            resolve = { src ->
+                // A block this build only knows as opaque may still name a spooled entry; it gets
+                // the bytes, read back, since an opaque payload is all bytes.
+                (bytes[src] ?: media[src]?.let { m -> runCatching { m.open().use { it.readBytes() } }.getOrNull() })
+                    ?.also { consumed += src }
+            },
+            resolveMedia = { src ->
+                (media[src] ?: bytes[src]?.let { InMemoryMedia(it) })?.also { consumed += src }
+            },
+        )
+
+        /**
+         * Spooled entries no block claimed, read back so the writer can replay them like any other
+         * entry it does not understand. Rare: a large entry is one this build put there for a block.
+         */
+        fun unconsumedMedia(consumed: Set<String>): Map<String, ByteArray> =
+            media.filterKeys { it !in consumed }.mapNotNull { (name, data) ->
+                runCatching { data.open().use { it.readBytes() } }.getOrNull()?.let { name to it }
+            }.toMap()
+    }
+
+    private fun readEntries(input: InputStream, media: MediaSink): Container {
         val out = LinkedHashMap<String, ByteArray>()
+        val large = LinkedHashMap<String, MediaData>()
         var total = 0L
         try {
             ZipInputStream(input).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     if (entry.isDirectory) {
+                        zip.closeEntry()
+                        continue
+                    }
+                    // Not counted against the limit: that is a guard on the heap, and these are not on it.
+                    if (media.takes(entry.name)) {
+                        large[entry.name] = media.accept(entry.name, zip, entry.size, entry.crc)
                         zip.closeEntry()
                         continue
                     }
@@ -313,6 +359,6 @@ object DakNoteReader {
             throw DakNoteFormatException("Could not read the .daknote container", e)
         }
         if (out.isEmpty()) throw DakNoteFormatException("Empty or unreadable .daknote container")
-        return out
+        return Container(out, large)
     }
 }

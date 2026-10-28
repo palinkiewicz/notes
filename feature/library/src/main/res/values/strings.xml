@@ -90,4 +90,10 @@
     <string name="library_error_delete_x">Could not delete %1$s</string>
     <string name="library_error_move_x">Could not move %1$s</string>
 
+    <string name="library_new_from_pdf">From PDF</string>
+    <string name="library_importing_pdf">Importing PDF…</string>
+    <string name="library_error_pdf_protected">This PDF is password-protected and cannot be opened</string>
+    <string name="library_error_pdf_too_large">This PDF is too large to import (the limit is 100 MB)</string>
+    <string name="library_error_pdf_not_pdf">This file is not a PDF</string>
+    <string name="library_error_pdf_unreadable">Could not read this PDF</string>
 </resources>

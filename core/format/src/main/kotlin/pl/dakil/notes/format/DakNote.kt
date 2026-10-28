@@ -11,6 +11,10 @@ import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.BlockId
 import pl.dakil.notes.model.InkBlock
+import pl.dakil.notes.model.MediaData
+import pl.dakil.notes.model.PagePattern
+import pl.dakil.notes.model.PdfSourcePage
+import pl.dakil.notes.model.withPdfPagesInserted
 import pl.dakil.notes.model.ViewMode
 import java.util.UUID
 
@@ -84,7 +88,47 @@ object DakNote {
     /** The entry a picture named [fileName] — content hash and extension — is stored under. */
     fun mediaEntry(fileName: String): String = "$DIR_MEDIA$fileName"
 
+    /** The entry a PDF whose content hash is [sha] is stored under. */
+    fun pdfEntry(sha: String): String = "$DIR_MEDIA$sha.pdf"
+
     fun newId(): String = UUID.randomUUID().toString()
+
+    /**
+     * A note made from a PDF: one page of the sheet per page of the PDF, on paper the size of its
+     * first page.
+     *
+     * White and plain whatever the user's default paper is. The PDF brings its own page, and a grid
+     * or a tint around a letterboxed page would only show in the margins it was fitted into.
+     */
+    fun newPdfNote(
+        title: String,
+        src: String,
+        data: MediaData,
+        pages: List<PdfSourcePage>,
+        view: ViewMode = ViewMode.PAGED,
+        now: Long = System.currentTimeMillis(),
+    ): Note {
+        require(pages.isNotEmpty()) { "A PDF note needs at least one page" }
+        val first = pages.first()
+        val blank = newNote(
+            title = title,
+            size = PageSize.Custom(first.width.coerceIn(MIN_PAGE_PT, MAX_PAGE_PT), first.height.coerceIn(MIN_PAGE_PT, MAX_PAGE_PT)),
+            background = PageBackground(color = PDF_PAPER, pattern = PagePattern.NONE),
+            margins = PageMargins.DEFAULT,
+            view = view,
+            now = now,
+        )
+        // Page one is the blank note's own; the PDF's pages go in ahead of it and it is given back.
+        val sheet = blank.sheet.withPdfPagesInserted(0, src, data, pages)
+        return blank.copy(sheet = sheet.copy(pages = pages.size))
+    }
+
+    /** White, not the default warm paper: a PDF page is drawn on white, and its letterbox should match. */
+    private const val PDF_PAPER = 0xFFFFFFFF.toInt()
+
+    /** An inch to a little over three metres: the range a [PageSize.Custom] is sane in. */
+    private const val MIN_PAGE_PT = 72f
+    private const val MAX_PAGE_PT = 9000f
 
     /** A blank note: one sheet with one empty ink layer on it, and nothing written yet. */
     fun newNote(

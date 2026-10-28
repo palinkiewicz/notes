@@ -1,6 +1,8 @@
 package pl.dakil.notes
 
 import android.content.Context
+import android.net.Uri
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +18,7 @@ import pl.dakil.notes.data.SyncProvider
 import pl.dakil.notes.data.sync.BackupRunner
 import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.sync.TokenStore
+import pl.dakil.notes.format.FileMediaSpool
 import pl.dakil.notes.sync.SyncScheduler
 import java.io.File
 
@@ -53,6 +56,19 @@ class AppContainer(context: Context) {
      */
     val store: SwitchableNoteStore by lazy { SwitchableNoteStore(FileNoteStore(internalRoot)) }
 
+    /**
+     * Where an open note's PDFs are kept, off the heap; see [FileMediaSpool].
+     *
+     * Not the cache directory, which the system may empty under a note that is open, and not backed
+     * up: every file in it is a copy of something inside a note.
+     */
+    val mediaSpool: FileMediaSpool by lazy {
+        FileMediaSpool(
+            File(appContext.noBackupFilesDir, "media"),
+            FileMediaSpool.TrimPolicy(maxAgeMs = SPOOL_MAX_AGE_MS, maxBytes = SPOOL_MAX_BYTES),
+        )
+    }
+
     val repository: NoteRepository by lazy {
         NoteRepository(
             store = store,
@@ -60,6 +76,7 @@ class AppContainer(context: Context) {
             scope = applicationScope,
             deviceId = settings::deviceId,
             viewStates = viewStates,
+            media = mediaSpool,
         )
     }
 
@@ -74,6 +91,12 @@ class AppContainer(context: Context) {
     }
 
     val tokenStore: TokenStore by lazy { TokenStore(appContext) }
+
+    /**
+     * A PDF another app has handed over, waiting for the UI to make a note of it. Taken (set back to
+     * null) by whoever imports it, so it is imported once.
+     */
+    val incomingPdf = MutableStateFlow<Uri?>(null)
 
     /** Sync bookkeeping, app-private and never inside the user's library; see [FileSyncStateStore]. */
     private val syncStateDir: File by lazy { File(appContext.filesDir, "sync") }
@@ -120,5 +143,11 @@ class AppContainer(context: Context) {
                 SyncScheduler.scheduleSync(appContext, current.syncFrequency, current.syncWifiOnly)
             }
         }
+    }
+
+    private companion object {
+        /** A fortnight unopened: long enough that a note in regular use never re-copies its PDF. */
+        const val SPOOL_MAX_AGE_MS = 14L * 24 * 60 * 60 * 1000
+        const val SPOOL_MAX_BYTES = 512L * 1024 * 1024
     }
 }

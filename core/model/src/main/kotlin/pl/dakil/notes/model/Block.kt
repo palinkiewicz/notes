@@ -58,6 +58,7 @@ fun Block.translated(dx: Float, dy: Float): Block {
             is InkBlock -> copy(transform = moved)
             is TextBlock -> copy(transform = moved)
             is ImageBlock -> copy(transform = moved)
+            is PdfPageBlock -> copy(transform = moved)
             is OpaqueBlock -> copy(transform = moved)
         }
     }
@@ -66,6 +67,7 @@ fun Block.translated(dx: Float, dy: Float): Block {
         is InkBlock -> copy(rect = moved)
         is TextBlock -> copy(rect = moved)
         is ImageBlock -> copy(rect = moved)
+        is PdfPageBlock -> copy(rect = moved)
         is OpaqueBlock -> copy(rect = moved)
     }
 }
@@ -75,6 +77,7 @@ fun Block.withId(id: BlockId): Block = when (this) {
     is InkBlock -> copy(id = id)
     is TextBlock -> copy(id = id)
     is ImageBlock -> copy(id = id)
+    is PdfPageBlock -> copy(id = id)
     is OpaqueBlock -> copy(id = id)
 }
 
@@ -191,6 +194,47 @@ data class ImageBlock(
     companion object {
         /** The whole picture. */
         val UNCROPPED = Rect(0f, 0f, 1f, 1f)
+    }
+}
+
+/**
+ * One page of a PDF, standing as the backdrop of one page of the sheet.
+ *
+ * Not an object on the paper but the paper itself: it is drawn beneath everything, never selected
+ * or erased, and goes wherever a page operation sends its page. [rect] is where the PDF page is
+ * shown in strip coordinates — the whole sheet page when the sizes agree, fitted inside it when
+ * they do not — and is always derived from the page it is on, so its aspect is the PDF page's own
+ * and nothing else about the source page's size needs recording.
+ *
+ * [src] names the PDF's entry, by content, so every page of one PDF shares one copy of it. [page]
+ * is the page's index in that PDF's page tree. [data] is the file itself, kept off the heap.
+ */
+data class PdfPageBlock(
+    override val id: BlockId,
+    override val z: Int,
+    override val rect: Rect,
+    override val transform: Affine = Affine.IDENTITY,
+    override val unknown: JsonObject = JsonObject.EMPTY,
+    val src: String,
+    val page: Int,
+    val data: MediaData,
+) : Block {
+
+    // By [src], for the reason [ImageBlock] compares by it: the name stands for the content.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PdfPageBlock) return false
+        return id == other.id && z == other.z && rect == other.rect && transform == other.transform &&
+            unknown == other.unknown && src == other.src && page == other.page
+    }
+
+    override fun hashCode(): Int {
+        var h = id.hashCode()
+        h = 31 * h + z
+        h = 31 * h + rect.hashCode()
+        h = 31 * h + src.hashCode()
+        h = 31 * h + page
+        return h
     }
 }
 

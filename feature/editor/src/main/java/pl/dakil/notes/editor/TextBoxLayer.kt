@@ -1,5 +1,8 @@
 package pl.dakil.notes.editor
 
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import pl.dakil.notes.model.carriedBy
@@ -190,6 +193,11 @@ private fun TextBoxContent(
             .clipToBounds()
             .drawBehind { if (hidden > 0f) drawOverflowMarker() },
         content = {
+            // The paper's density, which is the screen's own unless the strip is measured smaller
+            // than usual (see StripScale): text keeps its size on the paper either way.
+            CompositionLocalProvider(
+                LocalDensity provides Density(ptToPx * DP_PER_PT, LocalDensity.current.fontScale),
+            ) {
             MarkdownStaticText(
                 markdown = box.markdown,
                 styles = styles,
@@ -201,6 +209,7 @@ private fun TextBoxContent(
                     { mark, checked -> viewModel.toggleTask(box.id, mark, checked) }
                 },
             )
+            }
         },
     ) { measurables, constraints ->
         val natural = measurables.first()
@@ -319,3 +328,6 @@ private fun boxNear(sheet: Sheet, x: Float, y: Float, pad: Float): TextBlock? {
 
 /** How far outside a box still counts as a tap on it. Roughly half a fingertip. */
 private val TapPadDp = 10.dp
+
+/** A point is 160/72 dp, so a sheet measured at [ptToPx] pixels a point has this many dp a pixel, inverted. */
+internal const val DP_PER_PT = 72f / 160f

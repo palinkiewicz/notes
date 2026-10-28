@@ -16,19 +16,28 @@ import java.util.Locale
  * [pages] are 0-based; null means every page. [order] is the user's drawing order, so a page prints
  * stacked the way the screen shows it.
  */
-fun exportInk(
+suspend fun exportInk(
     context: Context,
     sheet: Sheet,
     options: ExportOptions,
     pages: List<Int>?,
     order: RenderOrder,
-): List<File> {
+): InkExport {
     val selected = pages?.filter { it < sheet.pageCount() } ?: List(sheet.pageCount()) { it }
     return when (options.format) {
-        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, options, selected, order))
-        ExportFormat.PNG, ExportFormat.JPEG -> InkPageExporter.exportToImages(context, sheet, options, selected, order)
+        ExportFormat.PDF -> InkPageExporter.exportToPdf(context, sheet, options, selected, order)
+            .let { InkExport(listOf(it.file), it.rasterisedPdfPages) }
+        ExportFormat.PNG, ExportFormat.JPEG ->
+            InkExport(InkPageExporter.exportToImages(context, sheet, options, selected, order), rasterisedPdfPages = false)
     }
 }
+
+/**
+ * The files an ink export made, and whether a PDF export had to draw any of the note's PDF pages
+ * as pictures rather than carry them across — which the user is told, since it is the one case
+ * where a PDF note's export is not as sharp as the PDF it came from.
+ */
+class InkExport(val files: List<File>, val rasterisedPdfPages: Boolean)
 
 /**
  * Renders a `.md` note's body as [options] say. Their colour *preset* is ignored: an ink sheet's

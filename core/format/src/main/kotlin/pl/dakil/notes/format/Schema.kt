@@ -11,11 +11,13 @@ import pl.dakil.notes.model.PageMargins
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.MediaData
 import pl.dakil.notes.model.OpaqueBlock
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PagePattern
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PatternType
+import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.json.JsonArray
@@ -204,6 +206,7 @@ internal object Schema {
         COMMON_BLOCK_KEYS + setOf("name", "visible", "locked", ShapeJson.KEY, FillJson.KEY, CoreJson.KEY)
     private val TEXT_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("flow")
     private val IMAGE_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("mime", "tint", "crop")
+    private val PDF_BLOCK_KEYS = COMMON_BLOCK_KEYS + setOf("page")
 
     /** v1 stored the document text on blocks carrying `flow: "document"`. */
     fun isLegacyFlowText(json: JsonObject): Boolean = json.string("flow", "document") == "document"
@@ -218,10 +221,21 @@ internal object Schema {
     const val TYPE_IMAGE = "image"
 
     /**
+     * One page of a PDF, as a page's backdrop. Added without a format bump for the reason
+     * [TYPE_IMAGE] was: an older build keeps it opaque, with its PDF, and only cannot draw it.
+     */
+    const val TYPE_PDF = "pdf"
+
+    /**
      * Reads one block descriptor. [resolve] supplies the bytes of the entry named by `src`, which
      * the caller reads out of the ZIP.
      */
-    fun readBlock(json: JsonObject, resolve: (String) -> ByteArray?): Block {
+    fun readBlock(
+        json: JsonObject,
+        /** The entries kept off the heap, by name; see [MediaSink]. */
+        resolveMedia: (String) -> MediaData? = { null },
+        resolve: (String) -> ByteArray?,
+    ): Block {
         val id = BlockId(json.string("id").ifEmpty { "b${json.int("z")}" })
         val z = json.int("z")
         val rect = readRect(json.array("rect"))
@@ -272,6 +286,25 @@ internal object Schema {
                 }
             }
 
+            // A PDF page without its PDF is kept opaque, the way a picture without its bytes is.
+            TYPE_PDF -> {
+                val data = src?.let { resolveMedia(it) }
+                if (src == null || data == null) {
+                    OpaqueBlock(
+                        id = id, z = z, rect = rect, transform = transform, type = type, raw = json,
+                        payloadEntry = src, payload = src?.let { resolve(it) },
+                    )
+                } else {
+                    PdfPageBlock(
+                        id = id, z = z, rect = rect, transform = transform,
+                        unknown = remainderOf(json, PDF_BLOCK_KEYS),
+                        src = src,
+                        page = json.int("page").coerceAtLeast(0),
+                        data = data,
+                    )
+                }
+            }
+
             // Anything else: keep the descriptor and its payload verbatim. The user can still move
             // and reorder it, because z/rect/transform are understood generically.
             else -> OpaqueBlock(
@@ -317,6 +350,8 @@ internal object Schema {
                 .let { o -> if (block.isCropped) o.with("crop", writeRect(block.crop)) else o }
                 .withDefaults(block.unknown)
 
+            is PdfPageBlock -> withSrc.with("page", block.page).withDefaults(block.unknown)
+
             // Start from the original descriptor so unknown keys keep their position, then
             // overwrite only the generic fields the editor is allowed to change.
             is OpaqueBlock -> block.raw
@@ -333,6 +368,7 @@ internal object Schema {
         is InkBlock -> TYPE_INK
         is TextBlock -> TYPE_TEXT
         is ImageBlock -> TYPE_IMAGE
+        is PdfPageBlock -> TYPE_PDF
         is OpaqueBlock -> block.type
     }
 

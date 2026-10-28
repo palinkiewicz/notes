@@ -1,5 +1,8 @@
 package pl.dakil.notes.editor
 
+import pl.dakil.notes.editor.pdf.PdfInsertDialog
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -62,6 +65,7 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
@@ -299,9 +303,25 @@ fun EditorScreen(
         )
     }
 
+    val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        viewModel.preparePdfInsert(context.contentResolver, uri, context.cacheDir.resolve("import"))
+    }
+    state.pdfInsert?.let { pdf ->
+        PdfInsertDialog(
+            pdf = pdf,
+            currentPage = viewModel.viewedPage.coerceIn(0, state.pageCount - 1),
+            pageCount = state.pageCount,
+            onDismiss = viewModel::cancelPdfInsert,
+            onInsert = viewModel::insertPdfPages,
+        )
+    }
+
     // Whether the last save landed, until the snackbar has said so. Set by a failed render as well:
     // an export that silently does nothing reads as a button that is broken.
     var exportOutcome by remember { mutableStateOf<Boolean?>(null) }
+    // Set when a PDF export drew some of the note's PDF pages as pictures; see InkExport.
+    var pdfRasterised by remember { mutableStateOf(false) }
     val saveExport = rememberExportSaver { exportOutcome = it }
     if (exportOpen) {
         val exportSheet = state.note?.sheet
@@ -310,7 +330,7 @@ fun EditorScreen(
             exporting = exporting,
             pageCount = exportSheet?.pageCount(),
             initial = remember { viewModel.exportOptions() },
-            hasImages = exportSheet?.blocks?.any { it is ImageBlock } == true,
+            hasImages = exportSheet?.blocks?.any { it is ImageBlock || it is PdfPageBlock } == true,
             pageSizePt = exportSheet?.format?.let { Size(it.width, it.height) } ?: Size(1f, 1f),
             onOptionsChange = viewModel::rememberExportOptions,
             onDismiss = { if (!exporting) exportOpen = false },
@@ -324,9 +344,10 @@ fun EditorScreen(
                     exporting = false
                     exportOpen = false
                     result.fold(
-                        onSuccess = { files ->
-                            if (action == ExportAction.SAVE) saveExport(files, title)
-                            else shareExport(context, files)
+                        onSuccess = { export ->
+                            if (export.rasterisedPdfPages) pdfRasterised = true
+                            if (action == ExportAction.SAVE) saveExport(export.files, title)
+                            else shareExport(context, export.files)
                         },
                         onFailure = { exportOutcome = false },
                     )
@@ -358,6 +379,18 @@ fun EditorScreen(
         exportMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(exportMessage)
         exportOutcome = null
+    }
+    val pdfErrorMessage = state.pdfError?.let { stringResource(it) }
+    LaunchedEffect(pdfErrorMessage) {
+        pdfErrorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(pdfErrorMessage)
+        viewModel.clearPdfError()
+    }
+    val rasterisedMessage = stringResource(R.string.editor_export_pdf_rasterised)
+    LaunchedEffect(pdfRasterised) {
+        if (!pdfRasterised) return@LaunchedEffect
+        snackbarHostState.showSnackbar(rasterisedMessage)
+        pdfRasterised = false
     }
 
     Scaffold(
@@ -411,6 +444,15 @@ fun EditorScreen(
                                 onClick = {
                                     moreMenuOpen = false
                                     goingToPage = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.editor_insert_pdf)) },
+                                leadingIcon = { Icon(NotesIcons.Pdf, contentDescription = null) },
+                                enabled = sheet != null && !state.isReadOnly && !state.pdfReading,
+                                onClick = {
+                                    moreMenuOpen = false
+                                    pickPdf.launch(arrayOf("application/pdf"))
                                 },
                             )
                             DropdownMenuItem(
