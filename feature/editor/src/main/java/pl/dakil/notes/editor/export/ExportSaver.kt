@@ -52,6 +52,7 @@ fun rememberExportSaver(onResult: (saved: Boolean) -> Unit): (files: List<File>,
     }
     val pdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PDF_MIME), single)
     val png = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PNG_MIME), single)
+    val jpeg = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(JPEG_MIME), single)
     val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
         if (tree == null) slot.job = null
         else finish { job -> saveIntoTree(context, tree, job) }
@@ -61,10 +62,14 @@ fun rememberExportSaver(onResult: (saved: Boolean) -> Unit): (files: List<File>,
         if (files.isNotEmpty()) {
             val job = Pending(files, title.ifBlank { DEFAULT_NAME })
             slot.job = job
+            // One launcher per type: the picker's contract fixes the MIME type when it is registered.
             when {
                 files.size > 1 -> folder.launch(null)
-                files[0].extension.equals("pdf", ignoreCase = true) -> pdf.launch(job.nameOf(files[0]))
-                else -> png.launch(job.nameOf(files[0]))
+                else -> when (mimeTypeOf(files[0])) {
+                    PDF_MIME -> pdf
+                    JPEG_MIME -> jpeg
+                    else -> png
+                }.launch(job.nameOf(files[0]))
             }
         }
     }
@@ -91,7 +96,7 @@ private fun saveIntoTree(context: Context, tree: Uri, job: Pending) {
     val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
     for (file in job.files) {
         // A name already taken is the provider's to resolve; every stock one appends " (1)".
-        val target = DocumentsContract.createDocument(resolver, parent, PNG_MIME, job.nameOf(file))
+        val target = DocumentsContract.createDocument(resolver, parent, mimeTypeOf(file), job.nameOf(file))
             ?: throw IOException("Could not create ${job.nameOf(file)}")
         copyInto(context, file, target)
     }
@@ -99,6 +104,7 @@ private fun saveIntoTree(context: Context, tree: Uri, job: Pending) {
 
 private const val PDF_MIME = "application/pdf"
 private const val PNG_MIME = "image/png"
+private const val JPEG_MIME = "image/jpeg"
 
 /** What the exporters call their files, and what a note with no title is saved as. */
 private const val DEFAULT_NAME = "export"

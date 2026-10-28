@@ -25,6 +25,7 @@ import pl.dakil.notes.data.NoteViewState
 import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SaveState
 import pl.dakil.notes.data.SettingsRepository
+import pl.dakil.notes.model.ExportOptions
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.data.noteTitle
 import pl.dakil.notes.editor.R
@@ -164,6 +165,11 @@ class TextNoteViewModel(
         val ref = _state.value.ref ?: return
         if (settings.read().rememberTextPosition) viewStates.put(ref, NoteViewState.Text(scroll))
     }
+
+    /** The export sheet's choices as last left, shared with ink notes. */
+    fun exportOptions(): ExportOptions = settings.readExportOptions()
+
+    fun rememberExportOptions(options: ExportOptions) = settings.writeExportOptions(options)
 
     fun open(ref: StoreRef) {
         if (_state.value.ref == ref && !_state.value.isLoading) return

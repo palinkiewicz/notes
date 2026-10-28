@@ -1,16 +1,18 @@
 package pl.dakil.notes.editor.export
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.Rect as ModelRect
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.RenderOrder
 import androidx.compose.ui.geometry.Offset
 import pl.dakil.notes.model.frame
-import pl.dakil.notes.ui.sheet.decodePicture
+import pl.dakil.notes.ui.sheet.decodePrintedPicture
 import pl.dakil.notes.ui.sheet.imageTintFilter
 import pl.dakil.notes.ui.sheet.inBlockFrame
 import kotlin.math.roundToInt
@@ -29,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.toAnnotatedString
 import pl.dakil.notes.model.ExportColorPreset
+import pl.dakil.notes.model.ExportOptions
+import pl.dakil.notes.model.RasterScale
 import pl.dakil.notes.model.PageFormat
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.Stroke
@@ -49,18 +53,16 @@ import java.io.FileOutputStream
  */
 object InkPageExporter {
 
-    /** PNG export has no fixed coordinate space of its own, unlike a PDF page's points; pick one DPI. */
-    private const val PNG_DPI = 150f
-
     /** [pages] are 0-based and ascending; see [pl.dakil.notes.model.PageSelection]. */
     fun exportToPdf(
         context: Context,
         sheet: Sheet,
-        preset: ExportColorPreset,
+        options: ExportOptions,
         pages: List<Int>,
         order: RenderOrder,
     ): File {
         val format = sheet.format
+        val preset = options.preset
         val fontResolver = createFontFamilyResolver(context)
         val strokeRenderer = StrokeRenderer()
         val document = PdfDocument()
@@ -73,7 +75,10 @@ object InkPageExporter {
             val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
             val pdfPage = document.startPage(info)
             drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(1f)) {
-                drawPage(sheet, page, format, ptToPx = 1f, preset, order, strokeRenderer, fontResolver)
+                drawPage(
+                    sheet, page, format, ptToPx = 1f, preset, transparent = false, order, strokeRenderer,
+                    fontResolver, decodeWidth = options.pdfImages::decodeWidthPx,
+                )
             }
             document.finishPage(pdfPage)
         }
@@ -83,19 +88,21 @@ object InkPageExporter {
         return file
     }
 
-    fun exportToPngs(
+    /** One PNG or JPEG per page, at the size [options] asks for; see [RasterScale]. */
+    fun exportToImages(
         context: Context,
         sheet: Sheet,
-        preset: ExportColorPreset,
+        options: ExportOptions,
         pages: List<Int>,
         order: RenderOrder,
     ): List<File> {
         val format = sheet.format
-        val ptToPx = PNG_DPI / 72f
+        val raster = RasterScale.of(format.width, format.height, options)
+        val ptToPx = raster.ptToPx
         val fontResolver = createFontFamilyResolver(context)
         val strokeRenderer = StrokeRenderer()
-        val widthPx = (format.width * ptToPx).toInt().coerceAtLeast(1)
-        val heightPx = (format.height * ptToPx).toInt().coerceAtLeast(1)
+        val widthPx = raster.widthPx
+        val heightPx = raster.heightPx
         // Once, before the loop: it empties the folder, and asked per page it deleted every page
         // but the last before anyone could save or share them.
         val dir = exportDir(context)
@@ -104,10 +111,15 @@ object InkPageExporter {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
-                drawPage(sheet, page, format, ptToPx, preset, order, strokeRenderer, fontResolver)
+                drawPage(
+                    sheet, page, format, ptToPx, options.preset, options.transparentBackground, order,
+                    strokeRenderer, fontResolver,
+                    // Decoded at the size it is drawn: a bitmap's pixels are the only ones it has.
+                    decodeWidth = { widthPt -> (widthPt * ptToPx).roundToInt() },
+                )
             }
-            val file = File(dir, "export_${page + 1}.png")
-            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val file = options.rasterFile(dir, page)
+            writeRaster(bitmap, file, options)
             bitmap.recycle()
             files += file
         }
@@ -128,9 +140,12 @@ object InkPageExporter {
         format: PageFormat,
         ptToPx: Float,
         preset: ExportColorPreset,
+        /** Leave the paper colour out; the pattern is still drawn, over nothing. */
+        transparent: Boolean,
         order: RenderOrder,
         strokeRenderer: StrokeRenderer,
         fontResolver: FontFamily.Resolver,
+        decodeWidth: (printWidthPt: Float) -> Int,
     ) {
         // INTELLIGENT's white background is applied here, by the caller, rather than inside
         // ExportColorPreset.apply — the rule does not hold for every colour on the sheet, only this
@@ -140,7 +155,7 @@ object InkPageExporter {
         } else {
             preset.apply(format.background.color)
         }
-        drawRect(color = Color(backgroundColor), size = size)
+        if (!transparent) drawRect(color = Color(backgroundColor), size = size)
 
         val pattern = format.background.pattern
         val transformedFormat = format.copy(
@@ -169,7 +184,7 @@ object InkPageExporter {
         val paintOrder = sheet.blocksInPaintOrder()
         for ((level, members) in order.levels.withIndex()) {
             when {
-                RenderLayer.IMAGES in members -> drawImages(sheet, pageIndex, pageTop, ptToPx)
+                RenderLayer.IMAGES in members -> drawImages(sheet, pageIndex, pageTop, ptToPx, decodeWidth)
 
                 RenderLayer.TEXT in members -> for (block in sheet.textBlocks()) {
                     if (sheet.pageOf(block) != pageIndex) continue
@@ -196,10 +211,25 @@ object InkPageExporter {
     }
 
     /**
-     * The page's pictures. Decoded at the size they print, one at a time, so a page of photographs
-     * does not hold all of them at full resolution at once.
+     * The page's pictures, decoded at [decodeWidth] of the width they print at, a page at a time, so
+     * a note of photographs does not hold all of them at full resolution at once.
+     *
+     * One picture placed many times is decoded once for the page. The PDF backend recognises a
+     * picture it has already embedded only by the bitmap it is handed, so fifty copies of a
+     * photograph decoded fifty times went into the file fifty times.
+     *
+     * The decoded size and the drawn size are separate on purpose. A PNG has no pixels but its own,
+     * so it decodes at the drawn size; a PDF draws in points and keeps every pixel of what it is
+     * handed, so the picture's resolution there is whatever the user chose to shrink it to.
      */
-    private fun DrawScope.drawImages(sheet: Sheet, pageIndex: Int, pageTop: Float, ptToPx: Float) {
+    private fun DrawScope.drawImages(
+        sheet: Sheet,
+        pageIndex: Int,
+        pageTop: Float,
+        ptToPx: Float,
+        decodeWidth: (printWidthPt: Float) -> Int,
+    ) {
+        val decoded = HashMap<Triple<String, ModelRect, Int>, ImageBitmap?>()
         clipRect(bottom = sheet.format.height * ptToPx) {
             for (block in sheet.blocks) {
                 if (block !is ImageBlock || sheet.pageOf(block) != pageIndex) continue
@@ -207,8 +237,11 @@ object InkPageExporter {
                 val at = block.frame()
                 val width = (r.width * ptToPx).roundToInt().coerceAtLeast(1)
                 val height = (r.height * ptToPx).roundToInt().coerceAtLeast(1)
-                // Only the part the crop shows is decoded, at the size it prints.
-                val bitmap = decodePicture(block.bytes, block.crop, width) ?: continue
+                // Only the part the crop shows is decoded, and no wider than was asked for.
+                val target = decodeWidth(r.width)
+                val bitmap = decoded.getOrPut(Triple(block.src, block.crop, target)) {
+                    decodePrintedPicture(block.bytes, block.crop, target)
+                } ?: continue
                 inBlockFrame(at, at.left * ptToPx, (at.top - pageTop) * ptToPx) {
                     drawImage(
                         image = bitmap,
@@ -219,9 +252,9 @@ object InkPageExporter {
                         colorFilter = block.tint?.let(::imageTintFilter),
                     )
                 }
-                bitmap.asAndroidBitmap().recycle()
             }
         }
+        decoded.values.forEach { it?.asAndroidBitmap()?.recycle() }
     }
 
     private fun DrawScope.drawTextBlock(

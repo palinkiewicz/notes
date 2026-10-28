@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -146,24 +147,29 @@ fun TextNoteScreen(
     var exportOutcome by remember { mutableStateOf<Boolean?>(null) }
     val saveExport = rememberExportSaver { exportOutcome = it }
     if (exportOpen) {
-        // Counted once per opening of the sheet, off the main thread: it lays the whole note out.
-        val pageCount by produceState<Int?>(null) {
+        // Surveyed once per opening of the sheet, off the main thread: it lays the whole note out.
+        val survey by produceState<TextPageExporter.Survey?>(null) {
             val markdown = text.text.toString()
             value = withContext(Dispatchers.Default) {
-                runCatching { TextPageExporter.pageCount(context, markdown, state.pandoc, viewModel) }.getOrDefault(1)
+                runCatching { TextPageExporter.survey(context, markdown, state.pandoc, viewModel) }
+                    .getOrDefault(TextPageExporter.Survey(pageCount = 1, hasImages = false))
             }
         }
         ExportSheet(
             isInk = false,
             exporting = exporting,
-            pageCount = pageCount,
+            pageCount = survey?.pageCount,
+            initial = remember { viewModel.exportOptions() },
+            hasImages = survey?.hasImages == true,
+            pageSizePt = Size(TextPageExporter.PAGE_WIDTH_PT, TextPageExporter.PAGE_HEIGHT_PT),
+            onOptionsChange = viewModel::rememberExportOptions,
             onDismiss = { if (!exporting) exportOpen = false },
-            onExport = { _, format, action, pages ->
+            onExport = { options, action, pages ->
                 val markdown = text.text.toString()
                 exporting = true
                 coroutineScope.launch {
                     val result = withContext(Dispatchers.Default) {
-                        runCatching { exportText(context, markdown, format, state.pandoc, pages, viewModel) }
+                        runCatching { exportText(context, markdown, options, state.pandoc, pages, viewModel) }
                     }
                     exporting = false
                     exportOpen = false

@@ -61,6 +61,7 @@ import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolState
+import pl.dakil.notes.model.ExportOptions
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.data.ImageImport
 import pl.dakil.notes.data.ImageInsertMode
@@ -412,6 +413,11 @@ class NoteViewModel(
         val ref = _state.value.ref ?: return
         if (settings.read().rememberInkPosition) viewStates.put(ref, view)
     }
+
+    /** The export sheet's choices as last left; see [SettingsRepository.readExportOptions]. */
+    fun exportOptions(): ExportOptions = settings.readExportOptions()
+
+    fun rememberExportOptions(options: ExportOptions) = settings.writeExportOptions(options)
 
     private fun refreshKnownTags() {
         viewModelScope.launch {

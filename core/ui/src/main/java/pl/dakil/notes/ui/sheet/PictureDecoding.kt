@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.os.Build
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.IntOffset
@@ -62,6 +63,43 @@ fun decodePicture(bytes: ByteArray, crop: Rect, widthPx: Int): ImageBitmap? {
     val cut = Bitmap.createBitmap(full, x, y, w, h)
     if (cut !== full) full.recycle()
     return cut.asImageBitmap()
+}
+
+/**
+ * [decodePicture] for a page that is printed rather than shown: no wider than [widthPx] exactly,
+ * and with any Ultra HDR gain map dropped.
+ *
+ * The gain map is what a phone camera's HDR photograph carries beside its ordinary pixels, and the
+ * platform draws such a bitmap through a shader that mixes the two. A PDF cannot hold that shader,
+ * so the PDF backend painted it as a bitmap of the whole page at 72 dpi instead — every photograph
+ * on the page blurred and the page around it with them, at any quality setting. A printed page has
+ * no HDR to keep, so nothing is lost by drawing only the ordinary pixels, which embed whole.
+ */
+fun decodePrintedPicture(bytes: ByteArray, crop: Rect, widthPx: Int): ImageBitmap? =
+    decodePicture(bytes, crop, widthPx)?.shrunkToWidth(widthPx)?.withoutGainmap()
+
+private fun ImageBitmap.withoutGainmap(): ImageBitmap {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        val bitmap = asAndroidBitmap()
+        if (bitmap.hasGainmap()) bitmap.gainmap = null
+    }
+    return this
+}
+
+/**
+ * This picture at no more than [widthPx] wide, keeping its proportions.
+ *
+ * [decodePicture] samples by halves, so a picture asked for at 1000 pixels can come back at nearly
+ * 2000 — fine on screen, but a PDF stores every pixel it is handed, and a size the user chose to
+ * shrink to should be the size the file holds. The receiver is recycled when a smaller copy replaces it.
+ */
+fun ImageBitmap.shrunkToWidth(widthPx: Int): ImageBitmap {
+    if (widthPx <= 0 || width <= widthPx) return this
+    val source = asAndroidBitmap()
+    val height = (height.toLong() * widthPx / width).toInt().coerceAtLeast(1)
+    val scaled = Bitmap.createScaledBitmap(source, widthPx, height, true)
+    if (scaled !== source) source.recycle()
+    return scaled.asImageBitmap()
 }
 
 /** A region decoder for [bytes], or null for a format it does not read. */

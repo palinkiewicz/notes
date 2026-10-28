@@ -58,6 +58,15 @@ class LocaleSafeKeysTest {
     }
 
     @Test
+    fun `export choice keys are the same in Turkish as anywhere else`() {
+        for (format in ExportFormat.entries) assertEquals(format, ExportFormat.fromKey(format.key))
+        for (size in RasterSize.entries) assertEquals(size, RasterSize.fromKey(size.key))
+        for (quality in PdfImageQuality.entries) assertEquals(quality, PdfImageQuality.fromKey(quality.key))
+        for (quality in JpegQuality.entries) assertEquals(quality, JpegQuality.fromKey(quality.key))
+        assertEquals("intelligent", ExportColorPreset.INTELLIGENT.key)
+    }
+
+    @Test
     fun `paper names do not change with the device language`() {
         assertEquals("Letter", PageSize.Kind.LETTER.label)
         assertEquals("A4", PageSize.Kind.A4.label)

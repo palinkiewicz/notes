@@ -4,33 +4,34 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import pl.dakil.notes.editor.markdown.ImageSource
-import pl.dakil.notes.model.ExportColorPreset
+import pl.dakil.notes.model.ExportFormat
+import pl.dakil.notes.model.ExportOptions
 import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.Sheet
 import java.io.File
+import java.util.Locale
 
 /**
- * Renders an ink sheet in the chosen [format], applying [preset] to everything but typed text.
+ * Renders an ink sheet as [options] say, applying their colour preset to everything but typed text.
  * [pages] are 0-based; null means every page. [order] is the user's drawing order, so a page prints
  * stacked the way the screen shows it.
  */
 fun exportInk(
     context: Context,
     sheet: Sheet,
-    preset: ExportColorPreset,
-    format: ExportFormat,
+    options: ExportOptions,
     pages: List<Int>?,
     order: RenderOrder,
 ): List<File> {
     val selected = pages?.filter { it < sheet.pageCount() } ?: List(sheet.pageCount()) { it }
-    return when (format) {
-        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, preset, selected, order))
-        ExportFormat.PNG -> InkPageExporter.exportToPngs(context, sheet, preset, selected, order)
+    return when (options.format) {
+        ExportFormat.PDF -> listOf(InkPageExporter.exportToPdf(context, sheet, options, selected, order))
+        ExportFormat.PNG, ExportFormat.JPEG -> InkPageExporter.exportToImages(context, sheet, options, selected, order)
     }
 }
 
 /**
- * Renders a `.md` note's body in the chosen [format]. There is no colour *preset*: an ink sheet's
+ * Renders a `.md` note's body as [options] say. Their colour *preset* is ignored: an ink sheet's
  * are for its paper and its strokes, and a `.md` note has neither.
  *
  * [attributes] is the user's Pandoc setting, passed in rather than read here: an export is a picture
@@ -43,14 +44,15 @@ fun exportInk(
 suspend fun exportText(
     context: Context,
     markdown: String,
-    format: ExportFormat,
+    options: ExportOptions,
     attributes: Boolean,
     pages: List<Int>?,
     images: ImageSource,
 ): List<File> =
-    when (format) {
-        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, attributes, pages, images))
-        ExportFormat.PNG -> TextPageExporter.exportToPngs(context, markdown, attributes, pages, images)
+    when (options.format) {
+        ExportFormat.PDF -> listOf(TextPageExporter.exportToPdf(context, markdown, options, attributes, pages, images))
+        ExportFormat.PNG, ExportFormat.JPEG ->
+            TextPageExporter.exportToImages(context, markdown, options, attributes, pages, images)
     }
 
 /**
@@ -79,5 +81,8 @@ fun shareExport(context: Context, files: List<File>) {
     context.startActivity(Intent.createChooser(intent, null))
 }
 
-private fun mimeTypeOf(file: File): String =
-    if (file.extension.equals("pdf", ignoreCase = true)) "application/pdf" else "image/png"
+internal fun mimeTypeOf(file: File): String = when (file.extension.lowercase(Locale.ROOT)) {
+    "pdf" -> "application/pdf"
+    "jpg" -> "image/jpeg"
+    else -> "image/png"
+}

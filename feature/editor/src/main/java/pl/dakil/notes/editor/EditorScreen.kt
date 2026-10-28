@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,6 +61,7 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatBar
 import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
+import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
@@ -302,17 +304,22 @@ fun EditorScreen(
     var exportOutcome by remember { mutableStateOf<Boolean?>(null) }
     val saveExport = rememberExportSaver { exportOutcome = it }
     if (exportOpen) {
+        val exportSheet = state.note?.sheet
         ExportSheet(
             isInk = true,
             exporting = exporting,
-            pageCount = state.note?.sheet?.pageCount(),
+            pageCount = exportSheet?.pageCount(),
+            initial = remember { viewModel.exportOptions() },
+            hasImages = exportSheet?.blocks?.any { it is ImageBlock } == true,
+            pageSizePt = exportSheet?.format?.let { Size(it.width, it.height) } ?: Size(1f, 1f),
+            onOptionsChange = viewModel::rememberExportOptions,
             onDismiss = { if (!exporting) exportOpen = false },
-            onExport = { preset, format, action, pages ->
+            onExport = { options, action, pages ->
                 val note = state.note ?: return@ExportSheet
                 exporting = true
                 coroutineScope.launch {
                     val result = withContext(Dispatchers.Default) {
-                        runCatching { exportInk(context, note.sheet, preset, format, pages, state.renderOrder) }
+                        runCatching { exportInk(context, note.sheet, options, pages, state.renderOrder) }
                     }
                     exporting = false
                     exportOpen = false

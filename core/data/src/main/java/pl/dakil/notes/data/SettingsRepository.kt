@@ -12,6 +12,7 @@ import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ColorPalette
 import pl.dakil.notes.model.DarkThemeOption
+import pl.dakil.notes.model.ExportOptions
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageSize
@@ -397,6 +398,15 @@ class SettingsRepository(context: Context) {
 
     fun clearToolState() = prefs.edit().remove(KEY_TOOL_STATE).apply()
 
+    /**
+     * The export sheet's choices as last left. Not a field of [AppSettings] for the same reason as
+     * [readToolState]: nothing but the export sheet reads it, and it changes on every tap there.
+     */
+    fun readExportOptions(): ExportOptions = ExportOptions.decode(prefs.getString(KEY_EXPORT_OPTIONS, null))
+
+    fun writeExportOptions(options: ExportOptions) =
+        prefs.edit().putString(KEY_EXPORT_OPTIONS, options.encode()).apply()
+
     fun setImageInsertMode(mode: ImageInsertMode) =
         prefs.edit().putString(KEY_IMAGE_INSERT_MODE, mode.key).apply()
 
@@ -608,6 +618,7 @@ class SettingsRepository(context: Context) {
         const val KEY_RENDER_ORDER = "view.renderOrder"
         const val KEY_REMEMBER_TOOLS = "tools.remember"
         const val KEY_TOOL_STATE = "tools.state"
+        const val KEY_EXPORT_OPTIONS = "export.options"
         const val KEY_RECENT_COLORS = "ui.recentColors"
         const val KEY_SAVED_COLORS = "ui.savedColors"
         const val KEY_PAPER_THEMES = "paper.themes"

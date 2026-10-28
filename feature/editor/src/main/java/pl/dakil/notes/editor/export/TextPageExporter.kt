@@ -28,13 +28,16 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import pl.dakil.notes.editor.markdown.ImageLoader
 import pl.dakil.notes.editor.markdown.ImageSource
 import pl.dakil.notes.editor.markdown.MarkdownImages
 import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MdImage
 import pl.dakil.notes.editor.markdown.toAnnotatedString
+import pl.dakil.notes.model.ExportOptions
+import pl.dakil.notes.model.RasterScale
 import pl.dakil.notes.ui.export.drawIntoCanvas
+import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.ui.sheet.decodePrintedPicture
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
@@ -59,11 +62,13 @@ import kotlin.math.roundToInt
 object TextPageExporter {
 
     // A4-ish, in points — there is no document page size for a `.md` note to inherit.
-    private const val PAGE_WIDTH_PT = 595f
-    private const val PAGE_HEIGHT_PT = 842f
+    const val PAGE_WIDTH_PT = 595f
+    const val PAGE_HEIGHT_PT = 842f
     private const val MARGIN_PT = 56f
-    private const val PNG_DPI = 150f
     private val TEXT_COLOR = Color(0xFF1B1B1F)
+
+    /** The paper, painted first unless a PNG was asked to leave it out — a JPEG has nowhere to. */
+    private val PAPER = Color.White
 
     /** Behind an image that could not be read, and the alt text said in its place. */
     private val MISSING_FILL = Color(0xFFE3E1EC)
@@ -73,6 +78,7 @@ object TextPageExporter {
     suspend fun exportToPdf(
         context: Context,
         markdown: String,
+        options: ExportOptions,
         attributes: Boolean,
         pages: List<Int>?,
         source: ImageSource,
@@ -85,13 +91,13 @@ object TextPageExporter {
 
         val document = PdfDocument()
         for ((index, page) in selected(layout.breaks, pages).withIndex()) {
-            // Decoded at the PNG's resolution rather than at one pixel a point: a PDF is for
-            // printing, and a photograph at 72 dpi prints as a blur.
-            val bitmaps = decodePage(layout, page, PNG_DPI / 72f)
+            // At the resolution the user chose rather than at one pixel a point: a PDF keeps every
+            // pixel it is handed, so this is what decides both the file's size and its sharpness.
+            val bitmaps = decodePage(layout, page) { widthPt -> options.pdfImages.decodeWidthPx(widthPt) }
             val info = PdfDocument.PageInfo.Builder(widthPt, heightPt, index + 1).create()
             val pdfPage = document.startPage(info)
             drawIntoCanvas(pdfPage.canvas, widthPt, heightPt, Density(ptToPx)) {
-                drawPage(layout, page, ptToPx, bitmaps, fontResolver)
+                drawPage(layout, page, ptToPx, bitmaps, fontResolver, transparent = false)
             }
             document.finishPage(pdfPage)
             bitmaps.values.forEach { it.asAndroidBitmap().recycle() }
@@ -102,32 +108,36 @@ object TextPageExporter {
         return file
     }
 
-    suspend fun exportToPngs(
+    /** One PNG or JPEG per page, at the size [options] asks for; see [RasterScale]. */
+    suspend fun exportToImages(
         context: Context,
         markdown: String,
+        options: ExportOptions,
         attributes: Boolean,
         pages: List<Int>?,
         source: ImageSource,
     ): List<File> {
         val fontResolver = createFontFamilyResolver(context)
-        val ptToPx = PNG_DPI / 72f
+        val raster = RasterScale.of(PAGE_WIDTH_PT, PAGE_HEIGHT_PT, options)
+        val ptToPx = raster.ptToPx
         val layout = layOut(markdown, fontResolver, ptToPx, attributes, source)
-        val widthPx = (PAGE_WIDTH_PT * ptToPx).toInt().coerceAtLeast(1)
-        val heightPx = (PAGE_HEIGHT_PT * ptToPx).toInt().coerceAtLeast(1)
+        val widthPx = raster.widthPx
+        val heightPx = raster.heightPx
 
         // Once, before the loop: it empties the folder, and asked per page it deleted every page
         // but the last before anyone could save or share them.
         val dir = exportDir(context)
         val files = ArrayList<File>()
         for (page in selected(layout.breaks, pages)) {
-            val bitmaps = decodePage(layout, page, 1f)
+            // Already in pixels: the layout was made at this scale, so the drawn size is the one to decode at.
+            val bitmaps = decodePage(layout, page) { it.roundToInt() }
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             drawIntoCanvas(canvas, widthPx, heightPx, Density(ptToPx)) {
-                drawPage(layout, page, ptToPx, bitmaps, fontResolver)
+                drawPage(layout, page, ptToPx, bitmaps, fontResolver, options.transparentBackground)
             }
-            val file = File(dir, "export_${page + 1}.png")
-            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val file = options.rasterFile(dir, page)
+            writeRaster(bitmap, file, options)
             bitmap.recycle()
             bitmaps.values.forEach { it.asAndroidBitmap().recycle() }
             files += file
@@ -135,15 +145,21 @@ object TextPageExporter {
         return files
     }
 
+    /** What the export sheet needs to know about a note before anything is rendered. */
+    class Survey(val pageCount: Int, val hasImages: Boolean)
+
     /**
-     * How many pages the note comes to, for the export sheet to check a page selection against.
+     * How many pages the note comes to, for the export sheet to check a page selection against,
+     * and whether it has pictures for the PDF's image quality to act on.
      *
-     * Laid out at the PDF's scale. The PNG path lays out the same text at a higher resolution,
+     * Laid out at the PDF's scale. The PNG path lays out the same text at another resolution,
      * which scales every line height alike, so it cuts at the same lines. Reads every image's size,
      * because a picture is as much a part of the page budget as the lines around it.
      */
-    suspend fun pageCount(context: Context, markdown: String, attributes: Boolean, source: ImageSource): Int =
-        layOut(markdown, createFontFamilyResolver(context), 1f, attributes, source).breaks.size
+    suspend fun survey(context: Context, markdown: String, attributes: Boolean, source: ImageSource): Survey {
+        val layout = layOut(markdown, createFontFamilyResolver(context), 1f, attributes, source)
+        return Survey(layout.breaks.size, layout.pictures.isNotEmpty())
+    }
 
     private fun selected(breaks: List<Float>, pages: List<Int>?): List<Int> =
         pages?.filter { it in breaks.indices } ?: breaks.indices.toList()
@@ -226,18 +242,25 @@ object TextPageExporter {
     }
 
     /**
-     * The pictures on [page], decoded at [oversample] times the size they are drawn.
+     * The pictures on [page], each decoded at [decodeWidth] of the width it is drawn, in the
+     * layout's own units — 0 meaning the picture's full size.
      *
      * One page at a time and recycled after it, the way [InkPageExporter] treats a sheet's images,
      * so a note of photographs never holds all of them at once.
      */
-    private suspend fun decodePage(layout: Layout, page: Int, oversample: Float): Map<String, ImageBitmap> {
+    private suspend fun decodePage(
+        layout: Layout,
+        page: Int,
+        decodeWidth: (drawnWidth: Float) -> Int,
+    ): Map<String, ImageBitmap> {
         val bitmaps = HashMap<String, ImageBitmap>()
         for (image in layout.picturesOn(page)) {
             if (image.url in bitmaps || layout.images.sizeOf(image.url) == null) continue
-            val width = (layout.images.displaySize(image.url).width * oversample).roundToInt()
+            val width = decodeWidth(layout.images.displaySize(image.url).width.toFloat())
             val bytes = layout.images.source.bytes(image.url) ?: continue
-            val decoded = withContext(Dispatchers.Default) { ImageLoader.decode(bytes, width) } ?: continue
+            val decoded = withContext(Dispatchers.Default) {
+                decodePrintedPicture(bytes, ImageBlock.UNCROPPED, width)
+            } ?: continue
             bitmaps[image.url] = decoded
         }
         return bitmaps
@@ -249,7 +272,9 @@ object TextPageExporter {
         ptToPx: Float,
         bitmaps: Map<String, ImageBitmap>,
         fontResolver: FontFamily.Resolver,
+        transparent: Boolean,
     ) {
+        if (!transparent) drawRect(PAPER, size = size)
         val marginPx = MARGIN_PT * ptToPx
         val budgetPx = contentHeightPx(ptToPx)
         val contentTop = layout.breaks[pageIndex]
