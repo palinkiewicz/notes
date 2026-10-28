@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import pl.dakil.notes.data.FileNoteStore
 import pl.dakil.notes.data.LibraryRootController
+import pl.dakil.notes.data.LibraryTrash
 import pl.dakil.notes.data.NoteIndex
 import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.NoteViewStates
@@ -80,6 +81,11 @@ class AppContainer(context: Context) {
         )
     }
 
+    /** The hidden folder a delete moves things into; see [LibraryTrash]. */
+    val trash: LibraryTrash by lazy {
+        LibraryTrash(store, LibraryTrash.AppIndexing(index, repository, viewStates))
+    }
+
     val libraryRoot: LibraryRootController by lazy {
         LibraryRootController(
             context = appContext,
@@ -131,6 +137,9 @@ class AppContainer(context: Context) {
     fun start() {
         applicationScope.launch {
             libraryRoot.restore()
+            // After the root is known — the trash lives in it — and once per start, which is as
+            // often as a thirty-day limit needs checking.
+            trash.purge()
             // Re-registered on every start: a periodic job does not survive an app upgrade, and a
             // backup the user believes is running and is not is worse than none at all.
             val current = settings.read()

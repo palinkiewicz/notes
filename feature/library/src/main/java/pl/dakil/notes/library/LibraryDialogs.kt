@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import pl.dakil.notes.sync.TrashNaming
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
@@ -69,9 +70,10 @@ fun NewFolderDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
 /**
  * Confirms a delete.
  *
- * There is no undo and no trash: the files go. A folder takes everything inside it, which is the
- * part worth spelling out — the row on screen says "Recipes" and gives no hint of the forty notes
- * under it.
+ * What goes, goes to the trash, for [TrashNaming.RETENTION_DAYS] days — the dialog says so, so a
+ * user who wants something back knows where to look. A folder takes everything inside it, which is
+ * the part worth spelling out — the row on screen says "Recipes" and gives no hint of the forty
+ * notes under it.
  */
 @Composable
 fun ConfirmDeleteDialog(
@@ -104,7 +106,7 @@ fun ConfirmDeleteDialog(
                     )
                 }
                 Text(
-                    text = stringResource(R.string.library_delete_undone),
+                    text = stringResource(R.string.library_delete_to_trash, TrashNaming.RETENTION_DAYS),
                     modifier = Modifier.padding(top = if (folders > 0) 8.dp else 0.dp),
                 )
             }

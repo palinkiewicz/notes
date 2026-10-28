@@ -15,6 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import pl.dakil.notes.data.LibraryRootController
+import pl.dakil.notes.data.LibraryTrash
+import pl.dakil.notes.library.TrashScreen
+import pl.dakil.notes.library.TrashViewModel
 import pl.dakil.notes.data.sync.BackupRunner
 import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.NoteViewStates
@@ -41,7 +44,7 @@ import pl.dakil.notes.ui.motion.screenTransitionGround
 /** The pages of the settings section. The root is the index; the rest are pushed over it. */
 private enum class SettingsPage {
     ROOT, APPEARANCE, EDITOR, DRAWING_ORDER, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE,
-    BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV;
+    BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV, TRASH;
 
     /**
      * Where back goes — the system gesture and the toolbar arrow alike, so the two cannot disagree.
@@ -79,6 +82,7 @@ fun SettingsScreen(
     backup: BackupRunner,
     sync: SyncCoordinator,
     viewStates: NoteViewStates,
+    trash: LibraryTrash,
 ) {
     val context = LocalContext.current
     val current by settings.settings.collectAsState(initial = remember { settings.read() })
@@ -115,6 +119,7 @@ fun SettingsScreen(
                     onNavigateToStorage = { page = SettingsPage.STORAGE },
                     onNavigateToBackup = { page = SettingsPage.BACKUP },
                     onNavigateToSync = { page = SettingsPage.SYNC },
+                    onNavigateToTrash = { page = SettingsPage.TRASH },
                 )
 
                 SettingsPage.APPEARANCE -> AppearanceSettingsScreen(
@@ -187,6 +192,11 @@ fun SettingsScreen(
                 SettingsPage.SYNC_DRIVE -> DriveSetupScreen(
                     current = current,
                     viewModel = backupSyncViewModel,
+                    onNavigateBack = back,
+                )
+
+                SettingsPage.TRASH -> TrashScreen(
+                    viewModel = viewModel(factory = TrashViewModel.factory(trash)),
                     onNavigateBack = back,
                 )
 

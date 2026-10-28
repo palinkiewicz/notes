@@ -26,6 +26,7 @@ import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.sync.ConflictNaming
+import pl.dakil.notes.sync.TrashNaming
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -565,8 +566,11 @@ class NoteRepository(
         val folders = ArrayList<StoreEntry>()
         for (entry in entries) {
             if (entry.isDirectory) {
-                // Pictures only; nothing in there is a note.
-                if (recursive && !entry.name.equals(Attachments.DIR, ignoreCase = true)) folders += entry
+                // Pictures only; nothing in there is a note. And the trash is out of the index on
+                // purpose: a deleted note that still came up in search would not look deleted.
+                if (recursive && !entry.name.equals(Attachments.DIR, ignoreCase = true) &&
+                    entry.name != TrashNaming.DIR
+                ) folders += entry
                 continue
             }
             val kind = NoteKind.of(entry.name) ?: continue

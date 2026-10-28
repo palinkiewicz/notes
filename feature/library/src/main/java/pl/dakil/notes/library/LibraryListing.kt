@@ -2,6 +2,7 @@ package pl.dakil.notes.library
 
 import androidx.compose.runtime.Immutable
 import pl.dakil.notes.data.Attachments
+import pl.dakil.notes.sync.TrashNaming
 import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.NoteSummary
 import pl.dakil.notes.data.StoreEntry
@@ -81,6 +82,9 @@ object LibraryListing {
                 // A `.md` note's pictures live there; it is part of the notes beside it, not a
                 // place the user files things. See [Attachments].
                 .filter { !it.name.equals(Attachments.DIR, ignoreCase = true) }
+                // The trash has a screen of its own; as a folder it would be one the user could
+                // file notes into and so lose them a month later.
+                .filter { it.name != TrashNaming.DIR }
                 .map { LibraryItem.Folder(it.ref, it.name, it.modifiedAt, path) }
                 .sortedWith(folderOrder(sort))
                 .forEach { items += it }

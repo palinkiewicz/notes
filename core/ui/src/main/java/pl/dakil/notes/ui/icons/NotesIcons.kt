@@ -9,9 +9,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Delete as OutlinedDelete
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Settings as OutlinedSettings
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -38,8 +40,12 @@ object NotesIcons {
     val Back get() = Icons.AutoMirrored.Filled.ArrowBack
     val Add get() = Icons.Default.Add
     val Search get() = Icons.Default.Search
-    val Settings get() = Icons.Default.Settings
+    /** Outlined, like the stroked glyphs the navigation bar's other destination uses. */
+    val Settings get() = Icons.Outlined.OutlinedSettings
     val Delete get() = Icons.Default.Delete
+    /** The trash as a place, in the settings list — outlined, as the rows round it are. */
+    val Trash get() = Icons.Outlined.OutlinedDelete
+    val Info get() = Icons.Outlined.Info
     val More get() = Icons.Default.MoreVert
     val Export get() = Icons.Default.Share
     val Share get() = Icons.Default.Share

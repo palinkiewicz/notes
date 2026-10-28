@@ -101,6 +101,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
             untitledName = stringResource(LibraryR.string.library_untitled),
             // Adopting a folder replaces the backend underneath every ref this screen is holding.
             rootChanges = container.store.rootChanges,
+            trash = container.trash,
         )
     )
     val noteViewModel: NoteViewModel = viewModel(
@@ -277,6 +278,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                                 container.backupRunner,
                                 container.syncCoordinator,
                                 container.viewStates,
+                                container.trash,
                             )
                         }
                     }

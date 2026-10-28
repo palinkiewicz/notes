@@ -1,5 +1,8 @@
 package pl.dakil.notes.library
 
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.ui.semantics.semantics
@@ -201,6 +204,16 @@ fun LibraryScreen(
         importErrorMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(importErrorMessage)
         viewModel.dismissImportError()
+    }
+    // A delete is a move to the trash, and the moment right after it is when a mistaken one is
+    // noticed: the way back is offered there and then, not only from the trash screen.
+    val trashedCount = state.lastTrashed?.size
+    val trashedMessage = trashedCount?.let { pluralStringResource(R.plurals.library_trashed, it, it) }
+    val undoLabel = stringResource(R.string.library_undo)
+    LaunchedEffect(state.lastTrashed) {
+        trashedMessage ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(trashedMessage, actionLabel = undoLabel, duration = SnackbarDuration.Long)
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete() else viewModel.forgetLastDelete()
     }
 
     Scaffold(

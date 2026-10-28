@@ -97,4 +97,33 @@
     <string name="library_error_pdf_too_large">Ten plik PDF jest za duży do zaimportowania (limit to 100 MB)</string>
     <string name="library_error_pdf_not_pdf">To nie jest plik PDF</string>
     <string name="library_error_pdf_unreadable">Nie udało się odczytać tego pliku PDF</string>
+    <string name="library_delete_to_trash">Trafi do kosza na %1$d dni i będzie można je stamtąd przywrócić.</string>
+    <plurals name="library_trashed">
+        <item quantity="one">Przeniesiono do kosza</item>
+        <item quantity="few">Przeniesiono %1$d elementy do kosza</item>
+        <item quantity="many">Przeniesiono %1$d elementów do kosza</item>
+        <item quantity="other">Przeniesiono %1$d elementu do kosza</item>
+    </plurals>
+    <string name="library_undo">Cofnij</string>
+    <string name="library_error_restore_x">Nie udało się przywrócić: %1$s</string>
+    <string name="trash_title">Kosz</string>
+    <string name="trash_empty_title">Kosz jest pusty</string>
+    <string name="trash_retention">Usunięte notatki i foldery są tu przechowywane przez %1$d dni, a potem usuwane na zawsze.</string>
+    <string name="trash_from_root">Z biblioteki</string>
+    <string name="trash_from_x">Z: %1$s</string>
+    <plurals name="trash_days_left">
+        <item quantity="one">Został %1$d dzień</item>
+        <item quantity="few">Zostały %1$d dni</item>
+        <item quantity="many">Zostało %1$d dni</item>
+        <item quantity="other">Zostało %1$d dnia</item>
+    </plurals>
+    <string name="trash_restore">Przywróć</string>
+    <string name="trash_restored_x">Przywrócono: %1$s</string>
+    <string name="trash_delete_forever">Usuń na zawsze</string>
+    <string name="trash_delete_forever_x">Usunąć „%1$s” na zawsze?</string>
+    <string name="trash_empty_action">Opróżnij kosz</string>
+    <string name="trash_empty_confirm_title">Opróżnić kosz?</string>
+    <string name="trash_empty_confirm_text">Wszystko w koszu zostanie usunięte na zawsze. Tej operacji nie można cofnąć.</string>
+    <string name="trash_error_empty">Nie udało się opróżnić kosza</string>
+    <string name="trash_back">Wstecz</string>
 </resources>

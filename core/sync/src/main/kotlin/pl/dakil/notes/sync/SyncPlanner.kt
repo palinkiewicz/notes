@@ -101,10 +101,16 @@ data class SyncPolicy(
  */
 object SyncPlanner {
 
-    /** Files that are none of this app's business, and must never be uploaded *or* deleted. */
+    /**
+     * Files that are none of this app's business, and must never be uploaded *or* deleted.
+     *
+     * Hidden names are someone else's — `.stfolder`, `.git` — with one exception: the library's own
+     * trash, at its root, which has to reach the other devices so an item deleted on one can be
+     * brought back on another. See [TrashNaming].
+     */
     fun isIgnored(path: String): Boolean {
         val segments = path.split('/')
-        if (segments.any { it.startsWith(".") }) return true
+        if (segments.withIndex().any { (i, s) -> s.startsWith(".") && !(i == 0 && s == TrashNaming.DIR) }) return true
         val name = segments.last().lowercase(Locale.ROOT)
         return name.endsWith(".tmp") || name.endsWith(".part") || name.startsWith("note-index.db")
     }

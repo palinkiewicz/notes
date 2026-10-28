@@ -263,4 +263,6 @@ It takes about five minutes, once.</string>
         <item quantity="one">%1$d note changed in two places. Both versions were kept.</item>
         <item quantity="other">%1$d notes changed in two places. Both versions were kept.</item>
     </plurals>
+    <string name="settings_trash">Trash</string>
+    <string name="settings_trash_summary">Deleted notes and folders, kept for 30 days</string>
 </resources>

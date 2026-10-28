@@ -96,4 +96,29 @@
     <string name="library_error_pdf_too_large">This PDF is too large to import (the limit is 100 MB)</string>
     <string name="library_error_pdf_not_pdf">This file is not a PDF</string>
     <string name="library_error_pdf_unreadable">Could not read this PDF</string>
+    <string name="library_delete_to_trash">It stays in the trash for %1$d days, and can be restored from there.</string>
+    <plurals name="library_trashed">
+        <item quantity="one">Moved to the trash</item>
+        <item quantity="other">%1$d items moved to the trash</item>
+    </plurals>
+    <string name="library_undo">Undo</string>
+    <string name="library_error_restore_x">Could not restore %1$s</string>
+    <string name="trash_title">Trash</string>
+    <string name="trash_empty_title">The trash is empty</string>
+    <string name="trash_retention">Deleted notes and folders are kept here for %1$d days, then deleted for good.</string>
+    <string name="trash_from_root">From the library</string>
+    <string name="trash_from_x">From %1$s</string>
+    <plurals name="trash_days_left">
+        <item quantity="one">%1$d day left</item>
+        <item quantity="other">%1$d days left</item>
+    </plurals>
+    <string name="trash_restore">Restore</string>
+    <string name="trash_restored_x">Restored %1$s</string>
+    <string name="trash_delete_forever">Delete for good</string>
+    <string name="trash_delete_forever_x">Delete “%1$s” for good?</string>
+    <string name="trash_empty_action">Empty trash</string>
+    <string name="trash_empty_confirm_title">Empty the trash?</string>
+    <string name="trash_empty_confirm_text">Everything in the trash is deleted for good. This cannot be undone.</string>
+    <string name="trash_error_empty">Could not empty the trash</string>
+    <string name="trash_back">Back</string>
 </resources>

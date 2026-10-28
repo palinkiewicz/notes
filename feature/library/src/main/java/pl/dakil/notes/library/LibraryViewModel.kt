@@ -28,7 +28,9 @@ import pl.dakil.notes.data.NoteIndex
 import pl.dakil.notes.data.NoteRepository
 import pl.dakil.notes.data.NoteRepository.Companion.childPath
 import pl.dakil.notes.data.NoteSort
+import pl.dakil.notes.data.LibraryTrash
 import pl.dakil.notes.data.NoteStore
+import pl.dakil.notes.data.TrashedItem
 import pl.dakil.notes.data.PdfImportException
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreRef
@@ -66,6 +68,8 @@ data class LibraryUiState(
     /** Items the user has asked to delete and not yet confirmed. */
     val pendingDelete: List<LibraryItem>? = null,
     val isLoading: Boolean = true,
+    /** What the last delete moved to the trash, while the snackbar offering to undo it is up. */
+    val lastTrashed: List<TrashedItem>? = null,
     /** A PDF is being read into a new note. */
     val importing: Boolean = false,
     /**
@@ -133,6 +137,8 @@ class LibraryViewModel(
      * from the new root.
      */
     private val rootChanges: Flow<Int> = emptyFlow(),
+    /** Where a delete puts things; see [LibraryTrash]. */
+    private val trash: LibraryTrash? = null,
 ) : ViewModel(), PreviewLoader {
 
     private val _state = MutableStateFlow(LibraryUiState(layout = settings.read().libraryLayout))
@@ -448,17 +454,53 @@ class LibraryViewModel(
 
     fun cancelDelete() = _state.update { it.copy(pendingDelete = null) }
 
+    /**
+     * Moves what the user confirmed into the trash, and offers to take it back.
+     *
+     * Each item from the folder it is actually in: items found by a search can be anywhere, and a
+     * move needs the parent it is leaving. Only without a trash — which the app always has — does a
+     * delete delete.
+     */
     fun confirmDelete() {
         val items = _state.value.pendingDelete ?: return
+        val current = _state.value.current
         _state.update { it.copy(pendingDelete = null, selection = emptySet()) }
         viewModelScope.launch {
+            val trashed = ArrayList<TrashedItem>()
             for (item in items) {
-                repository.delete(item.ref, item.path, (item as? LibraryItem.Folder)?.name)
-                    .onFailure { cause -> fail(cause, R.string.library_error_delete_x, item.name) }
+                val directoryName = (item as? LibraryItem.Folder)?.name
+                val outcome = if (trash != null) {
+                    val parent = resolveFolder(item.path) ?: current
+                    if (parent == null) {
+                        Result.failure(IllegalStateException())
+                    } else {
+                        trash.moveToTrash(item.ref, parent, item.path, directoryName).map { trashed += it }
+                    }
+                } else {
+                    repository.delete(item.ref, item.path, directoryName)
+                }
+                outcome.onFailure { cause -> fail(cause, R.string.library_error_delete_x, item.name) }
+            }
+            if (trashed.isNotEmpty()) _state.update { it.copy(lastTrashed = trashed) }
+            reload()
+        }
+    }
+
+    /** Brings back what the last delete moved to the trash — the snackbar's undo. */
+    fun undoDelete() {
+        val items = _state.value.lastTrashed ?: return
+        _state.update { it.copy(lastTrashed = null) }
+        val trash = trash ?: return
+        viewModelScope.launch {
+            for (item in items) {
+                trash.restore(item).onFailure { cause -> fail(cause, R.string.library_error_restore_x, item.name) }
             }
             reload()
         }
     }
+
+    /** The snackbar has gone without its undo being taken. */
+    fun forgetLastDelete() = _state.update { it.copy(lastTrashed = null) }
 
     // ---- Moving --------------------------------------------------------------------------------
 
@@ -638,6 +680,7 @@ class LibraryViewModel(
             rootFolderName: String,
             untitledName: String,
             rootChanges: Flow<Int> = emptyFlow(),
+            trash: LibraryTrash? = null,
         ) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -649,6 +692,7 @@ class LibraryViewModel(
                     rootFolderName,
                     untitledName,
                     rootChanges,
+                    trash,
                 ) as T
         }
     }

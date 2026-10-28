@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +45,7 @@ fun SettingsRootScreen(
     onNavigateToStorage: () -> Unit,
     onNavigateToBackup: () -> Unit,
     onNavigateToSync: () -> Unit,
+    onNavigateToTrash: () -> Unit,
 ) {
     var showAbout by remember { mutableStateOf(false) }
 
@@ -119,12 +118,20 @@ fun SettingsRootScreen(
                 icon = NotesIcons.Layers,
                 onClick = onNavigateToSync,
             )
+            // Here rather than in the navigation bar: it is where a mistake is undone, not somewhere
+            // anyone goes every day, and the snackbar after a delete already offers the quick way back.
+            NavigationRow(
+                title = stringResource(R.string.settings_trash),
+                summary = stringResource(R.string.settings_trash_summary),
+                icon = NotesIcons.Trash,
+                onClick = onNavigateToTrash,
+            )
             // A dialog rather than a screen, and so no chevron: there is nothing here to navigate
             // into, only something to read and close.
             SettingRow(
                 title = stringResource(R.string.settings_about),
                 summary = stringResource(R.string.settings_about_summary),
-                leading = { Icon(Icons.Default.Info, contentDescription = null) },
+                leading = { Icon(NotesIcons.Info, contentDescription = null) },
                 onClick = { showAbout = true },
             )
         }

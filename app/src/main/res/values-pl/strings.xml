@@ -268,4 +268,6 @@
         <item quantity="many">%1$d notatek zmieniono w dwóch miejscach. Zachowano obie wersje.</item>
         <item quantity="other">%1$d notatki zmieniono w dwóch miejscach. Zachowano obie wersje.</item>
     </plurals>
+    <string name="settings_trash">Kosz</string>
+    <string name="settings_trash_summary">Usunięte notatki i foldery, przechowywane przez 30 dni</string>
 </resources>
