@@ -3,6 +3,7 @@ package pl.dakil.notes
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ import pl.dakil.notes.data.sync.BackupRunner
 import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.sync.TokenStore
 import pl.dakil.notes.format.FileMediaSpool
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.sync.SyncScheduler
 import java.io.File
 
@@ -104,6 +106,23 @@ class AppContainer(context: Context) {
      */
     val incomingPdf = MutableStateFlow<Uri?>(null)
 
+    /**
+     * A new note asked for from a launcher shortcut, waiting for the UI to make it. Taken the same
+     * way as [incomingPdf], so one tap makes one note.
+     */
+    val requestedNote = MutableStateFlow<NoteKind?>(null)
+
+    private val rootRestored = CompletableDeferred<Unit>()
+
+    /**
+     * Suspends until [start] has pointed the store at the user's folder, or found it cannot.
+     *
+     * For whatever writes a note the moment the app starts — a shortcut or a shared PDF on a cold
+     * start. Written any earlier, the note lands in internal storage, and the swap a moment later
+     * leaves the editor holding a ref the new store cannot read.
+     */
+    suspend fun awaitLibraryRoot() = rootRestored.await()
+
     /** Sync bookkeeping, app-private and never inside the user's library; see [FileSyncStateStore]. */
     private val syncStateDir: File by lazy { File(appContext.filesDir, "sync") }
 
@@ -136,7 +155,11 @@ class AppContainer(context: Context) {
      */
     fun start() {
         applicationScope.launch {
-            libraryRoot.restore()
+            try {
+                libraryRoot.restore()
+            } finally {
+                rootRestored.complete(Unit)
+            }
             // After the root is known — the trash lives in it — and once per start, which is as
             // often as a thirty-day limit needs checking.
             trash.purge()

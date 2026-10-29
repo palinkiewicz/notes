@@ -346,10 +346,23 @@ class LibraryViewModel(
 
     // ---- Mutations -----------------------------------------------------------------------------
 
-    fun createNote(title: String, kind: NoteKind, onCreated: (StoreRef) -> Unit) {
-        val parent = _state.value.current ?: return
-        val path = _state.value.path
+    /**
+     * Makes a new note and opens it.
+     *
+     * In the folder on screen, or — for one asked for from outside the app, a launcher shortcut —
+     * at the root of the library, as [importPdf] does. The root is asked of the store rather than
+     * read off the crumbs, which on a cold start are not there yet.
+     */
+    fun createNote(title: String, kind: NoteKind, intoRoot: Boolean, onCreated: (StoreRef) -> Unit) {
+        val current = _state.value.current
+        if (current == null && !intoRoot) return
+        val path = if (intoRoot) "" else _state.value.path
         viewModelScope.launch {
+            val parent = (if (intoRoot) store.root() else current) ?: run {
+                // No message, so the screen shows its own translated fallback rather than English.
+                fail(IllegalStateException(), R.string.library_error_create_note)
+                return@launch
+            }
             // Read at the moment of creating, not cached: the default theme may have been changed
             // in the page setup of the note the user has just come back from.
             repository.create(

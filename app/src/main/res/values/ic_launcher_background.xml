@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- The launcher icon's page yellow, behind the launcher shortcuts' glyphs. -->
+    <color name="shortcut_background">#FFF59D</color>
 </resources>

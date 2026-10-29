@@ -11,6 +11,13 @@
     <string name="nav_notes">Notatki</string>
     <string name="nav_settings">Ustawienia</string>
 
+    <!--  LAUNCHER SHORTCUTS  -->
+    <!-- The short label is what most launchers show; keep it to about ten characters. -->
+    <string name="shortcut_new_ink_short">Odręczna</string>
+    <string name="shortcut_new_ink_long">Notatka odręczna</string>
+    <string name="shortcut_new_text_short">Tekstowa</string>
+    <string name="shortcut_new_text_long">Notatka tekstowa</string>
+
     <!--  SETTINGS  -->
     <string name="settings_title">Ustawienia</string>
     <string name="settings_appearance">Wygląd</string>

@@ -147,6 +147,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
     LaunchedEffect(Unit) {
         container.incomingPdf.filterNotNull().collect { uri ->
             container.incomingPdf.value = null
+            container.awaitLibraryRoot()
             if (openNote != null) closeEditor()
             destination = Destination.LIBRARY
             libraryViewModel.importPdf(
@@ -155,6 +156,18 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                 context.cacheDir.resolve("import"),
                 intoRoot = true,
             ) { openNote = it.value }
+        }
+    }
+
+    // A launcher shortcut's new note: the same path as a shared PDF, and for the same reason at the
+    // root — the shortcut was tapped from outside the app, with no folder in mind.
+    LaunchedEffect(Unit) {
+        container.requestedNote.filterNotNull().collect { kind ->
+            container.requestedNote.value = null
+            container.awaitLibraryRoot()
+            if (openNote != null) closeEditor()
+            destination = Destination.LIBRARY
+            libraryViewModel.createNote("", kind, intoRoot = true) { openNote = it.value }
         }
     }
 

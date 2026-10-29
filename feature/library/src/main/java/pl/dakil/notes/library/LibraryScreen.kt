@@ -243,7 +243,7 @@ fun LibraryScreen(
                 NewNoteFab(
                     open = newMenuOpen,
                     onOpenChange = { newMenuOpen = it },
-                    onCreate = { kind -> viewModel.createNote("", kind, onOpenNote) },
+                    onCreate = { kind -> viewModel.createNote("", kind, intoRoot = false, onOpenNote) },
                     onCreateFolder = { newFolder = true },
                     onImportPdf = { pickPdf.launch(arrayOf("application/pdf")) },
                 )
