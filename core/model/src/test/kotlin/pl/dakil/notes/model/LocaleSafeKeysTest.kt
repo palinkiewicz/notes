@@ -58,6 +58,18 @@ class LocaleSafeKeysTest {
     }
 
     @Test
+    fun `keyboard shortcut keys are the same in Turkish as anywhere else`() {
+        for (action in ShortcutAction.entries) assertEquals(action, ShortcutAction.fromKey(action.key))
+        // `i`, `insert` and `IMAGE_TOOL` are exactly the names a Turkish fold would break.
+        val chord = KeyChord(Keys.I, ctrl = true, shift = true)
+        assertEquals("ctrl+shift+i", chord.encode())
+        assertEquals(chord, KeyChord.decode("CTRL+SHIFT+I"))
+        assertEquals(Keys.INSERT, Keys.codeOf("INSERT"))
+        val map = Keymap.DEFAULT.assign(ShortcutAction.ITALIC, chord)
+        assertEquals(map, Keymap.decode(map.encode()))
+    }
+
+    @Test
     fun `view mode keys are the same in Turkish as anywhere else`() {
         for (mode in ViewMode.entries) {
             assertEquals(mode, ViewMode.fromKey(mode.key))

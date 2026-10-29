@@ -66,9 +66,12 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
+import pl.dakil.notes.model.ShortcutAction
+import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.keys.ShortcutHandler
 
 /**
  * The plain-Markdown note editor: a page, a formatting bar, and one [MarkdownEditor] filling it.
@@ -106,6 +109,18 @@ fun TextNoteScreen(
     var moreMenuOpen by remember { mutableStateOf(false) }
     val title = state.title.ifBlank { stringResource(R.string.editor_untitled) }
     val context = LocalContext.current
+
+    // Formatting keys belong to the field and are handled there; these are the note's own.
+    ShortcutHandler(ShortcutContext.TEXT) { action ->
+        when (action) {
+            ShortcutAction.UNDO -> undo.canUndo.also { if (it) undo.undo() }
+            ShortcutAction.REDO -> undo.canRedo.also { if (it) undo.redo() }
+            ShortcutAction.SAVE -> viewModel.flush() != null
+            ShortcutAction.CLOSE_NOTE -> true.also { onNavigateBack() }
+            ShortcutAction.EXPORT -> true.also { exportOpen = true }
+            else -> false
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
 
     // A message that came up from the store already has its own words; the fallback arrives as a
@@ -388,6 +403,7 @@ fun TextNoteScreen(
                         autoFocus = text.text.isEmpty(),
                         attributes = state.pandoc,
                         images = viewModel,
+                        onRequestLink = { reference = ReferenceKind.LINK },
                     )
                 }
             }

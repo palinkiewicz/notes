@@ -62,9 +62,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.dakil.notes.data.LibraryLayout
 import pl.dakil.notes.data.NoteSort
 import pl.dakil.notes.data.StoreRef
+import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.library.R
+import pl.dakil.notes.model.ShortcutAction
+import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.keys.ShortcutHandler
 import java.text.DateFormat
 
 /**
@@ -100,6 +104,21 @@ fun LibraryScreen(
 
     val selected = state.selectedItems
     val moving = state.moving
+
+    // Not mid-selection or mid-move, for the reason the new-note button hides then: the bars own
+    // the screen, and a note made from under them would land somewhere nobody was looking.
+    ShortcutHandler(ShortcutContext.LIBRARY, enabled = !state.selecting && moving == null) { action ->
+        when (action) {
+            ShortcutAction.SEARCH -> true.also { searchActive = true }
+            ShortcutAction.NEW_INK_NOTE -> true.also {
+                viewModel.createNote("", NoteKind.INK, intoRoot = false, onOpenNote)
+            }
+            ShortcutAction.NEW_TEXT_NOTE -> true.also {
+                viewModel.createNote("", NoteKind.TEXT, intoRoot = false, onOpenNote)
+            }
+            else -> false
+        }
+    }
 
     // A message that came up from the store already has its own words; one the view model raised
     // itself arrives as a resource id, because that layer has no `Context` to resolve it with.

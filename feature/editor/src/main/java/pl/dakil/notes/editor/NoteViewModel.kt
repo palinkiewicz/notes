@@ -1161,47 +1161,80 @@ class NoteViewModel(
             commitEdit(if (edits.size == 1) edits[0] else Edit.Batch(edits))
         }
 
-        override fun onLassoCommitted(xs: FloatArray, ys: FloatArray, count: Int) {
-            val sheet = _state.value.sheet ?: return
-
-            val byBlock = LinkedHashMap<BlockId, List<Int>>()
-            var bounds = Rect.EMPTY
-            for (block in sheet.blocks) {
-                // Locked ink is skipped for the reason the eraser skips it: handles over ink that
-                // cannot be edited are handles that silently do nothing.
-                if (block !is InkBlock || !block.visible || block.locked) continue
-                val hits = HitTester.strokesInPolygon(block.strokes, xs, ys, count)
-                if (hits.isEmpty()) continue
-                byBlock[block.id] = hits
-                bounds = bounds.union(HitTester.boundsOf(block.strokes, hits))
-            }
-
-            val texts = sheet.blocks.filterIsInstance<TextBlock>()
-                .filter { text ->
-                    val r = text.worldBounds()
-                    HitTester.pointInPolygon(r.left, r.top, xs, ys, count) &&
-                        HitTester.pointInPolygon(r.right, r.bottom, xs, ys, count)
-                }
-                .map { it.id }
-            for (id in texts) sheet.block(id)?.let { bounds = bounds.union(it.worldBounds()) }
-
-            // By the centre, more lenient than a text box's two corners: a photo is often bigger
-            // than the loop anyone wants to draw round it.
-            val images = sheet.blocks.filterIsInstance<ImageBlock>()
-                .filter { image ->
-                    val r = image.worldBounds()
-                    HitTester.pointInPolygon((r.left + r.right) / 2f, (r.top + r.bottom) / 2f, xs, ys, count)
-                }
-                .map { it.id }
-            for (id in images) sheet.block(id)?.let { bounds = bounds.union(it.worldBounds()) }
-
-            val selection = Selection(byBlock, texts.toSet(), bounds, images.toSet())
-            _state.update { it.copy(selection = selection.takeUnless { s -> s.isEmpty }) }
-        }
+        override fun onLassoCommitted(xs: FloatArray, ys: FloatArray, count: Int) = selectInLoop(xs, ys, count)
 
         override fun onSelectAt(x: Float, y: Float, radius: Float) = selectAt(x, y, radius)
 
         override fun onSelectionTransformed(matrix: Affine) = transformSelection(matrix)
+    }
+
+    /** Everything a lasso drawn along ([xs], [ys]) takes hold of. */
+    private fun selectInLoop(xs: FloatArray, ys: FloatArray, count: Int) {
+        val sheet = _state.value.sheet ?: return
+
+        val byBlock = LinkedHashMap<BlockId, List<Int>>()
+        var bounds = Rect.EMPTY
+        for (block in sheet.blocks) {
+            // Locked ink is skipped for the reason the eraser skips it: handles over ink that
+            // cannot be edited are handles that silently do nothing.
+            if (block !is InkBlock || !block.visible || block.locked) continue
+            val hits = HitTester.strokesInPolygon(block.strokes, xs, ys, count)
+            if (hits.isEmpty()) continue
+            byBlock[block.id] = hits
+            bounds = bounds.union(HitTester.boundsOf(block.strokes, hits))
+        }
+
+        val texts = sheet.blocks.filterIsInstance<TextBlock>()
+            .filter { text ->
+                val r = text.worldBounds()
+                HitTester.pointInPolygon(r.left, r.top, xs, ys, count) &&
+                    HitTester.pointInPolygon(r.right, r.bottom, xs, ys, count)
+            }
+            .map { it.id }
+        for (id in texts) sheet.block(id)?.let { bounds = bounds.union(it.worldBounds()) }
+
+        // By the centre, more lenient than a text box's two corners: a photo is often bigger
+        // than the loop anyone wants to draw round it.
+        val images = sheet.blocks.filterIsInstance<ImageBlock>()
+            .filter { image ->
+                val r = image.worldBounds()
+                HitTester.pointInPolygon((r.left + r.right) / 2f, (r.top + r.bottom) / 2f, xs, ys, count)
+            }
+            .map { it.id }
+        for (id in images) sheet.block(id)?.let { bounds = bounds.union(it.worldBounds()) }
+
+        val selection = Selection(byBlock, texts.toSet(), bounds, images.toSet())
+        _state.update { it.copy(selection = selection.takeUnless { s -> s.isEmpty }) }
+    }
+
+    /**
+     * Selects what a lasso drawn round the whole sheet would — by the same code, so "everything"
+     * skips locked and hidden ink exactly as a loop does, rather than by a second set of rules.
+     *
+     * A pen stays in hand: the selection lives alongside it as one made with the side button does,
+     * and the next stroke lets go of it.
+     */
+    fun selectAll() {
+        val current = _state.value
+        if (current.sheet == null) return
+        clearTextSelection()
+        // Except the text and image tools, under which a tap means "make one here" — handles over
+        // the page then would be a drag that places a box instead of moving what was selected.
+        if (current.textToolActive || current.imageToolActive) selectTool(ToolId.LASSO)
+        val far = SELECT_ALL_REACH
+        selectInLoop(floatArrayOf(-far, far, far, -far), floatArrayOf(-far, -far, far, far), 4)
+    }
+
+    /** The last eraser, or — already erasing — the other kind, so one key reaches both. */
+    fun toggleEraser() {
+        val current = _state.value
+        val tool = current.tool.tool
+        val next = when {
+            current.textToolActive || current.imageToolActive || !tool.isEraser -> current.lastEraser
+            tool == ToolId.ERASER_STROKE -> ToolId.ERASER_POINT
+            else -> ToolId.ERASER_STROKE
+        }
+        selectTool(next)
     }
 
     // ---- Selection -------------------------------------------------------------------------------
@@ -1591,6 +1624,9 @@ class NoteViewModel(
 
         /** How long a pause in typing ends one undo step and starts the next. */
         private const val TYPING_COMMIT_MS = 400L
+
+        /** Further out than any sheet reaches, in points, for a loop round all of it. */
+        private const val SELECT_ALL_REACH = 1_000_000f
 
         /** Long enough to outlast a slider drag, short enough that a quick exit still keeps it. */
         private const val TOOL_SAVE_MS = 500L

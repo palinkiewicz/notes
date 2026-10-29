@@ -31,6 +31,7 @@ fun InputSettingsScreen(
     current: AppSettings,
     settings: SettingsRepository,
     onOpenDrawingOrder: () -> Unit,
+    onOpenKeyboardShortcuts: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     Scaffold(
@@ -168,6 +169,14 @@ fun InputSettingsScreen(
                     onChange = { settings.setAutoShapeHoldMs(it.roundToInt().toLong()) },
                 )
             }
+
+            SectionHeader(stringResource(R.string.settings_keyboard))
+
+            NavigationRow(
+                title = stringResource(R.string.settings_keyboard_shortcuts),
+                summary = stringResource(R.string.settings_keyboard_shortcuts_summary),
+                onClick = onOpenKeyboardShortcuts,
+            )
         }
     }
 }

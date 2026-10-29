@@ -570,6 +570,22 @@ object NotesIcons {
         strokedIcon("Source", "M8 7 L3.5 12 L8 17 M16 7 L20.5 12 L16 17 M13.6 5 L10.4 19")
     }
 
+    /** A keyboard: two rows of keys over a space bar. */
+    val Keyboard: ImageVector by lazy {
+        strokedIcon(
+            "Keyboard",
+            "M4 5.5 h16 a1.5 1.5 0 0 1 1.5 1.5 v10 a1.5 1.5 0 0 1 -1.5 1.5 h-16 " +
+                "a1.5 1.5 0 0 1 -1.5 -1.5 v-10 a1.5 1.5 0 0 1 1.5 -1.5 Z " +
+                "M6.5 9.5 h0.01 M10 9.5 h0.01 M14 9.5 h0.01 M17.5 9.5 h0.01 " +
+                "M8 12.5 h0.01 M12 12.5 h0.01 M16 12.5 h0.01 M8.5 15.5 h7",
+        )
+    }
+
+    /** An arrow coming round to where it started: back to the defaults. */
+    val Restore: ImageVector by lazy {
+        strokedIcon("Restore", "M4.5 12 a7.5 7.5 0 1 0 2.2 -5.3 L4.5 9 M4.5 4.5 V9 H9")
+    }
+
     /**
      * Builds a 24×24 icon from SVG path data, rendered as a stroke.
      *

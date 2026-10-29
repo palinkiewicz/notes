@@ -42,15 +42,19 @@ import pl.dakil.notes.editor.canvas.RULER_THICKNESS
 import pl.dakil.notes.editor.canvas.RulerOverlay
 import pl.dakil.notes.editor.canvas.RulerState
 import pl.dakil.notes.editor.canvas.SelectionController
+import pl.dakil.notes.ui.keys.ShortcutHandler
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.rulerEdgeAt
 import pl.dakil.notes.ui.sheet.SheetPainter.drawSheet
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.canvas.ZoomChip
+import pl.dakil.notes.editor.canvas.zoomStep
 import pl.dakil.notes.editor.canvas.sheetTransformGestures
 import pl.dakil.notes.editor.markdown.rememberMarkdownStyles
 import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.ShortcutAction
+import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.model.Stroke
 import pl.dakil.notes.model.pdfPageIndices
 import pl.dakil.notes.model.ViewMode
@@ -175,6 +179,21 @@ fun SheetEditor(
     val insetTop = with(density) { if (paged) CHROME_TOP.toPx() else 0f }
     val insetBottom = with(density) { CHROME_BOTTOM.toPx() }
     transform.setContentInsets(insetTop, insetBottom)
+
+    // Zoom from the keyboard is handled here because this is where the transform lives. Steps go
+    // through the zoom menu's own scales, and a locked zoom stays locked for keys as for fingers.
+    ShortcutHandler(ShortcutContext.SHEET, enabled = state.editingTextBlock == null) { action ->
+        if (transform.zoomLocked) return@ShortcutHandler false
+        when (action) {
+            ShortcutAction.ZOOM_IN, ShortcutAction.ZOOM_OUT -> {
+                val target = zoomStep(transform.userZoom, state.zoomPresets, action == ShortcutAction.ZOOM_IN)
+                target?.let(transform::zoomTo)
+                target != null
+            }
+            ShortcutAction.ZOOM_FIT -> true.also { transform.zoomTo(transform.fitWidthZoom()) }
+            else -> false
+        }
+    }
 
     Box(
         modifier = modifier

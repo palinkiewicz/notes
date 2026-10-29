@@ -25,6 +25,7 @@ import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.settings.AppearanceSettingsScreen
 import pl.dakil.notes.settings.DrawingOrderSettingsScreen
 import pl.dakil.notes.settings.EditorSettingsScreen
+import pl.dakil.notes.settings.KeyboardShortcutsSettingsScreen
 import pl.dakil.notes.settings.PaperColoursSettingsScreen
 import pl.dakil.notes.settings.PaperThemesScreen
 import pl.dakil.notes.settings.SavedColorsScreen
@@ -43,7 +44,7 @@ import pl.dakil.notes.ui.motion.screenTransitionGround
 
 /** The pages of the settings section. The root is the index; the rest are pushed over it. */
 private enum class SettingsPage {
-    ROOT, APPEARANCE, EDITOR, DRAWING_ORDER, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE,
+    ROOT, APPEARANCE, EDITOR, DRAWING_ORDER, KEYBOARD_SHORTCUTS, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE,
     BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV, TRASH;
 
     /**
@@ -53,7 +54,7 @@ private enum class SettingsPage {
      */
     val parent: SettingsPage
         get() = when (this) {
-            DRAWING_ORDER -> INPUT
+            DRAWING_ORDER, KEYBOARD_SHORTCUTS -> INPUT
             PAPER_THEMES, SAVED_COLORS -> PAPER_COLOURS
             SYNC_DRIVE, SYNC_WEBDAV -> SYNC
             else -> ROOT
@@ -141,6 +142,12 @@ fun SettingsScreen(
                     onNavigateBack = back,
                 )
 
+                SettingsPage.KEYBOARD_SHORTCUTS -> KeyboardShortcutsSettingsScreen(
+                    keymap = current.keymap,
+                    onChange = settings::setKeymap,
+                    onNavigateBack = back,
+                )
+
                 SettingsPage.PAPER_COLOURS -> PaperColoursSettingsScreen(
                     current = current,
                     settings = settings,
@@ -165,6 +172,7 @@ fun SettingsScreen(
                     current = current,
                     settings = settings,
                     onOpenDrawingOrder = { page = SettingsPage.DRAWING_ORDER },
+                    onOpenKeyboardShortcuts = { page = SettingsPage.KEYBOARD_SHORTCUTS },
                     onNavigateBack = back,
                 )
 

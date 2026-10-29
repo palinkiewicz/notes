@@ -20,6 +20,7 @@ import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PaperThemes
 import pl.dakil.notes.model.PressureCurve
+import pl.dakil.notes.model.Keymap
 import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ViewMode
@@ -204,6 +205,11 @@ data class AppSettings(
      * The tools themselves are kept outside this class, see [SettingsRepository.readToolState].
      */
     val rememberTools: Boolean = true,
+    /**
+     * Which keys do what on an attached keyboard. A preference of this device, like [renderOrder]:
+     * the keyboard is this tablet's, and nothing of it belongs in a note.
+     */
+    val keymap: Keymap = Keymap.DEFAULT,
 ) {
     /** The paper new notes are made with: the default theme's, or the plain default. */
     val defaultBackground: PageBackground
@@ -282,6 +288,7 @@ class SettingsRepository(context: Context) {
         inertialScroll = prefs.getBoolean(KEY_INERTIAL_SCROLL, false),
         renderOrder = RenderOrder.decode(prefs.getString(KEY_RENDER_ORDER, null)),
         rememberTools = prefs.getBoolean(KEY_REMEMBER_TOOLS, true),
+        keymap = Keymap.decode(prefs.getString(KEY_KEYMAP, null)),
         zoomIndicatorSeconds = prefs.getInt(KEY_ZOOM_INDICATOR, 3).coerceIn(0, MAX_ZOOM_INDICATOR_SECONDS),
         defaultView = ViewMode.fromKey(prefs.getString(KEY_DEFAULT_VIEW, "paged") ?: "paged"),
         libraryLayout = LibraryLayout.fromKey(
@@ -386,6 +393,11 @@ class SettingsRepository(context: Context) {
     /** The default is stored as no key at all, so a later, better default reaches whoever never chose. */
     fun setRenderOrder(order: RenderOrder) = prefs.edit().apply {
         if (order.isDefault) remove(KEY_RENDER_ORDER) else putString(KEY_RENDER_ORDER, order.encode())
+    }.apply()
+
+    /** Stored like [setRenderOrder]: only what differs from the defaults, and nothing for them. */
+    fun setKeymap(keymap: Keymap) = prefs.edit().apply {
+        if (keymap.isDefault) remove(KEY_KEYMAP) else putString(KEY_KEYMAP, keymap.encode())
     }.apply()
 
     fun setRememberTools(enabled: Boolean) =
@@ -592,6 +604,7 @@ class SettingsRepository(context: Context) {
         const val KEY_AUTO_SHAPE = "input.autoShape"
         const val KEY_AUTO_SHAPE_HOLD = "input.autoShapeHoldMs"
         const val KEY_STYLUS_BUTTON = "input.stylusButton"
+        const val KEY_KEYMAP = "input.keymap"
 
         const val KEY_COLOR_THEME = "ui.colorTheme"
         const val KEY_DARK_THEME = "ui.darkTheme"

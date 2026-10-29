@@ -65,8 +65,12 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
 import pl.dakil.notes.model.ImageBlock
+import pl.dakil.notes.model.KeyChord
+import pl.dakil.notes.model.Keys
 import pl.dakil.notes.model.PdfPageBlock
 import pl.dakil.notes.model.ColorCodec
+import pl.dakil.notes.model.ShortcutAction
+import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
 import pl.dakil.notes.model.ViewMode
@@ -75,6 +79,7 @@ import pl.dakil.notes.ui.color.SavedPalette
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.keys.ShortcutHandler
 
 /**
  * The note editor.
@@ -147,6 +152,70 @@ fun EditorScreen(
     // resource id, because the view model has no `Context` to resolve one with.
     val errorMessage = state.error ?: state.errorRes?.let { stringResource(it) }
 
+
+    // The sheet's keys. Typing in a box is the TEXT context, so a bare letter types rather than
+    // picking up a pen; zoom is answered by SheetEditor, and formatting by the box's own field.
+    val typing = state.editingTextBlock != null
+    ShortcutHandler(
+        context = if (typing) ShortcutContext.TEXT else ShortcutContext.SHEET,
+        // The box's field keeps an undo history of its own that the editor never uses — `EditHistory`
+        // is the one authority — so its built-in keys must not reach it, whatever they are bound to.
+        consume = { typing && it in TextFieldUndoKeys },
+    ) { action ->
+        fun tool(pick: () -> Unit): Boolean {
+            toolPopup = null
+            pick()
+            return true
+        }
+        when (action) {
+            ShortcutAction.UNDO -> state.canUndo.also { if (it) viewModel.undo() }
+            ShortcutAction.REDO -> state.canRedo.also { if (it) viewModel.redo() }
+            ShortcutAction.SAVE -> viewModel.flush() != null
+            ShortcutAction.CLOSE_NOTE -> true.also { onNavigateBack() }
+            ShortcutAction.EXPORT -> (sheet != null).also { if (it) exportOpen = true }
+            ShortcutAction.LINK -> typing.also { if (it) reference = ReferenceKind.LINK }
+            ShortcutAction.DESELECT -> when {
+                toolPopup != null || formatPopup != null -> {
+                    toolPopup = null
+                    formatPopup = null
+                    true
+                }
+                typing -> true.also { viewModel.endTextEditing() }
+                state.activeTextBlock != null -> true.also { viewModel.clearTextSelection() }
+                state.selection != null -> true.also { viewModel.clearSelection() }
+                else -> false
+            }
+
+            ShortcutAction.PEN -> tool { viewModel.selectTool(ToolId.PEN) }
+            ShortcutAction.FOUNTAIN_PEN -> tool { viewModel.selectTool(ToolId.FOUNTAIN_PEN) }
+            ShortcutAction.PENCIL -> tool { viewModel.selectTool(ToolId.PENCIL) }
+            ShortcutAction.HIGHLIGHTER -> tool { viewModel.selectTool(ToolId.HIGHLIGHTER) }
+            ShortcutAction.MARKER -> tool { viewModel.selectTool(ToolId.MARKER) }
+            ShortcutAction.ERASER -> tool(viewModel::toggleEraser)
+            ShortcutAction.LASSO -> tool { viewModel.selectTool(ToolId.LASSO) }
+            ShortcutAction.TEXT_TOOL -> tool(viewModel::selectTextTool)
+            ShortcutAction.IMAGE_TOOL -> tool(viewModel::selectImageTool)
+            ShortcutAction.RULER -> true.also { viewModel.setRuler(!state.rulerEnabled) }
+
+            ShortcutAction.SELECT_ALL -> true.also { viewModel.selectAll() }
+            ShortcutAction.DELETE_SELECTION -> {
+                val box = state.activeTextBlock
+                when {
+                    state.selection != null -> true.also { viewModel.deleteSelection() }
+                    box != null -> true.also { viewModel.deleteTextBlock(box) }
+                    else -> false
+                }
+            }
+            ShortcutAction.DUPLICATE_SELECTION ->
+                (state.selection != null).also { if (it) viewModel.duplicateSelection() }
+
+            ShortcutAction.PREVIOUS_PAGE -> true.also { viewModel.goToPage(viewModel.viewedPage - 1) }
+            ShortcutAction.NEXT_PAGE -> true.also { viewModel.goToPage(viewModel.viewedPage + 1) }
+            ShortcutAction.ADD_PAGE -> (!state.isReadOnly).also { if (it) viewModel.addPage() }
+            ShortcutAction.GO_TO_PAGE -> (sheet != null).also { if (it) goingToPage = true }
+            else -> false
+        }
+    }
 
     // The selectors do not take focus, so back would otherwise leave the editor with one open.
     BackHandler(enabled = toolPopup != null || formatPopup != null) {
@@ -609,3 +678,13 @@ internal fun rememberSavedPalette(colors: List<Int>, viewModel: NoteViewModel): 
             onMove = viewModel::moveSavedColor,
         )
     }
+
+/**
+ * The keys a text field undoes and redoes with by itself. A sheet's text box swallows them so the
+ * field's own history, which nothing else knows about, can never be what a keypress unwinds.
+ */
+private val TextFieldUndoKeys = setOf(
+    KeyChord(Keys.Z, ctrl = true),
+    KeyChord(Keys.Z, ctrl = true, shift = true),
+    KeyChord(Keys.Y, ctrl = true),
+)

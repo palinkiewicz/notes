@@ -35,4 +35,24 @@
         <item quantity="other">Palette full (%d colours)</item>
     </plurals>
 
+    <!--  KEYBOARD KEYS  -->
+    <string name="ui_key_ctrl">Ctrl</string>
+    <string name="ui_key_alt">Alt</string>
+    <string name="ui_key_shift">Shift</string>
+    <string name="ui_key_meta">Meta</string>
+    <string name="ui_key_space">Space</string>
+    <string name="ui_key_enter">Enter</string>
+    <string name="ui_key_numpad_enter">Num Enter</string>
+    <string name="ui_key_backspace">Backspace</string>
+    <string name="ui_key_delete">Delete</string>
+    <string name="ui_key_insert">Insert</string>
+    <string name="ui_key_tab">Tab</string>
+    <string name="ui_key_escape">Esc</string>
+    <string name="ui_key_home">Home</string>
+    <string name="ui_key_end">End</string>
+    <string name="ui_key_page_up">Page Up</string>
+    <string name="ui_key_page_down">Page Down</string>
+    <string name="ui_key_numpad_x">Num %1$s</string>
+    <string name="ui_key_function_x" translatable="false">F%1$d</string>
+
 </resources>

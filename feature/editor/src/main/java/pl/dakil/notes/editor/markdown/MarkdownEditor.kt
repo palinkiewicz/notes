@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -73,6 +74,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.keys.shortcutsBeforeSoftKeyboard
 import pl.dakil.notes.ui.theme.MonospaceStyle
 
 /**
@@ -165,6 +167,11 @@ fun MarkdownEditor(
      * knows — a `.md` note's attachments folder. See [ImageSource].
      */
     images: ImageSource? = null,
+    /**
+     * Opens the caller's link dialog, for Ctrl+K — the same dialog the format bar's link button
+     * opens. Null leaves the shortcut alone.
+     */
+    onRequestLink: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val styles = rememberMarkdownStyles(attributes)
@@ -181,6 +188,8 @@ fun MarkdownEditor(
     val keepSpace = remember(pending) { KeepSpaceOutside(pending) }
     val keepSpaceOnDelete = remember(pending) { KeepSpaceOutsideOnDelete(pending) }
     val focusRequester = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    MarkdownShortcuts(state, pending, enabled = focused, onRequestLink = onRequestLink)
 
     var measured by remember { mutableStateOf<MeasuredMarkdown?>(null) }
 
@@ -206,6 +215,8 @@ fun MarkdownEditor(
         modifier = modifier
             .fillMaxSize()
             .focusRequester(focusRequester)
+            .onFocusChanged { focused = it.isFocused }
+            .shortcutsBeforeSoftKeyboard()
             // Copy and cut have to carry the Markdown away rather than the rendering of it.
             .markdownClipboard(state)
             // Sides only. There is nothing to pad against at the top: the document's first line

@@ -665,7 +665,7 @@ private fun Separator(placement: PopupPlacement) {
  * asterisks that style nothing, so nothing hides them. The request is armed instead, and becomes
  * markers the moment there is a word between them. See [PendingStyles].
  */
-private fun TextFieldState.applyWrap(pending: PendingStyles, marker: String) {
+internal fun TextFieldState.applyWrap(pending: PendingStyles, marker: String) {
     if (selection.collapsed) {
         pending.toggleWrap(selection.start, marker)
         return
@@ -673,7 +673,7 @@ private fun TextFieldState.applyWrap(pending: PendingStyles, marker: String) {
     applyAction(pending) { text, start, end -> MarkdownActions.toggleWrap(text, start, end, marker) }
 }
 
-private fun TextFieldState.applyBlockToggle(pending: PendingStyles, style: BlockStyle) =
+internal fun TextFieldState.applyBlockToggle(pending: PendingStyles, style: BlockStyle) =
     applyAction(pending) { text, start, end -> MarkdownActions.toggleBlockStyle(text, start, end, style) }
 
 /** A size, armed at a bare caret for the same reason [applyWrap] arms a marker. */
@@ -727,7 +727,7 @@ private val CompactBarHeight = 48.dp
  * doing on screen — so the same call is correct in both display modes, and one edit means one undo
  * step rather than a dozen.
  */
-private fun TextFieldState.applyAction(
+internal fun TextFieldState.applyAction(
     pending: PendingStyles,
     action: (text: String, start: Int, end: Int) -> MarkdownActions.Result,
 ) {
