@@ -533,6 +533,41 @@ class MarkdownRenderPlanTest {
     }
 
     @Test
+    fun `emphasis in a cell is styled and its markers are gone`() {
+        // Cells were padded and never scanned, so a table was the one place a bold word showed as
+        // four asterisks and a word.
+        val source = "| **bold** | *it* |\n| --- | --- |\n| ~~gone~~ | `code` |"
+        val lines = render(source).lines()
+        assertEquals(" bold  it", lines[0])
+        assertEquals(" gone  code", lines[1])
+        assertEquals(listOf("bold"), styled(source, MdStyle.BOLD))
+        assertEquals(listOf("it"), styled(source, MdStyle.ITALIC))
+        assertEquals(listOf("gone"), styled(source, MdStyle.STRIKE))
+        assertEquals(listOf("code"), styled(source, MdStyle.CODE))
+    }
+
+    @Test
+    fun `a column is as wide as what its cells show, not as their markers`() {
+        // Measured by the source, `**a**` is five columns wide and its column was padded to match,
+        // so a plain row under a bold one sat three blanks short of the rule beside it.
+        val source = "| **a** | b |\n| --- | --- |\n| c | d |"
+        val lines = renderRaw(source).lines()
+        assertEquals(" a  b  ", lines[0])
+        assertEquals(" c  d  ", lines[1])
+        val table = decorations<MdTable>(source).single()
+        for (stop in table.columnStops) assertEquals(' ', renderRaw(source)[stop])
+    }
+
+    @Test
+    fun `inline syntax does not reach across a pipe`() {
+        // GFM splits a row into cells before it reads any of them, so a pair of markers either side
+        // of a pipe is punctuation in two cells, not a span — and a span the renderer hid across a
+        // border would leave the table's rules struck through the middle of a word.
+        val rendered = render("| *a | b* |\n| --- | --- |")
+        assertTrue("the markers were hidden: '$rendered'", rendered.count { it == '*' } == 2)
+    }
+
+    @Test
     fun `a line of pipes without a delimiter row is not a table`() {
         assertEquals("| not | a table |", render("| not | a table |"))
     }

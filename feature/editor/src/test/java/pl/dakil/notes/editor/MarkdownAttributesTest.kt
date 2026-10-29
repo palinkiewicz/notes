@@ -90,6 +90,132 @@ class MarkdownAttributesTest {
         assertEquals(blue, styles(source, MdStyle.COLOR).single().arg)
     }
 
+    // ---- In a table ------------------------------------------------------------------------------
+
+    @Test
+    fun `a colour in a table cell is carried on its words`() {
+        val source = "| [word]{color=#0000ff} | b |\n| --- | --- |"
+        val range = styles(source, MdStyle.COLOR).single()
+        assertEquals(blue, range.arg)
+        assertEquals("word", rendered(source).substring(range.start, range.end))
+    }
+
+    @Test
+    fun `a size in a table cell is obeyed`() {
+        val source = "| [big]{size=24 color=#0000ff} | b |\n| --- | --- |"
+        val range = styles(source, MdStyle.SIZE).single()
+        assertEquals(24, range.arg)
+        assertEquals("big", rendered(source).substring(range.start, range.end))
+        assertEquals(blue, styles(source, MdStyle.COLOR).single().arg)
+    }
+
+    @Test
+    fun `a sized cell keeps every column of its table in line`() {
+        // Padding counted in blanks lines the columns up only while every character is the same
+        // width. A word at 24 sp is wider than its letters count, so the padding after it — and
+        // after every other cell of its column — is sized to make up the difference, and each rule
+        // drawn down the table still falls between the same two cells on every row.
+        for (source in SIZED_TABLES) assertInLine(source, obeyed = true)
+    }
+
+    @Test
+    fun `where sizes are not obeyed a sized table lines up at the table's own size`() {
+        // A `.md` note with Pandoc sizes off draws every word at the table's size, so the padding
+        // has to come back to the plain count of characters there.
+        for (source in SIZED_TABLES) assertInLine(source, obeyed = false)
+    }
+
+    @Test
+    fun `no blank is set larger than the row it pads`() {
+        // A line is as tall as the tallest thing on it. Room for a 30 sp word made out of two
+        // blanks at 46 sp each made the row beside it twice the height of the word.
+        for (source in SIZED_TABLES) {
+            for (range in MarkdownRenderer.plan(source).styles.filter { it.style == MdStyle.CELL_FILL }) {
+                assertTrue(source, (range.arg ushr 16) <= MarkdownRenderer.TABLE_SP * 1000)
+                assertTrue(source, (range.arg and 0xFFFF) <= MarkdownRenderer.TABLE_SP * 1000)
+            }
+        }
+    }
+
+    @Test
+    fun `a table nobody has sized anything in carries no sized padding`() {
+        // The ordinary case stays exactly what it was: blanks at the row's own size.
+        val plan = MarkdownRenderer.plan("| **a** | [b]{color=#0000ff} |\n| --- | --- |\n| c | d |")
+        assertTrue(plan.styles.none { it.style == MdStyle.CELL_FILL })
+    }
+
+    private val SIZED_TABLES = listOf(
+        "| [big]{size=24} | b | c |\n| --- | --- | --- |\n| a | [small]{size=8} | `x` |",
+        "| h | [huge words]{size=40} |\n| --- | --- |\n| a | b |\n| [x **y**]{size=18} | `[z]{size=30}` |",
+        "| [a]{size=24} | b |\n| --- | --- |\n| [longer text]{size=10} | c |",
+        "| plain | [huge]{size=30} |\n| --- | --- |\n| [tiny]{size=9} | end |",
+    )
+
+    /**
+     * Asserts that every pipe of every visible row of [source] lands the same distance across, in
+     * sp, with each character as wide as the last size laid over it — what a monospace text field
+     * does with the plan — and sizes [obeyed] or not.
+     */
+    private fun assertInLine(source: String, obeyed: Boolean) {
+        val plan = MarkdownRenderer.plan(source)
+        fun sizeAt(at: Int): Double {
+            var size = 0.0
+            for (range in plan.styles) {
+                if (at < range.start || at >= range.end) continue
+                when (range.style) {
+                    MdStyle.TABLE, MdStyle.TABLE_HEADER, MdStyle.CODE -> size = MarkdownRenderer.TABLE_SP.toDouble()
+                    MdStyle.SIZE -> if (obeyed) size = range.arg.toDouble()
+                    MdStyle.CELL_FILL -> size = (if (obeyed) range.arg ushr 16 else range.arg and 0xFFFF) / 1000.0
+                    else -> Unit
+                }
+            }
+            return size
+        }
+
+        val lines = source.split('\n')
+        var lineStart = 0
+        val rows = ArrayList<List<Double>>()
+        for ((k, line) in lines.withIndex()) {
+            if (k != 1) {
+                val origin = MarkdownRenderer.transformedOffset(plan.edits, lineStart)
+                rows += line.indices.filter { line[it] == '|' }.map { pipe ->
+                    val at = MarkdownRenderer.transformedOffset(plan.edits, lineStart + pipe)
+                    (origin until at).sumOf { sizeAt(it) }
+                }
+            }
+            lineStart += line.length + 1
+        }
+        for ((row, xs) in rows.withIndex()) {
+            assertEquals("row $row of $source has the wrong columns", rows[0].size, xs.size)
+            for (i in xs.indices) assertEquals("column $i of row $row in $source", rows[0][i], xs[i], 0.01)
+        }
+    }
+
+    @Test
+    fun `colouring a selection across two cells colours each cell`() {
+        // One tag round both would open in one cell and close in the next, and a tag cannot cross a
+        // pipe: the braces stood on screen and neither word changed colour.
+        val source = "| one | two |\n| --- | --- |"
+        val result = MarkdownActions.setColor(source, 2, 11, red)
+        assertEquals("| [one]{color=#c0392b} | [two]{color=#c0392b} |\n| --- | --- |", result.text)
+    }
+
+    @Test
+    fun `bolding a selection across two cells bolds each cell`() {
+        val source = "| one | two |\n| --- | --- |"
+        val result = MarkdownActions.toggleWrap(source, 2, 11, "**")
+        assertEquals("| **one** | **two** |\n| --- | --- |", result.text)
+        assertEquals(setOf("**"), MarkdownActions.activeInlineMarkers(result.text, result.selectionStart, result.selectionEnd))
+    }
+
+    @Test
+    fun `bolding one word of a cell leaves the pipes where they were`() {
+        val source = "| a | one two |\n| --- | --- |\n| b | c |"
+        val at = source.indexOf("two")
+        val result = MarkdownActions.toggleWrap(source, at, at + 3, "**")
+        assertEquals("| a | one **two** |\n| --- | --- |\n| b | c |", result.text)
+    }
+
     // ---- Setting one attribute without disturbing the other --------------------------------------
 
     @Test

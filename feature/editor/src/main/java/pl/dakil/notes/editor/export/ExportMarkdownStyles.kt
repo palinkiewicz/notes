@@ -6,6 +6,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
+import pl.dakil.notes.editor.markdown.MarkdownRenderer
 import pl.dakil.notes.editor.markdown.MarkdownStyles
 import pl.dakil.notes.editor.markdown.MdStyle
 
@@ -43,10 +44,10 @@ fun exportMarkdownStyles(attributes: Boolean = false): MarkdownStyles {
             MdStyle.CODE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
             MdStyle.FENCE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
             MdStyle.FENCE_HEADER to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-            MdStyle.TABLE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+            MdStyle.TABLE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = MarkdownRenderer.TABLE_SP.sp),
             MdStyle.TABLE_HEADER to SpanStyle(
                 fontFamily = FontFamily.Monospace,
-                fontSize = 14.sp,
+                fontSize = MarkdownRenderer.TABLE_SP.sp,
                 fontWeight = FontWeight.Bold,
             ),
             MdStyle.INDENT to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),

@@ -34,6 +34,23 @@ enum class MdStyle {
     /** A table's header row. */
     TABLE_HEADER,
 
+    /**
+     * The blanks that square a table cell off, at the size that ends it where its column ends.
+     *
+     * A cell's padding is counted in blanks, which lines the columns up only while every character
+     * in them is the same width; a word set at 24 sp is wider than its letters count, and the
+     * padding after it has to be narrower by the difference. A monospace face's advance is
+     * proportional to its size, so the plan can work that out without a layout.
+     *
+     * [MdStyleRange.arg] carries two sizes for each blank, in thousandths of an sp: the high half
+     * for where [SIZE] is obeyed and the low half for where it is not, since a document that draws
+     * every word at the table's own size wants the plain count back. Two rather than one because
+     * neither is ever larger than the row's own size — a line is as tall as the tallest thing on
+     * it, and a blank sized up to make room for a 30 sp word made its whole row twice the height
+     * of the word. Making room across takes more blanks instead, never bigger ones.
+     */
+    CELL_FILL,
+
     /** A substituted glyph — a bullet — rather than the user's own text. */
     MARKER,
 
@@ -369,6 +386,14 @@ object MarkdownRenderer {
      */
     private const val CELL_PAD = 1
 
+    /**
+     * The size a table and the code in it are set at, in sp.
+     *
+     * The plan has to know it to work out how wide a sized cell comes out (see [MdStyle.CELL_FILL]),
+     * so the style tables read it from here rather than each writing down a 14 of their own.
+     */
+    const val TABLE_SP = 14
+
     // The transformation and the drawing layer both ask for the plan of the same string on the same
     // frame. Both run on the main thread, so one slot is enough to make the second call free.
     private var lastSource: String? = null
@@ -402,7 +427,8 @@ object MarkdownRenderer {
 
                 lines.text(k).trim() == "$$" -> planMathBlock(lines, k, edits, styles)
 
-                lines.startsTable(k) -> planTable(markdown, lines, k, edits, styles, decorations)
+                lines.startsTable(k) ->
+                    planTable(markdown, lines, k, edits, styles, decorations, spans, references)
 
                 else -> {
                     scanLine(lines, k, edits, styles, decorations, spans, references)
@@ -1075,6 +1101,11 @@ object MarkdownRenderer {
      *
      * The cost is that alignment colons are unreachable in the formatted view. They are pure
      * formatting, they are still in the source, and source mode still shows them.
+     *
+     * Each cell's text is scanned for inline syntax like any other line's prose, one cell at a time
+     * because a span can no more cross a pipe than a line break — GFM splits the row first and reads
+     * the cells after. See [CellContent] for what that does to the column widths, and
+     * [MdStyle.CELL_FILL] for how a sized cell is kept in line.
      */
     private fun planTable(
         source: String,
@@ -1083,20 +1114,23 @@ object MarkdownRenderer {
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
         decorations: MutableList<MdDecoration>,
+        spans: MutableList<MdInline>,
+        references: Map<String, String>,
     ): Int {
         var last = first
         while (last + 1 < lines.count && lines.text(last + 1).contains('|')) last++
 
         val rows = ArrayList<List<IntRange>>(last - first + 1)
         for (k in first..last) rows += cellsOf(lines.source, lines.start(k), lines.end(k))
+        // The delimiter row has no prose, and sizes itself to whatever the others need.
+        val contents = rows.mapIndexed { index, row ->
+            if (index == 1) emptyList() else row.map { inlineOf(source, it, references) }
+        }
 
         val columns = rows.maxOf { it.size }
         val widths = IntArray(columns)
-        for ((index, row) in rows.withIndex()) {
-            if (index == 1) continue // the delimiter row sizes itself to whatever the others need
-            row.forEachIndexed { column, cell ->
-                widths[column] = maxOf(widths[column], renderedWidth(source, cell))
-            }
+        for (row in contents) {
+            row.forEachIndexed { column, cell -> widths[column] = maxOf(widths[column], cell.width) }
         }
         // A column is its widest cell plus one blank column. Every cell's own leading blanks are
         // struck out, so each starts exactly one column in from the rule to its left, and the
@@ -1105,6 +1139,12 @@ object MarkdownRenderer {
         for (column in widths.indices) {
             widths[column] = if (widths[column] > MAX_CELL_WIDTH) 0 else widths[column] + CELL_PAD
         }
+        // The same again in sp of advance, for where sizes are obeyed. See [MdStyle.CELL_FILL].
+        val drawn = IntArray(columns)
+        for (row in contents) {
+            row.forEachIndexed { column, cell -> drawn[column] = maxOf(drawn[column], cell.drawn) }
+        }
+        for (column in drawn.indices) drawn[column] += CELL_PAD * TABLE_SP
 
         val rowRanges = ArrayList<IntRange>(rows.size - 1)
         val stops = ArrayList<Int>()
@@ -1137,7 +1177,7 @@ object MarkdownRenderer {
                 }
                 if (column < row.size && pipe == row[column].first) {
                     val cell = row[column]
-                    padCell(source, cell, widths.getOrElse(column) { renderedWidth(source, cell) }, edits)
+                    padCell(cell, contents[index][column], widths[column], drawn[column], edits, styles, spans)
                     pipe = cell.last + 1
                     column++
                     continue
@@ -1180,6 +1220,72 @@ object MarkdownRenderer {
         return cells
     }
 
+    /** The source cells of each row from [start] to [end], each trimmed to the text it shows. */
+    internal fun cellTexts(source: String, start: Int, end: Int): List<IntRange> =
+        cellsOf(source, start, end).map { textIn(source, it) }
+
+    /**
+     * One cell's inline syntax, planned before anything is measured.
+     *
+     * A column is as wide as the widest thing its cells *show*, and `**a**` shows one character, not
+     * five. Measured by the source, a bold word padded its whole column out by the width of markers
+     * nobody could see, and the row beside it lined up with nothing.
+     */
+    private class CellContent(
+        val text: IntRange,
+        val edits: List<MdEdit>,
+        val styles: List<MdStyleRange>,
+        val spans: List<MdInline>,
+    ) {
+        /** How many characters it shows. */
+        val width: Int =
+            if (text.isEmpty()) 0
+            else text.last + 1 - text.first + edits.sumOf { it.replacement.length - (it.end - it.start) }
+
+        /** How wide it is drawn where sizes are obeyed, in sp of monospace advance. */
+        val drawn: Int = if (text.isEmpty()) 0 else {
+            var sum = 0
+            var at = text.first
+            for (edit in edits) {
+                for (i in at until edit.start) sum += sizeAt(i)
+                sum += edit.replacement.length * sizeAt(edit.start)
+                at = edit.end
+            }
+            for (i in at..text.last) sum += sizeAt(i)
+            sum
+        }
+
+        /**
+         * The size the character at [at] is set at, by the same rule the text field goes by: the
+         * last style laid over it that names a size wins. Code names one of its own, so a code
+         * span inside a sized one stays at the table's size.
+         */
+        private fun sizeAt(at: Int): Int {
+            var size = TABLE_SP
+            for (style in styles) {
+                if (at < style.start || at >= style.end) continue
+                when (style.style) {
+                    MdStyle.SIZE -> size = style.arg
+                    MdStyle.CODE -> size = TABLE_SP
+                    else -> Unit
+                }
+            }
+            return size
+        }
+    }
+
+    /** The inline plan for [cell]'s text. */
+    private fun inlineOf(source: String, cell: IntRange, references: Map<String, String>): CellContent {
+        val text = textIn(source, cell)
+        val edits = ArrayList<MdEdit>()
+        val styles = ArrayList<MdStyleRange>()
+        val spans = ArrayList<MdInline>()
+        if (!text.isEmpty()) {
+            scanInline(source, text.first, text.last + 1, edits, styles, spans, references = references)
+        }
+        return CellContent(text, edits, styles, spans)
+    }
+
     /**
      * Renders one cell [target] characters wide: its own blanks struck off both ends, the shortfall
      * added back after the text.
@@ -1196,15 +1302,50 @@ object MarkdownRenderer {
      * the right border with no offset in the document meaning "here, at the start". Blanks struck
      * out have the opposite pull — every offset inside them maps to where the text is — so both
      * ends of a cell hold a caret exactly where it was put.
+     *
+     * [drawnTarget] is the same width in sp, which is what the blanks are sized to make up where a
+     * cell's text is not all at the table's own size. See [MdStyle.CELL_FILL].
      */
-    private fun padCell(source: String, cell: IntRange, target: Int, edits: MutableList<MdEdit>) {
-        val text = textIn(source, cell)
+    private fun padCell(
+        cell: IntRange,
+        content: CellContent,
+        target: Int,
+        drawnTarget: Int,
+        edits: MutableList<MdEdit>,
+        styles: MutableList<MdStyleRange>,
+        spans: MutableList<MdInline>,
+    ) {
+        val text = content.text
         if (text.first > cell.first) edits += MdEdit(cell.first, text.first, "")
+        // Between the two strips, which is where they fall in the source: the edits stay ascending.
+        edits += content.edits
+        // After the row's own style, so a cell's emphasis and colour win where the two overlap.
+        styles += content.styles
+        spans += content.spans
         if (text.last + 1 <= cell.last) edits += MdEdit(text.last + 1, cell.last + 1, "")
 
-        val fill = target - (text.last + 1 - text.first)
-        if (fill > 0) edits += MdEdit(cell.last + 1, cell.last + 1, pad(fill))
+        val fill = target - content.width
+        if (fill <= 0) return
+        // The plain count is right wherever the blanks are already right at the row's own size,
+        // which is every cell of a table nobody has sized anything in.
+        val room = drawnTarget - content.drawn
+        if (room == fill * TABLE_SP) {
+            edits += MdEdit(cell.last + 1, cell.last + 1, pad(fill))
+            return
+        }
+        // Enough blanks that none of them has to be larger than the row. See [MdStyle.CELL_FILL].
+        val blanks = maxOf(fill, (room + TABLE_SP - 1) / TABLE_SP)
+        edits += MdEdit(cell.last + 1, cell.last + 1, pad(blanks))
+        // A zero-length range at the insertion is exactly the inserted blanks once mapped: it opens
+        // before them and closes after.
+        styles += MdStyleRange(
+            cell.last + 1, cell.last + 1, MdStyle.CELL_FILL,
+            (milli(room, blanks) shl 16) or milli(fill * TABLE_SP, blanks),
+        )
     }
+
+    /** [total] sp shared between [count] blanks, in thousandths of an sp each. */
+    private fun milli(total: Int, count: Int): Int = ((total * 1000L + count / 2) / count).toInt()
 
     /**
      * The part of a cell that stays on screen: everything but the blanks at either end.
@@ -1220,13 +1361,6 @@ object MarkdownRenderer {
         var end = to
         while (end > from && source[end - 1] == ' ') end--
         return from..(end - 1)
-    }
-
-    /** How wide a cell ends up on screen before its column is squared off. */
-    private fun renderedWidth(source: String, cell: IntRange): Int {
-        if (cell.isEmpty()) return 0
-        val text = textIn(source, cell)
-        return text.last + 1 - text.first
     }
 
     private fun pad(n: Int): String = if (n <= 0) "" else " ".repeat(n)

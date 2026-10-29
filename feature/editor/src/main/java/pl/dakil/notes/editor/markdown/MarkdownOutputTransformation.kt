@@ -60,6 +60,11 @@ data class MarkdownStyles(
     // not a note that cannot be opened.
     fun spanFor(style: MdStyle, arg: Int = 0): SpanStyle = when {
         style == MdStyle.SIZE -> if (attributesApply && arg > 0) SpanStyle(fontSize = arg.sp) else SpanStyle()
+        // Two sizes, one for each answer to whether sizes are obeyed. See [MdStyle.CELL_FILL].
+        style == MdStyle.CELL_FILL -> {
+            val milli = if (attributesApply) arg ushr 16 else arg and 0xFFFF
+            if (milli > 0) SpanStyle(fontSize = (milli / 1000f).sp) else SpanStyle()
+        }
         // Zero is not a colour anyone asked for — it is what a range with no argument carries — and
         // a fully transparent one would be text painted in nothing at all.
         style == MdStyle.COLOR -> if (attributesApply && arg != 0) SpanStyle(color = Color(arg)) else SpanStyle()
@@ -215,10 +220,13 @@ fun rememberMarkdownStyles(attributes: Boolean = true): MarkdownStyles {
                 MdStyle.CODE_COMMENT to code(syntax.comment, italic = FontStyle.Italic),
                 MdStyle.CODE_FUNCTION to code(syntax.function),
                 // Tables must be monospace or the padding that lines the columns up means nothing.
-                MdStyle.TABLE to SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+                MdStyle.TABLE to SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = MarkdownRenderer.TABLE_SP.sp,
+                ),
                 MdStyle.TABLE_HEADER to SpanStyle(
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 14.sp,
+                    fontSize = MarkdownRenderer.TABLE_SP.sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 MdStyle.LINK to SpanStyle(

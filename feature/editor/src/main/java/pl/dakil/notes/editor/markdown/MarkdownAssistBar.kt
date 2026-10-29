@@ -287,7 +287,8 @@ object MarkdownActions {
     }
 
     /**
-     * The prose `[start, end)` covers, one span per line, each clear of that line's block markers.
+     * The prose `[start, end)` covers, one span per line — per cell, on a table row — each clear of
+     * that line's block markers.
      *
      * Never empty: a caret with nothing selected still has to produce one span, so that pressing
      * bold on a bare caret leaves it between two fresh markers ready to type into.
@@ -297,13 +298,15 @@ object MarkdownActions {
         val to = maxOf(start, end).coerceIn(0, text.length)
 
         val spans = ArrayList<Span>()
+        val cells = MarkdownStructure.tableCells(text)
         var lineStart = lineStartAt(text, from)
         while (lineStart <= to) {
             val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
-            val body = lineStart + prefixOf(text.substring(lineStart, lineEnd)).length
-            val spanFrom = maxOf(from, body)
-            val spanTo = minOf(to, lineEnd)
-            if (spanFrom < spanTo) spans += Span(spanFrom, spanTo)
+            for (prose in proseOf(text, lineStart, lineEnd, cells)) {
+                val spanFrom = maxOf(from, prose.from)
+                val spanTo = minOf(to, prose.to)
+                if (spanFrom < spanTo) spans += Span(spanFrom, spanTo)
+            }
             if (lineEnd >= text.length) break
             lineStart = lineEnd + 1
         }
@@ -342,7 +345,8 @@ object MarkdownActions {
 
 
     /**
-     * The whole prose of every line `[start, end)` touches, each clear of that line's block markers.
+     * The whole prose of every line `[start, end)` touches, each clear of that line's block markers
+     * and a table row's split into its cells. See [proseOf].
      *
      * [proseSpans] answers the narrower question — what part of a line the selection covers — which
      * is what an action working in markers needs. Anything working from a *model* of the line needs
@@ -353,15 +357,32 @@ object MarkdownActions {
         val from = minOf(start, end).coerceIn(0, text.length)
         val to = maxOf(start, end).coerceIn(0, text.length)
         val lines = ArrayList<Span>()
+        val cells = MarkdownStructure.tableCells(text)
         var lineStart = lineStartAt(text, from)
         while (lineStart <= to) {
             val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
-            val body = lineStart + prefixOf(text.substring(lineStart, lineEnd)).length
-            if (body < lineEnd) lines += Span(body, lineEnd)
+            lines += proseOf(text, lineStart, lineEnd, cells)
             if (lineEnd >= text.length) break
             lineStart = lineEnd + 1
         }
         return lines
+    }
+
+    /**
+     * The prose of the line `[lineStart, lineEnd)`: whatever follows its block markers, or on a
+     * table row each cell's text on its own.
+     *
+     * A cell is to a table what a line is to everything else — the renderer reads inline syntax one
+     * cell at a time — so a bold dragged across two cells has to come out as two bold cells. Written
+     * as one pair, its markers stood either side of a pipe and showed as four asterisks.
+     */
+    private fun proseOf(text: String, lineStart: Int, lineEnd: Int, cells: Map<Int, List<IntRange>>): List<Span> {
+        cells[lineStart]?.let { row ->
+            return row.filter { !it.isEmpty() && text.substring(it.first, it.last + 1).isNotBlank() }
+                .map { Span(it.first, it.last + 1) }
+        }
+        val body = lineStart + prefixOf(text.substring(lineStart, lineEnd)).length
+        return if (body < lineEnd) listOf(Span(body, lineEnd)) else emptyList()
     }
 
     /** Half-open `[from, to)`, because an empty one at a caret is a span this has to be able to name. */

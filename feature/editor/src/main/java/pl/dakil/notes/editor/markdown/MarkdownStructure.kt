@@ -860,6 +860,31 @@ object MarkdownStructure {
     }
 
     /**
+     * The text of every cell on every table row in [source], keyed by where the row starts.
+     *
+     * What the formatting bar treats as a line's prose on a table row: each cell on its own, since
+     * the renderer reads inline syntax one cell at a time and a pair of markers either side of a
+     * pipe is two cells of punctuation. The delimiter row has none. Worked out for the whole
+     * document at once because the bar asks about every line a selection touches, and finding the
+     * table again for each of them made a select-all quadratic in the length of the note.
+     */
+    fun tableCells(source: String): Map<Int, List<IntRange>> {
+        val lines = MarkdownRenderer.Lines(source)
+        val out = HashMap<Int, List<IntRange>>()
+        for (table in blocks(lines)) {
+            if (table.kind != MdBlockKind.TABLE) continue
+            for (k in table.firstLine..table.lastLine) {
+                out[lines.start(k)] = if (k == table.firstLine + 1) {
+                    emptyList()
+                } else {
+                    MarkdownRenderer.cellTexts(source, lines.start(k), lines.end(k))
+                }
+            }
+        }
+        return out
+    }
+
+    /**
      * Where a caret dropped at [at] should really sit, or null if it is already somewhere sensible.
      *
      * A cell is padded out with blanks so its column lines up, and a caret can be dropped into that
