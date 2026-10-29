@@ -126,10 +126,16 @@
     <string name="settings_min_pressure_description">Ignores the faint tail of a lifting pen.</string>
     <string name="settings_pressure_curve">Pressure response</string>
     <string name="settings_pressure_curve_description">Soft reaches full width with a lighter touch; firm needs more force.</string>
+    <string name="settings_stylus_button">Pen side button</string>
+    <string name="settings_stylus_button_description">What the pen does while the button on its barrel is held. The eraser end of a pen always erases.</string>
     <string name="settings_auto_shape">Auto-shape</string>
     <string name="settings_auto_shape_description">Hold the pen still at the end of a stroke to snap it to a line, curve, square, circle or polygon. Lift normally and the stroke is left as drawn.</string>
     <string name="settings_auto_shape_hold">Hold to snap</string>
     <string name="settings_auto_shape_hold_description">How long the pen must rest before a shape is guessed.</string>
+
+    <string name="stylus_button_erase">Erase</string>
+    <string name="stylus_button_select">Select</string>
+    <string name="stylus_button_none">Nothing</string>
 
     <string name="pressure_curve_soft">Soft</string>
     <string name="pressure_curve_linear">Linear</string>

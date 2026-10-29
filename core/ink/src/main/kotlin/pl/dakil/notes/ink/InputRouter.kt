@@ -2,6 +2,7 @@ package pl.dakil.notes.ink
 
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PointerSample
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ToolType
 
 /** What a pointer should be allowed to do. */
@@ -27,6 +28,12 @@ sealed interface InputIntent {
 data class InputDecision(
     val intent: InputIntent,
     val revoked: List<Int> = emptyList(),
+    /**
+     * What this pointer does in place of the toolbar's tool, or null to use that tool: the pen was
+     * turned over to its eraser end, or came down with its side button held. See
+     * [InputRouter.penActionOf].
+     */
+    val penAction: StylusButtonAction? = null,
 )
 
 /**
@@ -41,7 +48,11 @@ data class InputDecision(
  */
 class InputRouter(config: InputConfig = InputConfig()) {
 
-    private class Live(val intent: InputIntent, val toolType: ToolType)
+    private class Live(
+        val intent: InputIntent,
+        val toolType: ToolType,
+        val penAction: StylusButtonAction? = null,
+    )
 
     /**
      * Changing configuration does not re-decide pointers that are already down: a setting change
@@ -72,6 +83,31 @@ class InputRouter(config: InputConfig = InputConfig()) {
 
     fun intentFor(pointerId: Int): InputIntent? = active[pointerId]?.intent
 
+    /**
+     * What [pointerId] was taken up to do in place of the toolbar's tool at [begin], or null.
+     *
+     * Decided once, at pointer-down, like the intent: pressing or releasing the side button
+     * mid-stroke does not turn a line into an erasure halfway along, or the other way round. That
+     * is how Xournal++ and Rnote behave too, and it means a thumb shifting on the barrel cannot
+     * split one gesture into two different tools. Changing the setting does not re-decide it either.
+     */
+    fun penActionFor(pointerId: Int): StylusButtonAction? = active[pointerId]?.penAction
+
+    /**
+     * What a pen with this tool type and button state asks for in place of the toolbar's tool.
+     *
+     * The flipped end always erases — it is an eraser, physically, and nobody turns a pen over to
+     * select. The side button does what the setting says, and [StylusButtonAction.NONE] comes back
+     * as null so there is only one way to say "use the toolbar". Public so a hovering pen can be
+     * judged by the same rule before it lands.
+     */
+    fun penActionOf(toolType: ToolType, barrelButton: Boolean): StylusButtonAction? = when {
+        toolType == ToolType.ERASER -> StylusButtonAction.ERASE
+        toolType == ToolType.STYLUS && barrelButton ->
+            config.stylusButtonAction.takeUnless { it == StylusButtonAction.NONE }
+        else -> null
+    }
+
     fun begin(sample: PointerSample): InputDecision {
         val stylus = sample.toolType == ToolType.STYLUS || sample.toolType == ToolType.ERASER
         if (stylus) lastStylusTimeMs = sample.timeMs
@@ -85,8 +121,9 @@ class InputRouter(config: InputConfig = InputConfig()) {
                 it.toolType.isTouch() &&
                     (it.intent is InputIntent.Draw || it.intent is InputIntent.Navigate)
             }
-            active[sample.pointerId] = Live(InputIntent.Draw, sample.toolType)
-            return InputDecision(InputIntent.Draw, revoked)
+            val penAction = penActionOf(sample.toolType, sample.barrelButton)
+            active[sample.pointerId] = Live(InputIntent.Draw, sample.toolType, penAction)
+            return InputDecision(InputIntent.Draw, revoked, penAction)
         }
 
         if (sample.toolType == ToolType.MOUSE) {

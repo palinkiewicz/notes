@@ -11,6 +11,7 @@ import pl.dakil.notes.model.DarkThemeOption
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PressureCurve
 import pl.dakil.notes.model.RenderLayer
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.editor.R as EditorR
 
 /**
@@ -65,6 +66,15 @@ fun MeasurementUnit.label(): String = stringResource(
         MeasurementUnit.CENTIMETRE -> R.string.unit_centimetres
         MeasurementUnit.MILLIMETRE -> R.string.unit_millimetres
         MeasurementUnit.INCH -> R.string.unit_inches
+    },
+)
+
+@Composable
+fun StylusButtonAction.label(): String = stringResource(
+    when (this) {
+        StylusButtonAction.ERASE -> R.string.stylus_button_erase
+        StylusButtonAction.SELECT -> R.string.stylus_button_select
+        StylusButtonAction.NONE -> R.string.stylus_button_none
     },
 )
 

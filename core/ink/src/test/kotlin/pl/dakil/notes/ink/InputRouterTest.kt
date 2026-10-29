@@ -2,10 +2,12 @@ package pl.dakil.notes.ink
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PointerSample
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ToolType
 
 /**
@@ -25,9 +27,10 @@ class InputRouterTest {
         x: Float = 0f,
         y: Float = 0f,
         primaryButton: Boolean = true,
+        barrelButton: Boolean = false,
     ) = PointerSample(
         x = x, y = y, touchMajor = touchMajor, toolType = toolType,
-        timeMs = t, pointerId = id, primaryButton = primaryButton,
+        timeMs = t, pointerId = id, primaryButton = primaryButton, barrelButton = barrelButton,
     )
 
     // ---- Stylus ------------------------------------------------------------------------------
@@ -38,10 +41,111 @@ class InputRouterTest {
         assertEquals(InputIntent.Draw, router.begin(sample(ToolType.STYLUS)).intent)
     }
 
+    // ---- Pen actions: the eraser end and the side button ---------------------------------------
+
     @Test
-    fun `the eraser end of a stylus draws too, and the tool layer decides it erases`() {
+    fun `the eraser end of a stylus draws, as an eraser`() {
         val router = InputRouter()
-        assertEquals(InputIntent.Draw, router.begin(sample(ToolType.ERASER)).intent)
+        val decision = router.begin(sample(ToolType.ERASER))
+        assertEquals(InputIntent.Draw, decision.intent)
+        assertEquals(StylusButtonAction.ERASE, decision.penAction)
+        assertEquals(StylusButtonAction.ERASE, router.penActionFor(0))
+    }
+
+    @Test
+    fun `a stylus with its side button held erases by default`() {
+        val router = InputRouter()
+        val decision = router.begin(sample(ToolType.STYLUS, barrelButton = true))
+        assertEquals(InputIntent.Draw, decision.intent)
+        assertEquals(StylusButtonAction.ERASE, decision.penAction)
+    }
+
+    @Test
+    fun `the side button does what the setting asks`() {
+        val router = InputRouter(InputConfig(stylusButtonAction = StylusButtonAction.SELECT))
+        val decision = router.begin(sample(ToolType.STYLUS, barrelButton = true))
+        assertEquals(InputIntent.Draw, decision.intent)
+        assertEquals(StylusButtonAction.SELECT, decision.penAction)
+    }
+
+    @Test
+    fun `a side button set to nothing leaves the pen drawing with the toolbar's tool`() {
+        // Null rather than NONE, so the overlay has one way to hear "use the toolbar", not two.
+        val router = InputRouter(InputConfig(stylusButtonAction = StylusButtonAction.NONE))
+        val decision = router.begin(sample(ToolType.STYLUS, barrelButton = true))
+        assertEquals(InputIntent.Draw, decision.intent)
+        assertNull(decision.penAction)
+    }
+
+    @Test
+    fun `the eraser end erases whatever the side button is set to`() {
+        // The setting is about the button. Turning the pen over is a physical eraser, and someone
+        // who set the button to select has not asked for the other end to select too.
+        for (action in StylusButtonAction.entries) {
+            val router = InputRouter(InputConfig(stylusButtonAction = action))
+            assertEquals(StylusButtonAction.ERASE, router.begin(sample(ToolType.ERASER)).penAction)
+        }
+    }
+
+    @Test
+    fun `a stylus with no button held draws with the tool that is out`() {
+        val router = InputRouter()
+        assertNull(router.begin(sample(ToolType.STYLUS)).penAction)
+        assertNull(router.penActionFor(0))
+    }
+
+    @Test
+    fun `the side button is read at pen-down and held for the whole stroke`() {
+        // A thumb resting on the barrel brushes the button mid-word. Switching tools there would
+        // leave half a line drawn and erase back along the other half.
+        val router = InputRouter()
+        router.begin(sample(ToolType.STYLUS, t = 1000))
+        router.update(sample(ToolType.STYLUS, t = 1010, barrelButton = true))
+        assertNull(router.penActionFor(0))
+
+        router.end(sample(ToolType.STYLUS, t = 1020))
+        router.begin(sample(ToolType.STYLUS, t = 1100, barrelButton = true))
+        router.update(sample(ToolType.STYLUS, t = 1110, barrelButton = false))
+        assertEquals(StylusButtonAction.ERASE, router.penActionFor(0))
+    }
+
+    @Test
+    fun `changing the setting mid-stroke does not change what the pen is doing`() {
+        val router = InputRouter()
+        router.begin(sample(ToolType.STYLUS, barrelButton = true))
+        router.config = InputConfig(stylusButtonAction = StylusButtonAction.SELECT)
+        assertEquals(StylusButtonAction.ERASE, router.penActionFor(0))
+    }
+
+    @Test
+    fun `a hovering pen is judged by the same rule as a landing one`() {
+        // The eraser ring shown in the air has to be the tool the pen will have on the glass.
+        val router = InputRouter(InputConfig(stylusButtonAction = StylusButtonAction.SELECT))
+        assertEquals(StylusButtonAction.SELECT, router.penActionOf(ToolType.STYLUS, barrelButton = true))
+        assertEquals(StylusButtonAction.ERASE, router.penActionOf(ToolType.ERASER, barrelButton = false))
+        assertNull(router.penActionOf(ToolType.STYLUS, barrelButton = false))
+    }
+
+    @Test
+    fun `a lifted pen forgets what it was doing`() {
+        val router = InputRouter()
+        router.begin(sample(ToolType.STYLUS, barrelButton = true))
+        router.end(sample(ToolType.STYLUS))
+        assertNull(router.penActionFor(0))
+    }
+
+    @Test
+    fun `a mouse button is never mistaken for the side button`() {
+        // Only a pen has a barrel. A right-click is a different gesture, and erasing with it would
+        // surprise anyone driving the app from a desktop-mode pointer.
+        val router = InputRouter()
+        assertNull(router.begin(sample(ToolType.MOUSE, barrelButton = true)).penAction)
+    }
+
+    @Test
+    fun `a finger never takes up a pen action`() {
+        val router = InputRouter(InputConfig(fingerDrawingEnabled = true))
+        assertNull(router.begin(sample(ToolType.FINGER, barrelButton = true)).penAction)
     }
 
     // ---- Palm rejection ----------------------------------------------------------------------

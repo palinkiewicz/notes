@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.SettingsRepository
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.ui.components.flatTopAppBarColors
 import pl.dakil.notes.ui.icons.NotesIcons
 import java.util.Locale
@@ -75,6 +76,13 @@ fun InputSettingsScreen(
                     settings.setRememberTools(it)
                     if (!it) settings.clearToolState()
                 },
+            )
+            SelectRow(
+                title = stringResource(R.string.settings_stylus_button),
+                summary = stringResource(R.string.settings_stylus_button_description),
+                selected = input.stylusButtonAction,
+                options = StylusButtonAction.entries.map { it to it.label() },
+                onSelect = settings::setStylusButtonAction,
             )
             NavigationRow(
                 title = stringResource(R.string.settings_drawing_order),

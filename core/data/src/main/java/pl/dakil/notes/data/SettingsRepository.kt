@@ -21,6 +21,7 @@ import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PaperThemes
 import pl.dakil.notes.model.PressureCurve
 import pl.dakil.notes.model.RenderOrder
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ViewMode
 import java.util.Locale
 
@@ -245,6 +246,7 @@ class SettingsRepository(context: Context) {
             minPressure = prefs.getFloat(KEY_MIN_PRESSURE, 0f),
             autoShapeEnabled = prefs.getBoolean(KEY_AUTO_SHAPE, true),
             autoShapeHoldMs = prefs.getLong(KEY_AUTO_SHAPE_HOLD, 500L),
+            stylusButtonAction = StylusButtonAction.fromKey(prefs.getString(KEY_STYLUS_BUTTON, null)),
         ),
         fingerDrawingAvailable = prefs.getBoolean(KEY_FINGER_DRAWING, false),
         colorTheme = prefs.getString(KEY_COLOR_THEME, null)
@@ -308,6 +310,9 @@ class SettingsRepository(context: Context) {
     fun setAutoShape(enabled: Boolean) = prefs.edit().putBoolean(KEY_AUTO_SHAPE, enabled).apply()
 
     fun setAutoShapeHoldMs(value: Long) = prefs.edit().putLong(KEY_AUTO_SHAPE_HOLD, value).apply()
+
+    fun setStylusButtonAction(action: StylusButtonAction) =
+        prefs.edit().putString(KEY_STYLUS_BUTTON, action.key).apply()
 
     fun setPressureCurve(curve: PressureCurve) = prefs.edit()
         .putFloat(KEY_CURVE_X1, curve.x1)
@@ -586,6 +591,7 @@ class SettingsRepository(context: Context) {
         const val KEY_CURVE_Y2 = "input.curveY2"
         const val KEY_AUTO_SHAPE = "input.autoShape"
         const val KEY_AUTO_SHAPE_HOLD = "input.autoShapeHoldMs"
+        const val KEY_STYLUS_BUTTON = "input.stylusButton"
 
         const val KEY_COLOR_THEME = "ui.colorTheme"
         const val KEY_DARK_THEME = "ui.darkTheme"

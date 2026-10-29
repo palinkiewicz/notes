@@ -512,6 +512,7 @@ private fun SheetLayers(
         InkOverlay(
             sheet = sheet,
             tool = state.tool,
+            penTool = state::penTool,
             inputConfig = state.inputConfig,
             ptToPx = ptToPx,
             paged = paged,

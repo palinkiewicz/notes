@@ -51,6 +51,13 @@ class LocaleSafeKeysTest {
     }
 
     @Test
+    fun `side button keys are the same in Turkish as anywhere else`() {
+        for (action in StylusButtonAction.entries) {
+            assertEquals(action, StylusButtonAction.fromKey(action.key))
+        }
+    }
+
+    @Test
     fun `view mode keys are the same in Turkish as anywhere else`() {
         for (mode in ViewMode.entries) {
             assertEquals(mode, ViewMode.fromKey(mode.key))

@@ -30,8 +30,10 @@ data class PointerSample(
     val toolType: ToolType = ToolType.FINGER,
     val timeMs: Long = 0L,
     val pointerId: Int = 0,
-    /** True while a mouse's primary button or a stylus barrel button is down. */
+    /** False only for a mouse with no button down: anything touching the glass reads as pressed. */
     val primaryButton: Boolean = true,
+    /** True while the stylus's side (barrel) button is held. */
+    val barrelButton: Boolean = false,
 )
 
 /**
@@ -76,7 +78,30 @@ data class InputConfig(
      * Long enough not to fire during a pause mid-stroke, short enough not to feel like a wait.
      */
     val autoShapeHoldMs: Long = 500L,
+    /** What holding the pen's side button does; see [StylusButtonAction]. */
+    val stylusButtonAction: StylusButtonAction = StylusButtonAction.ERASE,
 )
+
+/**
+ * What a pen does while its side button is held, in place of the tool the toolbar has out.
+ *
+ * Stored by [key], never by name or ordinal, so reordering these cannot change anyone's saved
+ * choice — see `LocaleSafeKeysTest`.
+ */
+enum class StylusButtonAction(val key: String) {
+    /** Erase with the toolbar's last eraser. The default in Xournal++ and Rnote, so here too. */
+    ERASE("erase"),
+
+    /** Draw a lasso, or tap a stroke, to select — then draw on without picking the pen again. */
+    SELECT("select"),
+
+    /** The button does nothing and the pen draws as it would without it. */
+    NONE("none");
+
+    companion object {
+        fun fromKey(key: String?): StylusButtonAction = entries.firstOrNull { it.key == key } ?: ERASE
+    }
+}
 
 /**
  * A monotone pressure response curve defined by two interior control points, evaluated as a cubic

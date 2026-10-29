@@ -22,8 +22,9 @@ object MotionEventBridge {
     fun toolTypeOf(event: MotionEvent, pointerIndex: Int): ToolType =
         when (event.getToolType(pointerIndex)) {
             MotionEvent.TOOL_TYPE_STYLUS -> ToolType.STYLUS
-            // The barrel button or the flipped end of an S-Pen reports as a distinct tool, which is
-            // what lets "turn the pen over to erase" work without a mode switch.
+            // The flipped end of a pen reports as a distinct tool, which is what lets "turn the pen
+            // over to erase" work without a mode switch. The side button does not: it is a button
+            // state on an ordinary stylus — see [isBarrelButtonDown].
             MotionEvent.TOOL_TYPE_ERASER -> ToolType.ERASER
             MotionEvent.TOOL_TYPE_MOUSE -> ToolType.MOUSE
             MotionEvent.TOOL_TYPE_FINGER -> ToolType.FINGER
@@ -42,6 +43,7 @@ object MotionEventBridge {
         timeMs = event.eventTime,
         pointerId = event.getPointerId(pointerIndex),
         primaryButton = event.isPrimaryButtonDown(),
+        barrelButton = event.isBarrelButtonDown(pointerIndex),
     )
 
     /**
@@ -57,6 +59,7 @@ object MotionEventBridge {
         val pointerId = event.getPointerId(pointerIndex)
         val toolType = toolTypeOf(event, pointerIndex)
         val primaryButton = event.isPrimaryButtonDown()
+        val barrelButton = event.isBarrelButtonDown(pointerIndex)
 
         for (h in 0 until event.historySize) {
             block(
@@ -71,6 +74,7 @@ object MotionEventBridge {
                     timeMs = event.getHistoricalEventTime(h),
                     pointerId = pointerId,
                     primaryButton = primaryButton,
+                    barrelButton = barrelButton,
                 )
             )
         }
@@ -87,4 +91,24 @@ object MotionEventBridge {
         if (getToolType(0) != MotionEvent.TOOL_TYPE_MOUSE) return true
         return buttonState and MotionEvent.BUTTON_PRIMARY != 0
     }
+
+    /**
+     * Whether a pen's side button is held.
+     *
+     * Read from the button state rather than inferred from the tool type, because pressing the
+     * button does not change the tool: the pointer stays `TOOL_TYPE_STYLUS` throughout. The button
+     * state is the whole event's, so it is only believed for the pen's own pointer — the palm
+     * beside it in the same event is not holding anything.
+     */
+    fun MotionEvent.isBarrelButtonDown(pointerIndex: Int = 0): Boolean =
+        getToolType(pointerIndex) == MotionEvent.TOOL_TYPE_STYLUS &&
+            buttonState and BARREL_BUTTONS != 0
+
+    /**
+     * `BUTTON_STYLUS_PRIMARY` is what Android has reported for the side button since 6.0, but some
+     * pen drivers — older Wacom EMR digitisers in particular — still map it to a right click,
+     * `BUTTON_SECONDARY`. On a stylus pointer that bit means nothing else, so taking it as well
+     * costs nothing and makes the button work on those pens too.
+     */
+    private const val BARREL_BUTTONS = MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY
 }

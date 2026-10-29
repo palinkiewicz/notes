@@ -32,6 +32,7 @@ import pl.dakil.notes.ink.RulerEdge
 import pl.dakil.notes.ink.RulerGuide
 import pl.dakil.notes.ink.StrokeBuilder
 import pl.dakil.notes.editor.Selection
+import pl.dakil.notes.editor.canvas.MotionEventBridge.isBarrelButtonDown
 import pl.dakil.notes.model.Affine
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageFormat
@@ -39,8 +40,10 @@ import pl.dakil.notes.model.PointerSample
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
+import pl.dakil.notes.model.ToolType
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.min
@@ -140,6 +143,11 @@ interface InkCallbacks {
 fun InkOverlay(
     sheet: Sheet,
     tool: ToolSpec,
+    /**
+     * The tool a pen takes up in place of [tool] when it is turned over or comes down with its side
+     * button held — the toolbar's last eraser or the lasso, as the router says and the settings ask.
+     */
+    penTool: (StylusButtonAction) -> ToolSpec,
     inputConfig: InputConfig,
     /** Pixels per document point, including zoom. */
     ptToPx: Float,
@@ -202,6 +210,7 @@ fun InkOverlay(
 
     val currentCallbacks by rememberUpdatedState(callbacks)
     val currentTool by rememberUpdatedState(tool)
+    val currentPenTool by rememberUpdatedState(penTool)
     val currentRulerEdgeFor by rememberUpdatedState(rulerEdgeFor)
     val currentTextToolActive by rememberUpdatedState(textToolActive)
     val currentImageToolActive by rememberUpdatedState(imageToolActive)
@@ -252,9 +261,14 @@ fun InkOverlay(
                 format = { currentFormat },
                 paged = { currentPaged },
                 cursor = eraserCursor,
-                erasing = {
-                    !currentTextToolActive && !currentImageToolActive &&
-                        (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
+                eraserFor = { penAction ->
+                    when {
+                        currentTextToolActive || currentImageToolActive -> null
+                        // Before the toolbar: a pen asking to select over an eraser is not erasing.
+                        penAction != null -> currentPenTool(penAction).takeIf { it.tool.isEraser }
+                        currentTool.tool.isEraser -> currentTool
+                        else -> null
+                    }
                 },
                 invalidate = { inkVersion.intValue++ },
             )
@@ -294,6 +308,7 @@ fun InkOverlay(
                     reach = { touchReachPx / (ptToPx * zoom().coerceAtLeast(MIN_ZOOM)) },
                     rulerEdgeFor = currentRulerEdgeFor,
                     tool = currentTool,
+                    penTool = currentPenTool,
                     config = inputConfig,
                     callbacks = currentCallbacks,
                     toDocument = toDoc,
@@ -329,11 +344,11 @@ fun InkOverlay(
 
             val toStripPx = { y: Float -> SheetPainter.documentYToStripPx(y, format, ptToPx, paged) }
 
-            if (eraserCursor.visible &&
-                (currentTool.tool == ToolId.ERASER_POINT || currentTool.tool == ToolId.ERASER_STROKE)
-            ) {
+            // The tool check catches a ring left behind when the toolbar swaps the eraser away; the
+            // pen's own eraser is not the toolbar's to take away.
+            if (eraserCursor.visible && (eraserCursor.penEraser || currentTool.tool.isEraser)) {
                 val center = Offset(eraserCursor.x * ptToPx, toStripPx(eraserCursor.y))
-                val radiusPx = currentTool.eraserRadius * ptToPx
+                val radiusPx = eraserCursor.radius * ptToPx
                 drawCircle(color = Color.White, radius = radiusPx, center = center)
                 drawCircle(
                     color = Color.Black,
@@ -423,7 +438,11 @@ private fun Modifier.stylusProximity(
     format: () -> PageFormat,
     paged: () -> Boolean,
     cursor: EraserCursor,
-    erasing: () -> Boolean,
+    /**
+     * The eraser a hovering pen would erase with, or null if it would not. Told what the pen is
+     * asking for itself, by its flipped end or its side button, if anything.
+     */
+    eraserFor: (penAction: StylusButtonAction?) -> ToolSpec?,
     invalidate: () -> Unit,
 ): Modifier = pointerInput(router) {
     awaitPointerEventScope {
@@ -436,9 +455,18 @@ private fun Modifier.stylusProximity(
                 // The graphicsLayer scale that carries the zoom sits *outside* this node, so
                 // Compose's own pointer input — unlike pointerInteropFilter's raw MotionEvent —
                 // already reports a position in the sheet's unzoomed local pixels.
-                if (erasing()) {
+                // Judged by the router's own rule, so the ring a hovering pen shows is the tool it
+                // will have when it lands.
+                val penAction = router.penActionOf(
+                    if (change.type == PointerType.Eraser) ToolType.ERASER else ToolType.STYLUS,
+                    barrelButton = event.motionEvent?.isBarrelButtonDown() == true,
+                )
+                val eraser = eraserFor(penAction)
+                if (eraser != null) {
                     cursor.x = change.position.x / ptToPx
                     cursor.y = SheetPainter.stripPxToDocumentY(change.position.y, format(), ptToPx, paged())
+                    cursor.radius = eraser.eraserRadius
+                    cursor.penEraser = penAction != null
                     cursor.visible = true
                     invalidate()
                 } else if (cursor.visible) {
@@ -458,6 +486,10 @@ private fun Modifier.stylusProximity(
 class EraserCursor {
     var x = 0f
     var y = 0f
+    /** In document points: the radius of the eraser being shown, which need not be the toolbar's. */
+    var radius = 0f
+    /** Whether the pen asked for this eraser itself, rather than the toolbar handing it one. */
+    var penEraser = false
     var visible = false
 }
 
@@ -515,6 +547,8 @@ private fun handleEvent(
     reach: () -> Float,
     rulerEdgeFor: ((Float, Float) -> RulerEdge?)?,
     tool: ToolSpec,
+    /** What a pointer the router gave a pen action to uses in place of [tool]. */
+    penTool: (StylusButtonAction) -> ToolSpec,
     config: InputConfig,
     callbacks: InkCallbacks,
     toDocument: (Float, Float) -> PointF,
@@ -579,22 +613,23 @@ private fun handleEvent(
 
             when (decision.intent) {
                 is InputIntent.Draw -> {
+                    val active = decision.penAction?.let(penTool) ?: tool
                     pinPage(screen.y)
                     val landed = sampleAt(index)
                     guide.release()
                     // Erasing and lassoing along a straightedge is not a thing anyone does, and
                     // snapping them would make the ruler feel like it had captured the tool.
-                    if (rulerEdgeFor != null && tool.tool.isDrawing) {
+                    if (rulerEdgeFor != null && active.tool.isDrawing) {
                         guide.engage(rulerEdgeFor(landed.x, landed.y))
                     }
                     val sample = guide.snap(landed)
                     beginAction(
-                        builder, lasso, tool, config, sample, toStripY(screen.y), selection,
+                        builder, lasso, active, config, sample, toStripY(screen.y), selection,
                         controller, reach(), guide.edge,
                     )
                     // A stroke drawn against the edge is already the shape it is meant to be;
                     // pausing at the end of a ruled line should not turn it into a rectangle.
-                    if (config.autoShapeEnabled && tool.tool.isDrawing && !guide.isEngaged) {
+                    if (config.autoShapeEnabled && active.tool.isDrawing && !guide.isEngaged) {
                         shape.begin(sample.x, sample.y, sample.timeMs)
                         startTicking()
                     }
@@ -635,17 +670,21 @@ private fun handleEvent(
                 val id = event.getPointerId(index)
                 if (router.intentFor(id) !is InputIntent.Draw) continue
                 consumed = true
+                val penAction = router.penActionFor(id)
+                val active = penAction?.let(penTool) ?: tool
                 MotionEventBridge.forEachSample(event, index) { raw ->
                     val doc = toDocument(raw.x, raw.y)
                     val sample = guide.snap(raw.copy(x = doc.x, y = doc.y))
                     router.update(raw)
-                    when (tool.tool) {
+                    when (active.tool) {
                         ToolId.ERASER_STROKE, ToolId.ERASER_POINT -> {
                             eraserCursor.x = sample.x
                             eraserCursor.y = sample.y
+                            eraserCursor.radius = active.eraserRadius
+                            eraserCursor.penEraser = penAction != null
                             eraserCursor.visible = true
                             redraw = true
-                            eraseStep(builder, sample, tool, callbacks)
+                            eraseStep(builder, sample, active, callbacks)
                         }
                         ToolId.LASSO ->
                             if (controller.isMoving) {
@@ -674,13 +713,15 @@ private fun handleEvent(
         MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
             val index = event.actionIndex
             val screen = MotionEventBridge.sampleOf(event, index)
+            // Asked before `end`, which forgets the pointer and everything decided about it.
+            val active = router.penActionFor(screen.pointerId)?.let(penTool) ?: tool
             val intent = router.end(screen)
             // Held while any pointer is still drawing — a stylus stroke must survive the palm
             // resting on the glass lifting off mid-word.
             if (event.actionMasked == MotionEvent.ACTION_UP || !router.isDrawing) claim(false)
             if (intent is InputIntent.Draw) {
                 finishAction(
-                    builder, lasso, shape, controller, tool,
+                    builder, lasso, shape, controller, active,
                     guide.snap(sampleAt(index)), reach(), callbacks,
                 )
                 guide.release()

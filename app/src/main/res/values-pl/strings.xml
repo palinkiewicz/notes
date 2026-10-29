@@ -128,10 +128,16 @@
     <string name="settings_min_pressure_description">Ignoruje przypadkowe lekkie dotknięcia piórem.</string>
     <string name="settings_pressure_curve">Reakcja na nacisk</string>
     <string name="settings_pressure_curve_description">Miękka osiąga pełną szerokość przy lżejszym dotyku; twarda wymaga większej siły.</string>
+    <string name="settings_stylus_button">Przycisk boczny pióra</string>
+    <string name="settings_stylus_button_description">Co robi pióro, gdy przytrzymasz przycisk na jego obudowie. Gumka na końcu pióra zawsze ściera.</string>
     <string name="settings_auto_shape">Automatyczne kształty</string>
     <string name="settings_auto_shape_description">Przytrzymaj pióro nieruchomo na końcu pociągnięcia, aby zamienić je w linię, łuk, kwadrat, koło lub wielokąt. Unieś je normalnie, a pociągnięcie zostanie takie, jak narysowane.</string>
     <string name="settings_auto_shape_hold">Czas przytrzymania</string>
     <string name="settings_auto_shape_hold_description">Jak długo pióro musi spoczywać, zanim kształt zostanie rozpoznany.</string>
+
+    <string name="stylus_button_erase">Ścieranie</string>
+    <string name="stylus_button_select">Zaznaczanie</string>
+    <string name="stylus_button_none">Nic</string>
 
     <string name="pressure_curve_soft">Miękka</string>
     <string name="pressure_curve_linear">Liniowa</string>

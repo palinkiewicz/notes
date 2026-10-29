@@ -65,6 +65,7 @@ import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Stroke
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.TextBlock
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolState
@@ -218,6 +219,19 @@ data class EditorUiState(
     val sheet: Sheet? get() = note?.sheet
     val isReadOnly: Boolean get() = note?.readOnly == true
     val pageCount: Int get() = note?.sheet?.pageCount() ?: 1
+
+    /**
+     * What a pen uses in place of [tool] when turned over or with its side button held: the eraser
+     * the toolbar last had out, or the lasso, each with its settings as the user left them.
+     */
+    fun penTool(action: StylusButtonAction): ToolSpec {
+        val id = when (action) {
+            StylusButtonAction.ERASE -> lastEraser
+            StylusButtonAction.SELECT -> ToolId.LASSO
+            StylusButtonAction.NONE -> return tool
+        }
+        return toolPresets.firstOrNull { it.tool == id } ?: ToolSpec.defaultFor(id)
+    }
 }
 
 /**

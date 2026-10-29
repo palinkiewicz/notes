@@ -4,6 +4,7 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,6 +13,7 @@ import pl.dakil.notes.ink.InputIntent
 import pl.dakil.notes.ink.InputRouter
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PointerSample
+import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ToolType
 
 /**
@@ -34,6 +36,7 @@ class StylusInputTest {
         touchMajors: FloatArray = FloatArray(toolTypes.size) { 10f },
         eventTime: Long = 1_000L,
         actionIndex: Int = 0,
+        buttonState: Int = 0,
     ): MotionEvent {
         val n = toolTypes.size
         val properties = Array(n) { i ->
@@ -61,7 +64,7 @@ class StylusInputTest {
             /* pointerProperties = */ properties,
             /* pointerCoords = */ coords,
             /* metaState = */ 0,
-            /* buttonState = */ 0,
+            /* buttonState = */ buttonState,
             /* xPrecision = */ 1f,
             /* yPrecision = */ 1f,
             /* deviceId = */ 0,
@@ -206,7 +209,55 @@ class StylusInputTest {
         )
         val sample = MotionEventBridge.sampleOf(e, 0)
         assertEquals(ToolType.ERASER, sample.toolType)
-        assertEquals(InputIntent.Draw, router.begin(sample).intent)
+        val decision = router.begin(sample)
+        assertEquals(InputIntent.Draw, decision.intent)
+        assertEquals(StylusButtonAction.ERASE, decision.penAction)
+        e.recycle()
+    }
+
+    @Test
+    fun theSideButtonOfAStylusIsRecognised() {
+        // The button leaves the tool type alone, so a bridge that only looked at tool types would
+        // hand the router a plain stylus and the pen would draw.
+        val router = InputRouter()
+        val e = event(
+            MotionEvent.ACTION_DOWN,
+            intArrayOf(MotionEvent.TOOL_TYPE_STYLUS),
+            floatArrayOf(100f), floatArrayOf(100f),
+            buttonState = MotionEvent.BUTTON_STYLUS_PRIMARY,
+        )
+        val sample = MotionEventBridge.sampleOf(e, 0)
+        assertEquals(ToolType.STYLUS, sample.toolType)
+        assertTrue(sample.barrelButton)
+        assertEquals(StylusButtonAction.ERASE, router.begin(sample).penAction)
+        e.recycle()
+    }
+
+    @Test
+    fun aSideButtonReportedAsARightClickIsRecognised() {
+        // Some pen drivers still send the barrel button as BUTTON_SECONDARY.
+        val e = event(
+            MotionEvent.ACTION_DOWN,
+            intArrayOf(MotionEvent.TOOL_TYPE_STYLUS),
+            floatArrayOf(100f), floatArrayOf(100f),
+            buttonState = MotionEvent.BUTTON_SECONDARY,
+        )
+        assertTrue(MotionEventBridge.sampleOf(e, 0).barrelButton)
+        e.recycle()
+    }
+
+    @Test
+    fun theSideButtonIsNotLentToAPalmInTheSameEvent() {
+        // The button state is the whole event's. The finger beside the pen is not holding it.
+        val e = event(
+            MotionEvent.ACTION_POINTER_DOWN,
+            intArrayOf(MotionEvent.TOOL_TYPE_STYLUS, MotionEvent.TOOL_TYPE_FINGER),
+            floatArrayOf(300f, 500f), floatArrayOf(400f, 900f),
+            actionIndex = 1,
+            buttonState = MotionEvent.BUTTON_STYLUS_PRIMARY,
+        )
+        assertTrue(MotionEventBridge.sampleOf(e, 0).barrelButton)
+        assertFalse(MotionEventBridge.sampleOf(e, 1).barrelButton)
         e.recycle()
     }
 
