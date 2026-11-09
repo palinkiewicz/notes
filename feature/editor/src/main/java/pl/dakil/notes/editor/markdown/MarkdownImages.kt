@@ -330,7 +330,7 @@ fun BoxScope.MarkdownImage(
     image: MdImage,
     layout: TextLayoutResult,
     images: MarkdownImages,
-    scroll: Int = 0,
+    scroll: () -> Int = { 0 },
 ) {
     val url = image.url
     val size = images.displaySize(url)
@@ -356,7 +356,7 @@ fun BoxScope.MarkdownImage(
     val shape = RoundedCornerShape(8.dp)
     val box = with(density) {
         Modifier
-            .offset { IntOffset(0, y.roundToInt() - scroll) }
+            .offset { IntOffset(0, y.roundToInt() - scroll()) }
             // Unbounded, because the box this sits in is the field's *viewport*: a plain `size`
             // is clamped to it, so a picture taller than what is on screen — any tall one with the
             // keyboard up, or with the phone turned — was squeezed to fit, out of its aspect, in

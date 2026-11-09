@@ -67,10 +67,16 @@ object DataUriImages {
             }
         }
         val kept = ArrayList<String>()
-        var inFence = false
+        var fence: Fence? = null
         for (line in markdown.split('\n')) {
-            if (MarkdownParser.FENCE.matchEntire(line) != null) inFence = !inFence
-            if (inFence) {
+            val open = fence
+            if (open != null) {
+                if (MarkdownParser.closesFence(line, open)) fence = null
+                kept += line
+                continue
+            }
+            fence = MarkdownParser.openFence(line)
+            if (fence != null) {
                 kept += line
                 continue
             }
@@ -95,15 +101,17 @@ object DataUriImages {
 
     private inline fun forEachOutsideFence(markdown: String, action: (start: Int, line: String) -> Unit) {
         var offset = 0
-        var inFence = false
+        var fence: Fence? = null
         while (offset <= markdown.length) {
             val newline = markdown.indexOf('\n', offset)
             val end = if (newline < 0) markdown.length else newline
             val line = markdown.substring(offset, end)
-            if (MarkdownParser.FENCE.matchEntire(line) != null) {
-                inFence = !inFence
-            } else if (!inFence) {
-                action(offset, line)
+            val open = fence
+            if (open != null) {
+                if (MarkdownParser.closesFence(line, open)) fence = null
+            } else {
+                fence = MarkdownParser.openFence(line)
+                if (fence == null) action(offset, line)
             }
             if (newline < 0) break
             offset = newline + 1

@@ -64,6 +64,7 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatBar
 import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
+import pl.dakil.notes.editor.markdown.replaceAllWith
 import pl.dakil.notes.model.ImageBlock
 import pl.dakil.notes.model.KeyChord
 import pl.dakil.notes.model.Keys
@@ -329,7 +330,7 @@ fun EditorScreen(
                         MarkdownActions.insertImage(before, field.selection.start, field.selection.end, label, url)
                 }
                 field.edit {
-                    replace(0, length, result.text)
+                    replaceAllWith(result.text)
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },

@@ -4,6 +4,7 @@ import pl.dakil.notes.editor.markdown.code.CodeHighlighter
 import pl.dakil.notes.editor.markdown.code.CodeLanguages
 import pl.dakil.notes.editor.markdown.code.CodeToken
 import pl.dakil.notes.model.ColorCodec
+import java.util.BitSet
 import java.util.Locale
 
 /**
@@ -305,7 +306,23 @@ data class MarkdownRenderPlan(
      * in the coordinates the document is written in.
      */
     val inline: List<MdInline> = emptyList(),
-)
+    /** The runs the formatting bar keeps whole, in source coordinates. See [MdAtom]. */
+    val atoms: List<MdAtom> = emptyList(),
+) {
+    /**
+     * Every source offset the rendering leaves nothing on screen for, as one bit each.
+     *
+     * The editor asks "is this character hidden?" for every character of a selection, a deletion
+     * and a caret's neighbourhood, and walking the edit list for each answer made those questions
+     * cost the length of the range times the number of edits — seconds, on a long note, for a
+     * select-all. Built once per plan, and only if anybody asks.
+     */
+    val hidden: BitSet by lazy {
+        val bits = BitSet()
+        for (edit in edits) if (edit.hides && edit.end > edit.start) bits.set(edit.start, edit.end)
+        bits
+    }
+}
 
 /**
  * Plans the WYSIWYG rendering of a Markdown document.
@@ -324,7 +341,6 @@ data class MarkdownRenderPlan(
 object MarkdownRenderer {
 
     private const val BULLET_GLYPH = "•  "
-    private const val IMAGE_GLYPH = "🖼 "
 
     /**
      * What a block image's source is concealed behind.
@@ -394,19 +410,62 @@ object MarkdownRenderer {
      */
     const val TABLE_SP = 14
 
-    // The transformation and the drawing layer both ask for the plan of the same string on the same
-    // frame. Both run on the main thread, so one slot is enough to make the second call free.
-    private var lastSource: String? = null
-    private var lastPlan: MarkdownRenderPlan? = null
+    /**
+     * The last few plans, newest last.
+     *
+     * Several, because one keystroke asks for the plans of several strings — the document before
+     * the edit, after it, and what each input filter tries in between — and a single slot evicted
+     * the one the next caller wanted every time. Locked, because export and its page survey plan a
+     * note on a background dispatcher while the editor plans it on the main thread, and two loose
+     * fields read by one thread while another writes them can pair one string with another's plan.
+     */
+    private val cache = object : LinkedHashMap<Pair<String, Int>, MarkdownRenderPlan>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<String, Int>, MarkdownRenderPlan>) =
+            size > CACHED_PLANS
+    }
+    private const val CACHED_PLANS = 6
 
-    fun plan(markdown: String): MarkdownRenderPlan {
-        lastPlan?.let { if (lastSource == markdown) return it }
+    /**
+     * The plan for [markdown], with the table cell starting at [activeCell] — the one being typed
+     * in, see [activeCell] — showing its blanks as typed rather than squared off.
+     */
+    fun plan(markdown: String, activeCell: Int = -1): MarkdownRenderPlan {
+        val key = markdown to activeCell
+        synchronized(cache) { cache[key] }?.let { return it }
+        val result = planUncached(markdown, activeCell)
+        synchronized(cache) { cache[key] = result }
+        return result
+    }
+
+    /**
+     * Where the table cell holding [caret] starts, when that cell shows anything differently while
+     * it is being typed in; -1 otherwise, which is almost always.
+     *
+     * A cell's blanks are squared off so its column lines up — but a space typed after the last
+     * word is a blank too, and squared off it never appeared: no feedback for the key until the
+     * next letter arrived. So the cell the caret is in is drawn as typed, and only that one; every
+     * other cell keeps the tidy look, which is what lets `| a |`, `|a|` and `|  a  |` read alike.
+     */
+    fun activeCell(markdown: String, caret: Int): Int {
+        if (caret !in 0..markdown.length || '|' !in markdown) return -1
+        val table = plan(markdown).decorations.filterIsInstance<MdTable>()
+            .firstOrNull { caret in it.sourceStart..it.sourceEnd } ?: return -1
+        val lines = Lines(markdown)
+        val k = lines.lineOf(caret)
+        if (k == lines.lineOf(table.sourceStart) + 1) return -1
+        val cell = cellsOf(markdown, lines.start(k), lines.end(k))
+            .firstOrNull { caret in it.first..(it.last + 1) } ?: return -1
+        return if (textAsTyped(markdown, cell) != textIn(markdown, cell)) cell.first else -1
+    }
+
+    private fun planUncached(markdown: String, activeCell: Int): MarkdownRenderPlan {
 
         val edits = ArrayList<MdEdit>()
         val styles = ArrayList<MdStyleRange>()
         val decorations = ArrayList<MdDecoration>()
         val spans = ArrayList<MdInline>()
         val gaps = ArrayList<MdStyleRange>()
+        val atoms = ArrayList<MdAtom>()
         val lines = Lines(markdown)
         val units = units(lines)
 
@@ -422,16 +481,16 @@ object MarkdownRenderer {
         while (k < lines.count) {
             gapBefore(lines, units, k, edits, gaps)
             k = when {
-                MarkdownParser.FENCE.matchEntire(lines.text(k)) != null ->
+                MarkdownParser.openFence(lines.text(k)) != null ->
                     planFence(markdown, lines, k, edits, styles, decorations)
 
                 lines.text(k).trim() == "$$" -> planMathBlock(lines, k, edits, styles)
 
                 lines.startsTable(k) ->
-                    planTable(markdown, lines, k, edits, styles, decorations, spans, references)
+                    planTable(markdown, lines, k, edits, styles, decorations, spans, atoms, references, activeCell)
 
                 else -> {
-                    scanLine(lines, k, edits, styles, decorations, spans, references)
+                    scanLine(lines, k, edits, styles, decorations, spans, atoms, references)
                     k + 1
                 }
             }
@@ -450,9 +509,8 @@ object MarkdownRenderer {
             indents = decorations.map { it.mapped(edits) }.filterIsInstance<MdQuote>()
                 .map { MdStyleRange(it.start, it.end, MdStyle.QUOTE) },
             inline = spans,
+            atoms = atoms,
         )
-        lastSource = markdown
-        lastPlan = result
         return result
     }
 
@@ -482,10 +540,10 @@ object MarkdownRenderer {
      * one below it: a closing fence renders as one newline and is still nothing anybody can see.
      */
     fun coversVisibleText(markdown: String, start: Int, end: Int): Boolean {
-        val edits = plan(markdown).edits
+        val hidden = plan(markdown).hidden
         val from = minOf(start, end).coerceAtLeast(0)
         val to = maxOf(start, end).coerceAtMost(markdown.length)
-        return (from until to).any { !isHidden(edits, it) }
+        return from < to && hidden.nextClearBit(from) < to
     }
 
     /**
@@ -505,17 +563,15 @@ object MarkdownRenderer {
      * is taking is half a note.
      */
     fun takesMoreThanOneVisibleCharacter(markdown: String, start: Int, end: Int): Boolean {
-        val edits = plan(markdown).edits
+        val hidden = plan(markdown).hidden
         val from = start.coerceAtLeast(0)
         val to = end.coerceAtMost(markdown.length)
-        var seen = 0
-        for (i in from until to) {
-            if (isHidden(edits, i)) continue
-            // Counted no further than it takes to answer: a deletion of half a note would otherwise
-            // walk every character of it to say what its second one already said.
-            if (++seen > 1) return true
-        }
-        return false
+        if (from >= to) return false
+        // The first visible character and the one after it, and nothing further: a deletion of
+        // half a note would otherwise walk every character of it to say what its second one
+        // already said.
+        val first = hidden.nextClearBit(from)
+        return first < to && hidden.nextClearBit(first + 1) < to
     }
 
     /**
@@ -529,17 +585,14 @@ object MarkdownRenderer {
      * behind. Syntax inside the span is theirs to lose — they selected across it.
      */
     fun visibleSpan(markdown: String, start: Int, end: Int): Pair<Int, Int>? {
-        val edits = plan(markdown).edits
+        val hidden = plan(markdown).hidden
         val from = start.coerceAtLeast(0)
         val to = end.coerceAtMost(markdown.length)
-        var first = -1
-        var last = -1
-        for (i in from until to) {
-            if (isHidden(edits, i)) continue
-            if (first < 0) first = i
-            last = i
-        }
-        return if (first < 0) null else first to (last + 1)
+        if (from >= to) return null
+        val first = hidden.nextClearBit(from)
+        if (first >= to) return null
+        val last = hidden.previousClearBit(to - 1)
+        return first to (last + 1)
     }
 
     /**
@@ -551,8 +604,11 @@ object MarkdownRenderer {
      * only kind a keystroke has to be protected from.
      */
     fun hidesAnythingIn(markdown: String, start: Int, end: Int): Boolean {
-        val edits = plan(markdown).edits
-        return (start.coerceAtLeast(0) until end.coerceAtMost(markdown.length)).any { isHidden(edits, it) }
+        val from = start.coerceAtLeast(0)
+        val to = end.coerceAtMost(markdown.length)
+        if (from >= to) return false
+        val set = plan(markdown).hidden.nextSetBit(from)
+        return set in 0 until to
     }
 
     /**
@@ -566,11 +622,10 @@ object MarkdownRenderer {
      * the text on its very next command — which is the crash behind this.
      */
     fun lastVisibleBefore(markdown: String, from: Int, at: Int): Int? {
-        val edits = plan(markdown).edits
-        for (i in (at.coerceAtMost(markdown.length) - 1) downTo from.coerceAtLeast(0)) {
-            if (!isHidden(edits, i)) return i
-        }
-        return null
+        val last = at.coerceAtMost(markdown.length) - 1
+        if (last < 0) return null
+        val i = plan(markdown).hidden.previousClearBit(last)
+        return i.takeIf { it >= from.coerceAtLeast(0) }
     }
 
     /**
@@ -593,10 +648,10 @@ object MarkdownRenderer {
         if (at !in 0..markdown.length) return null
         val lines = Lines(markdown)
         val k = lines.lineOf(at)
-        val edits = plan(markdown).edits
-        if ((lines.start(k) until at).any { !isHidden(edits, it) }) return null
+        val hidden = plan(markdown).hidden
+        if ((lines.start(k) until at).any { !hidden[it] }) return null
         var to = at
-        while (to < lines.end(k) && isHidden(edits, to)) to++
+        while (to < lines.end(k) && hidden[to]) to++
         return to.takeIf { it != at && to < lines.end(k) }
     }
 
@@ -610,10 +665,6 @@ object MarkdownRenderer {
      */
     fun openInlineAt(markdown: String, at: Int): List<MdInline> =
         plan(markdown).inline.filter { at >= it.openEnd && at <= it.closeStart }
-
-    /** Whether the character at [at] is inside a run the plan leaves nothing on screen for. */
-    private fun isHidden(edits: List<MdEdit>, at: Int): Boolean =
-        edits.any { it.hides && at >= it.start && at < it.end }
 
     /**
      * Where [offset] in the source ends up once [edits] are applied.
@@ -735,11 +786,7 @@ object MarkdownRenderer {
             // The same order [plan] dispatches in, or a line would be spaced as one thing and
             // rendered as another — `- - -` is a rule, not the first item of a list.
             k = when {
-                MarkdownParser.FENCE.matchEntire(line) != null -> {
-                    var close = k + 1
-                    while (close < lines.count && MarkdownParser.FENCE.matchEntire(lines.text(close)) == null) close++
-                    block(out, k, close)
-                }
+                MarkdownParser.openFence(line) != null -> block(out, k, lines.fenceClose(k))
 
                 line.trim() == "$$" -> {
                     var close = k + 1
@@ -960,12 +1007,26 @@ object MarkdownRenderer {
         /** The end of the line including its newline, so a whole line can be hidden without trace. */
         fun endInclusive(k: Int) = if (ends[k] < source.length) ends[k] + 1 else ends[k]
 
+        /**
+         * The line that closes the fence opened on line [open], or [count] when nothing does — an
+         * unclosed fence runs to the end of the document, as CommonMark says it does.
+         */
+        fun fenceClose(open: Int): Int {
+            val fence = MarkdownParser.openFence(text(open)) ?: return open
+            var close = open + 1
+            while (close < count && !MarkdownParser.closesFence(text(close), fence)) close++
+            return close
+        }
+
         /** A table is a row of pipes with a delimiter row under it — the header is what marks it. */
         fun startsTable(k: Int): Boolean =
             k + 1 < count &&
                 text(k).contains('|') &&
                 MarkdownParser.TABLE_DELIMITER.matches(text(k + 1)) &&
-                text(k + 1).contains('|')
+                text(k + 1).contains('|') &&
+                // GFM's rule, and what keeps a line of prose that happens to hold a pipe from being
+                // read as a header over a delimiter written for some other row.
+                cellsOf(source, start(k), end(k)).size == cellsOf(source, start(k + 1), end(k + 1)).size
     }
 
     // ---- Fenced code -------------------------------------------------------------------------
@@ -990,25 +1051,21 @@ object MarkdownRenderer {
         styles: MutableList<MdStyleRange>,
         decorations: MutableList<MdDecoration>,
     ): Int {
-        val language = MarkdownParser.FENCE.matchEntire(lines.text(open))!!.groupValues[1]
+        val fence = MarkdownParser.openFence(lines.text(open))!!
+        val language = fence.language(lines.text(open))
 
-        var close = open + 1
-        while (close < lines.count && MarkdownParser.FENCE.matchEntire(lines.text(close)) == null) close++
+        val close = lines.fenceClose(open)
         val lastBody = minOf(close, lines.count) - 1
         val hasBody = lastBody >= open + 1
 
-        val languageStart = if (language.isEmpty()) {
-            lines.end(open)
-        } else {
-            lines.end(open) - lines.text(open).substringAfter("```").trimStart().length
-        }
+        val languageStart = lines.start(open) + fence.languageStart
 
         // The backticks become the indent that holds the code off the box drawn round it.
         edits += MdEdit(lines.start(open), languageStart, CODE_INDENT)
         if (language.isNotEmpty()) {
             val languageEnd = languageStart + language.length
-            // Trailing whitespace after the word goes too, or the header chip is drawn round a
-            // word plus however many spaces happened to follow it.
+            // Whatever follows the word goes too — trailing blanks, or the rest of an info string
+            // like `title="a.js"` — or the header chip is drawn round more than the language.
             if (languageEnd < lines.end(open)) edits += MdEdit(languageEnd, lines.end(open), "")
             styles += MdStyleRange(languageStart, languageEnd, MdStyle.FENCE_HEADER)
         }
@@ -1115,7 +1172,9 @@ object MarkdownRenderer {
         styles: MutableList<MdStyleRange>,
         decorations: MutableList<MdDecoration>,
         spans: MutableList<MdInline>,
+        atoms: MutableList<MdAtom>,
         references: Map<String, String>,
+        activeCell: Int,
     ): Int {
         var last = first
         while (last + 1 < lines.count && lines.text(last + 1).contains('|')) last++
@@ -1124,7 +1183,7 @@ object MarkdownRenderer {
         for (k in first..last) rows += cellsOf(lines.source, lines.start(k), lines.end(k))
         // The delimiter row has no prose, and sizes itself to whatever the others need.
         val contents = rows.mapIndexed { index, row ->
-            if (index == 1) emptyList() else row.map { inlineOf(source, it, references) }
+            if (index == 1) emptyList() else row.map { inlineOf(source, it, references, asTyped = it.first == activeCell) }
         }
 
         val columns = rows.maxOf { it.size }
@@ -1166,23 +1225,29 @@ object MarkdownRenderer {
             leading(lines, k, styles, MdStyle.LEADING_CELL)
             rowRanges += lines.start(k)..lines.end(k)
 
-            var pipe = lines.start(k)
+            // One pass along the row, each character visited once, emitting edits in source order.
+            // An empty cell (`||`) has no characters of its own: it starts *at* the pipe that
+            // closes it, so its padding — an insertion there — has to go in before that pipe's
+            // edit, or the two arrive out of order and the pipe is visited a second time.
+            var at = lines.start(k)
             var column = 0
-            while (pipe < lines.end(k)) {
-                if (source[pipe] == '|') {
-                    edits += MdEdit(pipe, pipe + 1, " ")
+            while (at < lines.end(k)) {
+                val cell = row.getOrNull(column)
+                if (cell != null && at == cell.first) {
+                    padCell(cell, contents[index][column], widths[column], drawn[column], edits, styles, spans, atoms)
+                    column++
+                    if (!cell.isEmpty()) {
+                        at = cell.last + 1
+                        continue
+                    }
+                }
+                if (MarkdownParser.isCellPipe(source, at, lines.start(k))) {
+                    edits += MdEdit(at, at + 1, " ")
                     // The header's pipes are the column boundaries for the whole table: every row
                     // is padded to the same widths, so they all fall at the same place.
-                    if (index == 0) stops += pipe
+                    if (index == 0) stops += at
                 }
-                if (column < row.size && pipe == row[column].first) {
-                    val cell = row[column]
-                    padCell(cell, contents[index][column], widths[column], drawn[column], edits, styles, spans)
-                    pipe = cell.last + 1
-                    column++
-                    continue
-                }
-                pipe++
+                at++
             }
         }
 
@@ -1202,9 +1267,8 @@ object MarkdownRenderer {
     }
 
     /** The source ranges of each cell on a row, between its pipes. */
-    private fun cellsOf(source: String, start: Int, end: Int): List<IntRange> {
-        val pipes = ArrayList<Int>()
-        for (i in start until end) if (source[i] == '|') pipes += i
+    internal fun cellsOf(source: String, start: Int, end: Int): List<IntRange> {
+        val pipes = MarkdownParser.cellPipes(source, start, end)
         if (pipes.isEmpty()) return emptyList()
 
         val cells = ArrayList<IntRange>(pipes.size)
@@ -1233,9 +1297,12 @@ object MarkdownRenderer {
      */
     private class CellContent(
         val text: IntRange,
+        /** What the cell shows while it is being typed in. See [textAsTyped]. */
+        val typed: IntRange,
         val edits: List<MdEdit>,
         val styles: List<MdStyleRange>,
         val spans: List<MdInline>,
+        val atoms: List<MdAtom>,
     ) {
         /** How many characters it shows. */
         val width: Int =
@@ -1275,15 +1342,17 @@ object MarkdownRenderer {
     }
 
     /** The inline plan for [cell]'s text. */
-    private fun inlineOf(source: String, cell: IntRange, references: Map<String, String>): CellContent {
-        val text = textIn(source, cell)
+    private fun inlineOf(source: String, cell: IntRange, references: Map<String, String>, asTyped: Boolean): CellContent {
+        val typed = textAsTyped(source, cell)
+        val text = if (asTyped) typed else textIn(source, cell)
         val edits = ArrayList<MdEdit>()
         val styles = ArrayList<MdStyleRange>()
         val spans = ArrayList<MdInline>()
+        val atoms = ArrayList<MdAtom>()
         if (!text.isEmpty()) {
-            scanInline(source, text.first, text.last + 1, edits, styles, spans, references = references)
+            scanInline(source, text.first, text.last + 1, edits, styles, spans, atoms, references)
         }
-        return CellContent(text, edits, styles, spans)
+        return CellContent(text, typed, edits, styles, spans, atoms)
     }
 
     /**
@@ -1314,15 +1383,30 @@ object MarkdownRenderer {
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
         spans: MutableList<MdInline>,
+        atoms: MutableList<MdAtom>,
     ) {
         val text = content.text
-        if (text.first > cell.first) edits += MdEdit(cell.first, text.first, "")
+        val typed = content.typed
+        // What is struck at either end is of two kinds. The one separator blank `| a |` writes is
+        // layout, and hidden like syntax. Any blank beyond it was typed — on screen while its cell
+        // is being typed in, squared off otherwise — and to the editing guards it is an ordinary
+        // character: hidden, a backspace after a typed space went for the letter in front of it.
+        if (text.first > cell.first) {
+            val separator = minOf(typed.first, text.first).coerceAtLeast(cell.first)
+            if (separator > cell.first) edits += MdEdit(cell.first, separator, "")
+            if (text.first > separator) edits += MdEdit(separator, text.first, "", hides = false)
+        }
         // Between the two strips, which is where they fall in the source: the edits stay ascending.
         edits += content.edits
         // After the row's own style, so a cell's emphasis and colour win where the two overlap.
         styles += content.styles
         spans += content.spans
-        if (text.last + 1 <= cell.last) edits += MdEdit(text.last + 1, cell.last + 1, "")
+        atoms += content.atoms
+        if (text.last + 1 <= cell.last) {
+            val separator = maxOf(typed.last + 1, text.last + 1).coerceAtMost(cell.last + 1)
+            if (separator > text.last + 1) edits += MdEdit(text.last + 1, separator, "", hides = false)
+            if (cell.last + 1 > separator) edits += MdEdit(separator, cell.last + 1, "")
+        }
 
         val fill = target - content.width
         if (fill <= 0) return
@@ -1350,16 +1434,39 @@ object MarkdownRenderer {
     /**
      * The part of a cell that stays on screen: everything but the blanks at either end.
      *
+     * Whatever a cell was written with — `| a |`, `|a|`, `|   a  |` — reads the same, which is what
+     * lets the rules be drawn a fixed distance from the text. The exception is the cell being typed
+     * in, which shows [textAsTyped] instead.
+     *
      * A cell of nothing but blanks keeps one of them. A run struck out whole has no offset inside
      * it for a caret to rest at, and the inside of an empty cell is exactly where a caret goes.
      */
-    private fun textIn(source: String, cell: IntRange): IntRange {
+    internal fun textIn(source: String, cell: IntRange): IntRange {
         val to = cell.last + 1
         var from = cell.first
         while (from < to && source[from] == ' ') from++
         if (from >= to) return cell.first..cell.first.coerceAtMost(cell.last)
         var end = to
         while (end > from && source[end - 1] == ' ') end--
+        return from..(end - 1)
+    }
+
+    /**
+     * The part of a cell shown while it is being typed in: everything but its separators.
+     *
+     * Only the blank `| a |` writes on either side of its text is layout. Any other blank is
+     * content — a space the user has just typed after a word has to appear when it is typed, not
+     * when the next letter arrives. The trailing separator is only taken where the cell has a
+     * leading one too: `|a |` is a `|a|` cell with a space typed into it, and that space is theirs.
+     */
+    internal fun textAsTyped(source: String, cell: IntRange): IntRange {
+        val to = cell.last + 1
+        var first = cell.first
+        while (first < to && source[first] == ' ') first++
+        if (first >= to) return cell.first..cell.first.coerceAtMost(cell.last)
+        val separated = source[cell.first] == ' '
+        val from = if (separated) cell.first + 1 else cell.first
+        val end = if (separated && source[to - 1] == ' ') to - 1 else to
         return from..(end - 1)
     }
 
@@ -1374,6 +1481,7 @@ object MarkdownRenderer {
         styles: MutableList<MdStyleRange>,
         decorations: MutableList<MdDecoration>,
         spans: MutableList<MdInline>,
+        atoms: MutableList<MdAtom>,
         references: Map<String, String>,
     ) {
         val text = lines.source
@@ -1417,7 +1525,7 @@ object MarkdownRenderer {
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, headingStyle(match.groupValues[1].length))
-            scanInline(text, textStart, end, edits, styles, spans, decorations, references)
+            scanInline(text, textStart, end, edits, styles, spans, atoms, references)
             return
         }
 
@@ -1433,7 +1541,7 @@ object MarkdownRenderer {
             decorations += MdTask(markerStart, done, start + match.groups[2]!!.range.first)
             val body = planHeading(text, textStart, end, edits, styles)
             if (done) styles += MdStyleRange(body, end, MdStyle.STRIKE)
-            scanInline(text, body, end, edits, styles, spans, decorations, references)
+            scanInline(text, body, end, edits, styles, spans, atoms, references)
             return
         }
 
@@ -1442,7 +1550,7 @@ object MarkdownRenderer {
             val textStart = end - match.groupValues[2].length
             edits += MdEdit(markerStart, textStart, BULLET_GLYPH)
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, decorations, references)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, atoms, references)
             return
         }
 
@@ -1452,7 +1560,7 @@ object MarkdownRenderer {
             val markerStart = indentTo(lines, k, match.groupValues[1], edits, styles)
             val textStart = end - match.groupValues[3].length
             styles += MdStyleRange(markerStart, textStart, MdStyle.MARKER)
-            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, decorations, references)
+            scanInline(text, planHeading(text, textStart, end, edits, styles), end, edits, styles, spans, atoms, references)
             return
         }
 
@@ -1465,11 +1573,11 @@ object MarkdownRenderer {
             edits += MdEdit(start, textStart, "")
             styles += MdStyleRange(textStart, end, MdStyle.QUOTE)
             openQuote(lines, k, decorations)
-            scanInline(text, textStart, end, edits, styles, spans, decorations, references)
+            scanInline(text, textStart, end, edits, styles, spans, atoms, references)
             return
         }
 
-        scanInline(text, start, end, edits, styles, spans, decorations, references)
+        scanInline(text, start, end, edits, styles, spans, atoms, references)
     }
 
     /**
@@ -1547,11 +1655,11 @@ object MarkdownRenderer {
     // ---- Inline level ------------------------------------------------------------------------
 
     /**
-     * Scans `[from, to)` for inline syntax, hiding the markers and styling what they wrapped.
+     * Reads `[from, to)` for inline syntax, hiding the markers and styling what they wrapped.
      *
-     * Recurses into the body of every span so `**bold with *emphasis* inside**` gets both styles.
-     * Edits are appended in ascending order — open marker, then the body's own edits, then close —
-     * because the caller relies on that to apply them back-to-front without sorting.
+     * The reading itself is [MarkdownInline]'s; this appends what it found to the plan being
+     * built. Edits come back ascending and inside `[from, to)`, which is what lets the caller apply
+     * the whole list back to front without sorting it.
      */
     private fun scanInline(
         text: String,
@@ -1560,245 +1668,15 @@ object MarkdownRenderer {
         edits: MutableList<MdEdit>,
         styles: MutableList<MdStyleRange>,
         spans: MutableList<MdInline>,
-        decorations: MutableList<MdDecoration> = ArrayList(),
+        atoms: MutableList<MdAtom>,
         references: Map<String, String> = emptyMap(),
     ) {
-        var i = from
-        while (i < to) {
-            // Code first: nothing inside a code span is Markdown.
-            if (text[i] == '`') {
-                val close = text.indexOf('`', i + 1)
-                if (close in (i + 1) until to) {
-                    edits += MdEdit(i, i + 1, "")
-                    spans += MdInline(i, i + 1, close, close + 1)
-                    styles += MdStyleRange(i + 1, close, MdStyle.CODE)
-                    edits += MdEdit(close, close + 1, "")
-                    i = close + 1
-                    continue
-                }
-            }
-
-            if (text[i] == '$') {
-                val close = text.indexOf('$', i + 1)
-                if (close in (i + 1) until to) {
-                    edits += MdEdit(i, i + 1, "")
-                    spans += MdInline(i, i + 1, close, close + 1)
-                    styles += MdStyleRange(i + 1, close, MdStyle.MATH)
-                    edits += MdEdit(close, close + 1, "")
-                    i = close + 1
-                    continue
-                }
-            }
-
-            if (text[i] == '<') {
-                val tagged = scanHtmlEmphasis(text, i, to, edits, styles, spans)
-                if (tagged > 0) {
-                    i = tagged
-                    continue
-                }
-            }
-
-            if (text.startsWith("![", i)) {
-                val consumed = scanReference(text, i, to, edits, styles, decorations, spans, image = true, references = references)
-                if (consumed > 0) {
-                    i = consumed
-                    continue
-                }
-            }
-
-            if (text[i] == '[') {
-                // Before the link scan, because both start with a bracket and only the *suffix*
-                // tells them apart. The two cannot be confused once past it: `scanReference` wants
-                // `](`, this wants `]{`, and each declines what the other is looking at.
-                val attributed = scanAttrSpan(text, i, to, edits, styles, spans)
-                if (attributed > 0) {
-                    i = attributed
-                    continue
-                }
-
-                val consumed = scanReference(text, i, to, edits, styles, decorations, spans, image = false, references = references)
-                if (consumed > 0) {
-                    i = consumed
-                    continue
-                }
-            }
-
-            val emphasis = scanEmphasis(text, i, to, edits, styles, spans)
-            if (emphasis > 0) {
-                i = emphasis
-                continue
-            }
-
-            i++
-        }
-    }
-
-    /**
-     * The three emphases HTML can also say, which is how this app says them when asterisks cannot.
-     *
-     * Markdown's markers are ambiguous where two runs of the same symbol come to touch: `**` beside
-     * `*` is one run of three, and a phrase carrying one of those at each end has no reading. Two
-     * styles that *overlap* rather than nest always end that way, and there is no arrangement of
-     * asterisks that avoids it — it is the syntax, not a shortcoming of the writer.
-     *
-     * These tags are the way out, and they are not an invention: raw HTML is part of CommonMark and
-     * every reader renders them. `MarkdownWriter` reaches for them only where the markers cannot be
-     * made to say the right thing, so an ordinary note has none in it.
-     */
-    private val HTML_EMPHASIS = listOf(
-        "strong" to MdStyle.BOLD,
-        "em" to MdStyle.ITALIC,
-        "del" to MdStyle.STRIKE,
-    )
-
-    /** Handles `<em>text</em>`, returning the offset just past it, or 0 if that is not what is here. */
-    private fun scanHtmlEmphasis(
-        text: String,
-        i: Int,
-        to: Int,
-        edits: MutableList<MdEdit>,
-        styles: MutableList<MdStyleRange>,
-        spans: MutableList<MdInline>,
-    ): Int {
-        for ((tag, style) in HTML_EMPHASIS) {
-            val open = "<$tag>"
-            val close = "</$tag>"
-            if (!text.startsWith(open, i)) continue
-            val at = text.indexOf(close, i + open.length)
-            // An empty pair styles nothing and would hide the tags that say so.
-            if (at <= i + open.length || at + close.length > to) continue
-            edits += MdEdit(i, i + open.length, "")
-            spans += MdInline(i, i + open.length, at, at + close.length)
-            styles += MdStyleRange(i + open.length, at, style)
-            scanInline(text, i + open.length, at, edits, styles, spans)
-            edits += MdEdit(at, at + close.length, "")
-            return at + close.length
-        }
-        return 0
-    }
-
-    /** A run of emphasis markers and what wearing them means. */
-    private class Emphasis(val marker: String, val styles: List<MdStyle>)
-
-    /**
-     * Longest marker first.
-     *
-     * The order is load-bearing: matching `**` inside `***both***` consumes two of the three
-     * asterisks and leaves the third stranded in the middle of the bold text, in full view.
-     */
-    private val EMPHASIS = listOf(
-        Emphasis("***", listOf(MdStyle.BOLD, MdStyle.ITALIC)),
-        Emphasis("___", listOf(MdStyle.BOLD, MdStyle.ITALIC)),
-        Emphasis("**", listOf(MdStyle.BOLD)),
-        Emphasis("__", listOf(MdStyle.BOLD)),
-        Emphasis("~~", listOf(MdStyle.STRIKE)),
-        Emphasis("*", listOf(MdStyle.ITALIC)),
-        Emphasis("_", listOf(MdStyle.ITALIC)),
-    )
-
-    /** Returns the offset just past the emphasis span starting at [i], or 0 if there is none. */
-    private fun scanEmphasis(
-        text: String,
-        i: Int,
-        to: Int,
-        edits: MutableList<MdEdit>,
-        styles: MutableList<MdStyleRange>,
-        spans: MutableList<MdInline>,
-    ): Int {
-        for (rule in EMPHASIS) {
-            val length = rule.marker.length
-            val symbol = rule.marker[0]
-            if (!text.startsWith(rule.marker, i)) continue
-            // Underscores inside a word are `snake_case`, not emphasis. Asterisks are: CommonMark
-            // reads `test*2*` as an italic 2, and so does every other renderer this app's files
-            // will be opened in, so a note that hid the difference would render two ways.
-            if (symbol == '_' && isWordChar(text.getOrNull(i - 1))) continue
-            // CommonMark's flanking rule, and the whole of it: emphasis opens only on a marker up
-            // against the text it styles and closes only on one up against the end of it. It is
-            // what keeps `2 * 3 * 4` arithmetic instead of italics — and it applies to every width
-            // of marker, not just one. `** bold**` is bold in no other Markdown reader, so a note
-            // written here that leant on it would open somewhere else with the asterisks on show;
-            // showing them here too is what makes the file mean one thing.
-            if (isBlank(text.getOrNull(runEndAt(text, i, symbol)))) continue
-
-            var close = text.indexOf(rule.marker, i + length)
-            while (close > i && !closesSpan(text, i, i + length, close, symbol, length)) {
-                close = text.indexOf(rule.marker, close + 1)
-            }
-            // An empty span is left alone so a shorter marker gets its turn at the same characters.
-            if (close <= i || close == i + length || close + length > to) continue
-
-            // The closing run can be wider than this marker, and then not all of it is this span's:
-            // `**test*2***` ends with three asterisks, and the first of them belongs to the italic
-            // span opened inside the bold one. The outer span takes the outside of the run and
-            // leaves the inside to whatever the body opened — take the wrong end and the two spans
-            // interleave, which is one stray asterisk on screen and a word that is not italic.
-            var runEnd = close + length
-            while (runEnd < to && text[runEnd] == symbol) runEnd++
-            val spare = runEnd - close - length
-            if (spare > 0) close += minOf(spare, openedWithin(text, i + length, close, symbol))
-            if (close + length > to) continue
-
-            edits += MdEdit(i, i + length, "")
-            // Before the recursion, so the spans come out outermost first.
-            spans += MdInline(i, i + length, close, close + length)
-            for (style in rule.styles) styles += MdStyleRange(i + length, close, style)
-            scanInline(text, i + length, close, edits, styles, spans)
-            edits += MdEdit(close, close + length, "")
-            return close + length
-        }
-        return 0
-    }
-
-    /**
-     * Handles `[text]{size=18 color=#c0392b}`, returning the offset just past it, or 0 if this is
-     * not one.
-     *
-     * Pandoc's bracketed-span syntax, chosen over inventing something: it is a real convention, it
-     * cannot collide with a link, it nests, and a Markdown tool that does not know it shows the
-     * words with some punctuation around them rather than swallowing them.
-     *
-     * One span carries *every* attribute it was given, which is the whole reason the braces hold a
-     * list rather than a single key. Two spans wrapped round the same words — `[[a]{size=18}]{...}`
-     * — would say the same thing, and would be four more characters for every edit to step over and
-     * one more level for a later split to take apart. See [attrSuffixAt].
-     *
-     * Brackets are counted rather than searched for, so the closing one is the one that matches the
-     * opening one. `[a [b]{size=12} c]{size=24}` is a span inside a span; taking the first `]{`
-     * would end the outer span in the middle of the inner one and style half a sentence.
-     */
-    private fun scanAttrSpan(
-        text: String,
-        i: Int,
-        to: Int,
-        edits: MutableList<MdEdit>,
-        styles: MutableList<MdStyleRange>,
-        spans: MutableList<MdInline>,
-    ): Int {
-        var depth = 0
-        var k = i
-        while (k < to) {
-            when (text[k]) {
-                '[' -> depth++
-                ']' -> {
-                    depth--
-                    if (depth == 0) {
-                        val suffix = attrSuffixAt(text, k + 1, to) ?: return 0
-                        // An empty span would style nothing and hide the braces for no reason.
-                        if (k == i + 1) return 0
-                        edits += MdEdit(i, i + 1, "")
-                        spans += MdInline(i, i + 1, k, suffix.end)
-                        suffix.attrs.size?.let { styles += MdStyleRange(i + 1, k, MdStyle.SIZE, it) }
-                        suffix.attrs.color?.let { styles += MdStyleRange(i + 1, k, MdStyle.COLOR, it) }
-                        scanInline(text, i + 1, k, edits, styles, spans)
-                        edits += MdEdit(k, suffix.end, "")
-                        return suffix.end
-                    }
-                }
-            }
-            k++
-        }
-        return 0
+        if (from >= to) return
+        val found = MarkdownInline.parse(text, from, to, references)
+        edits += found.edits
+        styles += found.styles
+        spans += found.spans
+        atoms += found.atoms
     }
 
     /**
@@ -1904,142 +1782,4 @@ object MarkdownRenderer {
         return ColorCodec.parse(value)
     }
 
-    /**
-     * Handles `[label](url)` and `![alt](url)`, returning the offset just past it, or 0 if this is
-     * not one after all.
-     */
-    private fun scanReference(
-        text: String,
-        i: Int,
-        to: Int,
-        edits: MutableList<MdEdit>,
-        styles: MutableList<MdStyleRange>,
-        decorations: MutableList<MdDecoration>,
-        spans: MutableList<MdInline>,
-        image: Boolean,
-        references: Map<String, String>,
-    ): Int {
-        val openLength = if (image) 2 else 1
-        val close = text.indexOf(']', i + openLength)
-        if (close < 0 || close >= to) return 0
-        if (close + 1 >= to) return 0
-        val isInline = text[close + 1] == '('
-        val isRef = text[close + 1] == '['
-        if (!isInline && !isRef) return 0
-
-        val end = if (isInline) {
-            text.indexOf(')', close + 1)
-        } else {
-            text.indexOf(']', close + 2)
-        }
-        if (end < 0 || end >= to) return 0
-
-        // The URL is hidden with the brackets: it is the destination, not the prose. An image keeps
-        // a glyph in its place so an empty alt text does not vanish without trace.
-        edits += MdEdit(i, i + openLength, if (image) IMAGE_GLYPH else "")
-        styles += MdStyleRange(i, close, if (image) MdStyle.IMAGE else MdStyle.LINK)
-        if (!image) scanInline(text, i + 1, close, edits, styles, spans, decorations, references)
-        edits += MdEdit(close, end + 1, "")
-        return end + 1
-    }
-
-    private fun isWordChar(c: Char?): Boolean = c != null && (c.isLetterOrDigit() || c == '_')
-
-    /** The end of the text counts as blank: there is nothing there for a marker to be against. */
-    private fun isBlank(c: Char?): Boolean = c == null || c.isWhitespace()
-
-    /**
-     * Where the run of [symbol] through [at] ends, and where it starts.
-     *
-     * Flanking is a property of the whole delimiter run, not of the one character next to the
-     * marker being tried. Judging it a character at a time let the second `*` of `**bold **` close
-     * the first, because what stood next to it was the *other* asterisk of its own run rather than
-     * the space in front of both — so a pair that closes nothing rendered as an italic anyway.
-     */
-    private fun runEndAt(text: String, at: Int, symbol: Char): Int {
-        var i = at
-        while (i < text.length && text[i] == symbol) i++
-        return i
-    }
-
-    private fun runStartAt(text: String, at: Int, symbol: Char): Int {
-        var i = at
-        while (i > 0 && text[i - 1] == symbol) i--
-        return i
-    }
-
-    /**
-     * Whether the run of [symbol] through [close] is the one that ends a span opened at
-     * [openStart], whose body starts at [bodyStart] and whose marker is [length] wide.
-     *
-     * Three ways a run of the right characters is still not this span's closer, and every one of
-     * them used to leave markers standing in the formatted view:
-     *
-     * 1. **It is not against the text it would close.** CommonMark's flanking rule, read over the
-     *    whole delimiter run rather than the one character beside the marker being tried — `**bold
-     *    **` closes nothing, and judging it a character at a time let the second asterisk of the
-     *    pair close the first.
-     * 2. **The body left more open than this run can close.** Markers pair off innermost first, so
-     *    what the body opened comes off the front of this run and only what is left over can end
-     *    this span. `*a **b** c*` closes the bold on the run after "b" and the italic on the last
-     *    asterisk of the line; reading the bold's closer as the italic's cut the span in half and
-     *    put the rest of it on screen.
-     * 3. **CommonMark's rule of three.** Where either run could go both ways — text on both sides
-     *    of it — a pairing whose two widths add to a multiple of three is refused, unless both are
-     *    multiples of three themselves. It is the rule that decides which side of `*a**b***` the
-     *    middle pair belongs to: 1 + 2 is three, so the `**` opens the bold rather than closing the
-     *    italic, and the run at the end is read as the three closers it is. Taking it the other way
-     *    stranded the last two asterisks in plain view, which is what an italic word with something
-     *    bold at the end of it used to look like.
-     */
-    private fun closesSpan(
-        text: String,
-        openStart: Int,
-        bodyStart: Int,
-        close: Int,
-        symbol: Char,
-        length: Int,
-    ): Boolean {
-        val runStart = runStartAt(text, close, symbol)
-        val runEnd = runEndAt(text, close, symbol)
-        if (isBlank(text.getOrNull(runStart - 1))) return false
-
-        val width = runEnd - runStart
-        if (width < openedWithin(text, bodyStart, runStart, symbol) + length) return false
-
-        val opener = runEndAt(text, openStart, symbol) - openStart
-        val eitherWay = !isBlank(text.getOrNull(openStart - 1)) || !isBlank(text.getOrNull(runEnd))
-        if (!eitherWay) return true
-        return (opener + width) % 3 != 0 || (opener % 3 == 0 && width % 3 == 0)
-    }
-
-    /**
-     * How wide a run of [symbol] `[from, to)` has left open — what a run after it has to close.
-     *
-     * Runs are paired off as they are met, which is all [scanEmphasis] needs to know: whether the
-     * span it is closing has to give the front of its closing run to something inside it.
-     */
-    private fun openedWithin(text: String, from: Int, to: Int, symbol: Char): Int {
-        var open = 0
-        var k = from
-        while (k < to) {
-            if (text[k] != symbol) {
-                k++
-                continue
-            }
-            var end = k
-            while (end < to && text[end] == symbol) end++
-            // Only a run that could actually be one counts, by the same flanking rule the scan
-            // itself goes by. A run with a space on both sides of it — the middle pair of
-            // `**a ** b**` — opens nothing and closes nothing, and counting it as an open left the
-            // run at the end of the line looking too narrow to close anything either.
-            open = when {
-                open != 0 && !isBlank(text.getOrNull(k - 1)) -> 0
-                open == 0 && !isBlank(text.getOrNull(end)) -> end - k
-                else -> open
-            }
-            k = end
-        }
-        return open
-    }
 }

@@ -66,6 +66,7 @@ import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.PendingStyles
 import pl.dakil.notes.editor.markdown.ReferenceDialog
 import pl.dakil.notes.editor.markdown.ReferenceKind
+import pl.dakil.notes.editor.markdown.replaceAllWith
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
@@ -219,7 +220,7 @@ fun TextNoteScreen(
                         MarkdownActions.insertImage(before, text.selection.start, text.selection.end, label, url)
                 }
                 text.edit {
-                    replace(0, length, result.text)
+                    replaceAllWith(result.text)
                     selection = TextRange(result.selectionStart, result.selectionEnd)
                 }
             },

@@ -37,6 +37,7 @@ import pl.dakil.notes.editor.markdown.DataUriImages
 import pl.dakil.notes.editor.markdown.DefaultImageSource
 import pl.dakil.notes.editor.markdown.ImageSource
 import pl.dakil.notes.editor.markdown.MarkdownActions
+import pl.dakil.notes.editor.markdown.replaceAllWith
 import pl.dakil.notes.format.FrontmatterCodec
 
 @Immutable
@@ -328,7 +329,7 @@ class TextNoteViewModel(
             url,
         )
         field.edit {
-            replace(0, length, result.text)
+            replaceAllWith(result.text)
             selection = TextRange(result.selectionStart, result.selectionEnd)
         }
     }

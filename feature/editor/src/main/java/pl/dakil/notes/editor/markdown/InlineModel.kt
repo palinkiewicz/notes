@@ -85,6 +85,7 @@ internal object InlineModel {
     fun parse(text: String, from: Int, to: Int): List<InlineCell> {
         val spans = MarkdownRenderer.plan(text).inline
             .filter { it.openStart >= from && it.closeEnd <= to }
+        val atoms = atomsOf(text)
 
         fun styleAt(at: Int): InlineStyle {
             var style = InlineStyle()
@@ -98,7 +99,7 @@ internal object InlineModel {
         val cells = ArrayList<InlineCell>()
         var i = from
         while (i < to) {
-            val atom = atomAt(text, i, to)
+            val atom = atomAt(atoms, i, to)
             if (atom != null) {
                 cells += InlineCell(
                     at = i,
@@ -154,30 +155,19 @@ internal object InlineModel {
      * rather than Markdown; a link and an image are atoms because half of each of them — the
      * destination — is not prose at all, and a model of prose has nowhere to put it.
      */
-    private fun atomAt(text: String, at: Int, to: Int): Int? {
-        when (text[at]) {
-            '`', '$' -> {
-                val close = text.indexOf(text[at], at + 1)
-                if (close in (at + 1) until to) return close + 1
-            }
-            '!' -> if (text.startsWith("![", at)) return referenceEnd(text, at + 2, to)
-            '[' -> {
-                // A bracketed span is not an atom: its contents are prose, and its braces are a
-                // style the model carries. Only a link wears the same opening bracket.
-                if (MarkdownRenderer.attrSpanAt(text, at, to) != null) return null
-                return referenceEnd(text, at + 1, to)
-            }
-        }
-        return null
-    }
+    private fun atomAt(atoms: Map<Int, MdAtom>, at: Int, to: Int): Int? =
+        atoms[at]?.end?.takeIf { it <= to }
 
-    /** The end of a `](url)` tail opened at [labelStart], or null if there is not one. */
-    private fun referenceEnd(text: String, labelStart: Int, to: Int): Int? {
-        val close = text.indexOf(']', labelStart)
-        if (close < 0 || close + 1 >= to || text[close + 1] != '(') return null
-        val end = text.indexOf(')', close + 1)
-        return if (end in 0 until to) end + 1 else null
-    }
+    /**
+     * The atoms the renderer found, by where each starts.
+     *
+     * Read off the parse rather than looked for again here: a second, simpler search for "a code
+     * span" or "a link" is a second definition of each, and the two disagreed — about a link whose
+     * address holds a parenthesis, or a code span opened by two backticks — in exactly the cases
+     * where the bar would then cut one in half.
+     */
+    private fun atomsOf(text: String): Map<Int, MdAtom> =
+        MarkdownRenderer.plan(text).atoms.associateBy { it.start }
 
     // ---- Writing ---------------------------------------------------------------------------------
 

@@ -32,7 +32,7 @@ object KeepFenceIntact : InputTransformation {
 
         val typed = text.subSequence(inserted.start, inserted.end).toString()
         replace(inserted.start, inserted.end, "")
-        val after = inserted.start + FENCE.length
+        val after = inserted.start + markerRunAt(asCharSequence(), inserted.start)
         replace(after, after, typed)
         selection = TextRange(after + typed.length)
     }
@@ -40,12 +40,22 @@ object KeepFenceIntact : InputTransformation {
     /**
      * Whether `[from, to)` was typed immediately in front of a fence marker standing at the start of
      * its own line — the one place an insertion is always wrong.
+     *
+     * One line of it only. A paste that carries line breaks is somebody putting lines *above* the
+     * block, and moving it past the marker made its first line the fence's language.
      */
     internal fun opensFenceAt(text: CharSequence, from: Int, to: Int): Boolean =
         from in 0 until to &&
-            to + FENCE.length <= text.length &&
+            to <= text.length &&
             (from == 0 || text[from - 1] == '\n') &&
-            text.startsWith(FENCE, to)
+            (from until to).none { text[it] == '\n' } &&
+            markerRunAt(text, to) >= 3
 
-    private const val FENCE = "```"
+    /** How long the run of backticks or tildes at [at] is. */
+    private fun markerRunAt(text: CharSequence, at: Int): Int {
+        if (at >= text.length || (text[at] != '`' && text[at] != '~')) return 0
+        var end = at
+        while (end < text.length && text[end] == text[at]) end++
+        return end - at
+    }
 }

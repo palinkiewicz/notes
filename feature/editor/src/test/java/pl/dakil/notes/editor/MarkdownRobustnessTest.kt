@@ -28,6 +28,11 @@ class MarkdownRobustnessTest {
         // Nested emphasis of unequal widths, which is where the closer is chosen by arithmetic
         // rather than by the next run that matches: `*a**b***`, `**a ** b**` and their relatives.
         "*a**b***", "**a*b***", "*a **b** c*", "***both***", "**a ** b**", "*a **b** *",
+        // What the CommonMark reader added: escapes, long code spans, balanced links, references,
+        // autolinks, Pandoc maths, other fences, and tables with empty or escaped cells.
+        "\\*a*", "a\\", "``a`b``", "``", "[a](b_(c))", "[a [b] c](u)", "[r]", "[r]: /u",
+        "<https://x>", "$5 and $10", "\\\$x\\\$", "\$\$x\$\$", "\$x\$", "~~~", "````md", "| a || c |",
+        "|-|-|", "| a \\| b |", "<em>a</em>", "[x]{size=20}",
     )
 
     private fun documents(): Sequence<String> = sequence {
@@ -51,21 +56,7 @@ class MarkdownRobustnessTest {
     }
 
     /** The plan is a promise to `TextFieldBuffer`, and this is the promise spelled out. */
-    private fun checkPlan(document: String) {
-        val plan = MarkdownRenderer.plan(document)
-        var previousEnd = 0
-        for (edit in plan.edits) {
-            check(edit.start in previousEnd..document.length) { "edit out of order or range: $edit" }
-            check(edit.end in edit.start..document.length) { "edit ends out of range: $edit" }
-            previousEnd = edit.end
-        }
-        val rendered = MarkdownRenderer.render(document)
-        for (range in plan.styles) {
-            check(range.start in 0..rendered.length && range.end in range.start..rendered.length) {
-                "style out of range: $range"
-            }
-        }
-    }
+    private fun checkPlan(document: String) = assertPlanContract(document)
 
     private fun checkOffset(document: String, at: Int) {
         MarkdownStructure.backspaceAt(document, at)

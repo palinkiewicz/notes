@@ -53,7 +53,7 @@ object ListIndent : InputTransformation {
     private fun TextFieldBuffer.apply(result: MarkdownActions.Result, before: String) {
         if (result.text == before) return
         revertAllChanges()
-        replace(0, length, result.text)
+        replaceAllWith(result.text)
         selection = TextRange(result.selectionStart.coerceIn(0, length))
     }
 }

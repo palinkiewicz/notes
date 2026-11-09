@@ -92,13 +92,15 @@ class MarkdownOutputTransformation(
     private val images: MarkdownImages? = null,
     /** [MarkdownImages.version] when this was built: a new size is a new transformation. */
     private val imageVersion: Int = 0,
+    /** The table cell being typed in, drawn as typed. See [MarkdownRenderer.activeCell]. */
+    private val activeCell: Int = -1,
 ) : OutputTransformation {
 
     override fun TextFieldBuffer.transformOutput() {
         // Source mode renders nothing: that *is* the source, unchanged and unhidden. It still gets
         // the trailing line, so the bottom of the page is in the same place in both views.
         if (formatted) {
-            val plan = MarkdownRenderer.plan(toString())
+            val plan = MarkdownRenderer.plan(toString(), activeCell)
             for (edit in plan.edits.asReversed()) {
                 replace(edit.start, edit.end, edit.replacement)
             }
@@ -139,10 +141,12 @@ class MarkdownOutputTransformation(
                     styles == other.styles &&
                     formatted == other.formatted &&
                     images === other.images &&
-                    imageVersion == other.imageVersion
+                    imageVersion == other.imageVersion &&
+                    activeCell == other.activeCell
                 )
 
-    override fun hashCode(): Int = 31 * (31 * styles.hashCode() + formatted.hashCode()) + System.identityHashCode(images) * 31 + imageVersion
+    override fun hashCode(): Int =
+        31 * (31 * (31 * (31 * styles.hashCode() + formatted.hashCode()) + System.identityHashCode(images)) + imageVersion) + activeCell
 }
 
 /**

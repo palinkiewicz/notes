@@ -738,7 +738,7 @@ internal fun TextFieldState.applyAction(
     val result = action(before, selection.start, selection.end)
     if (result.text == before && result.selectionStart == selection.start) return
     edit {
-        replace(0, length, result.text)
+        replaceAllWith(result.text)
         selection = TextRange(
             result.selectionStart.coerceIn(0, result.text.length),
             result.selectionEnd.coerceIn(0, result.text.length),

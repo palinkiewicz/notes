@@ -549,10 +549,12 @@ class MarkdownStructureTest {
         val after = "***~~``~~***"
         assertEquals(MdEditAt(0, 12, "", 0), MarkdownStructure.strandedMarkers(before, after, 6))
         assertEquals("", apply(after, MarkdownStructure.strandedMarkers(before, after, 6)!!))
-        // And it stops at the first pair that still has something to style.
+        // And it stops at the first pair that still has something to style. The space before the
+        // tildes is load-bearing: `a~~` followed by a backtick is not left-flanking, so in GFM —
+        // and on GitHub — those tildes open nothing and were never markup to begin with.
         assertEquals(
-            MdEditAt(3, 9, "", 3),
-            MarkdownStructure.strandedMarkers("**a~~`c`~~**", "**a~~``~~**", 6),
+            MdEditAt(4, 10, "", 4),
+            MarkdownStructure.strandedMarkers("**a ~~`c`~~**", "**a ~~``~~**", 7),
         )
     }
 

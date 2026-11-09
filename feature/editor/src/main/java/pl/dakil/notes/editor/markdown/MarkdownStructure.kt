@@ -130,14 +130,19 @@ object MarkdownStructure {
             // The delimiter row is hidden, and a pipe reads as a drawn border rather than a
             // character. Cell text is the user's own and is left alone.
             MdBlockKind.TABLE ->
-                if (k == block.firstLine + 1 || source[at] == '|') MdBackspace.Refuse else MdBackspace.Allow
+                if (k == block.firstLine + 1 || MarkdownParser.isCellPipe(source, at, lines.start(k))) MdBackspace.Refuse
+                else MdBackspace.Allow
 
             // Backspacing through a fence's language word has to stop when the word runs out,
             // rather than carrying on into the backticks behind it.
-            MdBlockKind.FENCE ->
-                if (k == block.firstLine && at < lines.start(k) + FENCE_MARKER) MdBackspace.Refuse
-                else if (k > block.firstLine && MarkdownParser.FENCE.matchEntire(lines.text(k)) != null) MdBackspace.Refuse
+            MdBlockKind.FENCE -> {
+                // However long the run is — a four-backtick fence holding a three-backtick one is
+                // how a snippet of Markdown is shown — none of it is on screen to be eaten.
+                val markerEnd = MarkdownParser.openFence(lines.text(block.firstLine))?.markerEnd ?: 0
+                if (k == block.firstLine && at < lines.start(k) + markerEnd) MdBackspace.Refuse
+                else if (block.closed && k == block.lastLine) MdBackspace.Refuse
                 else MdBackspace.Allow
+            }
 
             // Both `$$` lines are hidden whole; the formula between them is text.
             MdBlockKind.MATH ->
@@ -176,8 +181,13 @@ object MarkdownStructure {
             // backspace means at its edge is [backspaceAt]'s question rather than this one.
             return null
         }
-        // Something on the caret's own line: that character, and only that character.
-        if (at >= start) return MdEditAt(at, at + 1, "", at)
+        // Something on the caret's own line: that character, and only that character — with the
+        // hidden backslash that escapes it, if it has one. Left behind, the backslash would turn up
+        // on screen, or escape whatever moved up next to it.
+        if (at >= start) {
+            val from = if (at - 1 >= start && source[at - 1] == '\\' && hides(source, at - 1)) at - 1 else at
+            return MdEditAt(from, at + 1, "", from)
+        }
 
         // Otherwise everything in front of the caret on this line is hidden, and what the reader
         // can see behind them is the line break itself. Deleting it joins the two lines, which is
@@ -259,6 +269,7 @@ object MarkdownStructure {
         "~~" to "~~",
         "*" to "*",
         "_" to "_",
+        "``" to "``",
         "`" to "`",
         "$" to "$",
     )
@@ -564,6 +575,104 @@ object MarkdownStructure {
     }
 
     /**
+     * Whether the caret at [caret] in [after] is where the user's own typing just put it, given
+     * that the document read [before] the last time anyone looked.
+     *
+     * The editor moves a caret that comes to rest somewhere nobody could have aimed at — past a
+     * run's hidden closing markers ([runCaret]), into a table cell's padding ([cellCaret]). Both
+     * are right for a tap and wrong for a keystroke. Typing `**bold**` by hand ends with the caret
+     * past the pair, where the user meant it; pulling it back inside made everything typed next
+     * bold. A space typed after a cell's text is a trailing blank; pulling the caret back to the
+     * text put the next letter in front of the space, so a cell could never hold two words. A move
+     * in the middle of a word being composed also ends the keyboard's composition.
+     *
+     * A deletion is not typing for this purpose: backspacing to the end of a bold word and carrying
+     * on in bold is what every word processor does. [before] null means there is nothing to compare.
+     */
+    fun caretPlacedByTyping(before: String?, after: String, caret: Int): Boolean {
+        if (before == null || before == after) return false
+        val edit = minimalEdit(before, after) ?: return false
+        val inserted = edit.text.length
+        if (inserted == 0) return false
+        // Typed next to a copy of itself — a space beside a space — an insertion has several equally
+        // good places, and the diff names the last. Any of them is where the caret could have been.
+        val shorter = minOf(before.length, after.length)
+        var suffix = 0
+        while (suffix < shorter && before[before.length - 1 - suffix] == after[after.length - 1 - suffix]) suffix++
+        var prefix = 0
+        while (prefix < shorter - suffix && before[prefix] == after[prefix]) prefix++
+        val earliest = minOf(prefix, edit.start) + inserted
+        return caret in earliest..(edit.start + inserted)
+    }
+
+    /** Whether [runCaret] may move the caret at [caret]. See [caretPlacedByTyping]. */
+    fun shouldSnapIntoRun(before: String?, after: String, caret: Int): Boolean =
+        !caretPlacedByTyping(before, after, caret)
+
+    /**
+     * `[start, end)` widened so that it takes an escape whole, or null when it already does.
+     *
+     * `\|` is one character on screen and two in the source, and a keyboard deleting the pipe it
+     * can see may name only the pipe — which left the hidden backslash behind, now on screen, or
+     * escaping whatever moved up next to it. The opposite half is as bad: deleting only the
+     * backslash turns a literal pipe into a column. So a deletion takes both or neither.
+     *
+     * Only a backslash the renderer read as an escape counts; one inside code is a character.
+     */
+    fun keepEscapesWhole(source: String, start: Int, end: Int): Pair<Int, Int>? {
+        if (start !in 0..source.length || end !in start..source.length || start == end) return null
+        val escapes = MarkdownRenderer.plan(source).atoms
+            .filter { it.end - it.start == 2 && source[it.start] == '\\' }
+            .map { it.start }
+            .toHashSet()
+        var from = start
+        var to = end
+        if (from - 1 in escapes) from--
+        if (to - 1 in escapes) to++
+        return if (from == start && to == end) null else from to to
+    }
+
+    /**
+     * [inserted], typed at [at] in [source], with its pipes escaped — or null when it should go in
+     * as it is.
+     *
+     * A `|` in a table row is a column boundary, so a pipe typed into a cell split the cell in two
+     * and moved the caret into a column nobody asked for. `\|` is how GFM writes a pipe that is a
+     * character, and the reader shows it without the backslash, so that is what goes in.
+     *
+     * Only on one line of a visible row: not on the hidden delimiter row, not outside a table, and
+     * not for a paste of several lines, which is somebody's own structure. A pipe straight after an
+     * unescaped backslash is already escaped by it.
+     */
+    fun escapeTypedPipes(source: String, at: Int, inserted: String): String? {
+        if ('|' !in inserted || '\n' in inserted) return null
+        if (cellAt(source, at) == null) return null
+        val out = StringBuilder(inserted.length + 2)
+        var escaped = false
+        for ((i, c) in inserted.withIndex()) {
+            if (c == '|') {
+                val slashes = if (i == 0) slashesBefore(source, at) else slashesBefore(inserted, i)
+                if (slashes % 2 == 0) {
+                    out.append('\\')
+                    escaped = true
+                }
+            }
+            out.append(c)
+        }
+        return if (escaped) out.toString() else null
+    }
+
+    private fun slashesBefore(text: CharSequence, at: Int): Int {
+        var n = 0
+        var i = at - 1
+        while (i >= 0 && text[i] == '\\') {
+            n++
+            i--
+        }
+        return n
+    }
+
+    /**
      * The run of [marker] that ends just before [at], with nothing but whitespace since.
      *
      * What lets a style survive the space that ends a word. A space typed against a closing marker
@@ -855,7 +964,7 @@ object MarkdownStructure {
         val row = rowLines(table).indexOf(k)
         if (row < 0) return null
         val text = lines.text(k)
-        val column = text.take((at - lines.start(k)).coerceIn(0, text.length)).count { it == '|' }
+        val column = MarkdownParser.cellPipes(text, 0, (at - lines.start(k)).coerceIn(0, text.length)).size
         return MdCell(table, row, (column - 1).coerceAtLeast(0))
     }
 
@@ -910,7 +1019,9 @@ object MarkdownStructure {
         var to = bounds.last
         while (to > from && row[to - 1] == ' ') to--
         // An empty cell has no text to sit in, so the caret goes where its text would start: one
-        // space in from the border, exactly as an empty field's cursor sits.
+        // space in from the border, exactly as an empty field's cursor sits. A tap in the blanks
+        // after the text belongs at its end — the caret the user's own typing leaves there is
+        // exempt, see [caretPlacedByTyping].
         val target = if (from >= to) cellRange(row, at - start).first else (at - start).coerceIn(from, to)
         return (start + target).takeIf { it != at }
     }
@@ -970,9 +1081,6 @@ object MarkdownStructure {
         cells.joinToString(" | ", prefix = "| ", postfix = " |") { if (dashes) "---" else it }
 
 
-    /** How many characters a fence marker is: the run of backticks the regex insists on. */
-    private const val FENCE_MARKER = 3
-
     /**
      * Whether [block] holds nothing at all — no code, no formula, not even a language.
      *
@@ -982,10 +1090,9 @@ object MarkdownStructure {
      */
     private fun isEmpty(lines: MarkdownRenderer.Lines, block: MdBlockSpan): Boolean {
         if (block.kind != MdBlockKind.FENCE && block.kind != MdBlockKind.MATH) return false
-        if (block.kind == MdBlockKind.FENCE &&
-            MarkdownParser.FENCE.matchEntire(lines.text(block.firstLine))?.groupValues?.get(1)?.isNotEmpty() == true
-        ) {
-            return false
+        if (block.kind == MdBlockKind.FENCE) {
+            val line = lines.text(block.firstLine)
+            if (MarkdownParser.openFence(line)?.language(line)?.isNotEmpty() == true) return false
         }
         val lastBody = if (block.closed) block.lastLine - 1 else block.lastLine
         return (block.firstLine + 1..lastBody).all { lines.text(it).isBlank() }
@@ -997,11 +1104,8 @@ object MarkdownStructure {
         while (k < lines.count) {
             val line = lines.text(k)
             when {
-                MarkdownParser.FENCE.matchEntire(line) != null -> {
-                    var close = k + 1
-                    while (close < lines.count && MarkdownParser.FENCE.matchEntire(lines.text(close)) == null) close++
-                    k = span(out, lines, MdBlockKind.FENCE, k, close)
-                }
+                MarkdownParser.openFence(line) != null ->
+                    k = span(out, lines, MdBlockKind.FENCE, k, lines.fenceClose(k))
 
                 line.trim() == "$$" -> {
                     var close = k + 1
@@ -1048,14 +1152,27 @@ object MarkdownStructure {
         listOf(table.firstLine) + (table.firstLine + 2..table.lastLine)
 
     /** [row] with every character but its pipes turned to a space. */
-    private fun blankRow(row: String): String =
-        row.map { if (it == '|') '|' else ' ' }.joinToString("")
+    private fun blankRow(row: String): String {
+        val pipes = MarkdownParser.cellPipes(row).toHashSet()
+        return row.indices.map { if (it in pipes) '|' else ' ' }.joinToString("")
+    }
 
     /** The cells of a row, trimmed, without the outer pipes. */
     private fun cellsOf(row: String): List<String> {
         val trimmed = row.trim()
-        val inner = trimmed.removePrefix("|").removeSuffix("|")
-        return inner.split('|').map { it.trim() }
+        val pipes = MarkdownParser.cellPipes(trimmed)
+        // The outer pipes are punctuation, not empty first and last columns.
+        val from = if (pipes.firstOrNull() == 0) 1 else 0
+        val to = if (pipes.lastOrNull() == trimmed.lastIndex && trimmed.length > from) trimmed.lastIndex else trimmed.length
+        val inner = pipes.filter { it in from until to }
+        val out = ArrayList<String>(inner.size + 1)
+        var start = from
+        for (pipe in inner) {
+            out += trimmed.substring(start, pipe).trim()
+            start = pipe + 1
+        }
+        out += trimmed.substring(start, to).trim()
+        return out
     }
 
     /**
@@ -1081,8 +1198,9 @@ object MarkdownStructure {
         // Offset zero is *outside* a row that opens with a pipe — to the left of the table's own
         // edge — and the cell meant by it is the first one.
         val at = if (offset <= 0 && row.startsWith("|")) 1 else offset.coerceIn(0, row.length)
-        val open = row.lastIndexOf('|', (at - 1).coerceAtLeast(0)).let { if (at == 0) -1 else it }
-        val close = row.indexOf('|', at).let { if (it < 0) row.length else it }
+        val pipes = MarkdownParser.cellPipes(row)
+        val open = if (at == 0) -1 else pipes.lastOrNull { it <= at - 1 } ?: -1
+        val close = pipes.firstOrNull { it >= at } ?: row.length
         return open to close
     }
 }

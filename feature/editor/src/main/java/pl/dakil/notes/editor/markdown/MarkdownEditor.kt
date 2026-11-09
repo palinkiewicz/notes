@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,6 +90,8 @@ private class MeasuredMarkdown(
     val layout: TextLayoutResult,
     val source: String,
     sourceMode: Boolean,
+    /** The cell drawn as typed when this was laid out. See [MarkdownRenderer.activeCell]. */
+    activeCell: Int,
 ) {
     /**
      * The parse of [source], shared by everything that needs it for this layout.
@@ -98,7 +101,7 @@ private class MeasuredMarkdown(
      * used to re-parse the whole document to map one offset, so walking a long note with the arrow
      * keys re-parsed it once per keypress.
      */
-    val plan: MarkdownRenderPlan by lazy(LazyThreadSafetyMode.NONE) { MarkdownRenderer.plan(source) }
+    val plan: MarkdownRenderPlan by lazy(LazyThreadSafetyMode.NONE) { MarkdownRenderer.plan(source, activeCell) }
 
     // Source mode shows the source, decorations and all left undrawn — a box round the backticks
     // would be claiming they are not there.
@@ -180,8 +183,16 @@ fun MarkdownEditor(
     // Rebuilt when an image's size is learned, so the field lays the text out again with the room
     // the picture really needs. See [MarkdownImages.version].
     val imageVersion = pictures.version
-    val transformation = remember(styles, sourceMode, pictures, imageVersion) {
-        MarkdownOutputTransformation(styles, !sourceMode, pictures, imageVersion)
+    // The table cell the caret is in, which is drawn as typed so a space appears the moment it is
+    // typed. Derived, so the transformation is rebuilt only when the caret changes cell, not on
+    // every keystroke or caret move inside one.
+    val activeCell by remember(state, sourceMode) {
+        derivedStateOf {
+            if (sourceMode) -1 else MarkdownRenderer.activeCell(state.text.toString(), state.selection.start)
+        }
+    }
+    val transformation = remember(styles, sourceMode, pictures, imageVersion, activeCell) {
+        MarkdownOutputTransformation(styles, !sourceMode, pictures, imageVersion, activeCell)
     }
     val applyPending = remember(pending) { ApplyPendingStyles(pending) }
     val keepInline = remember(pending) { KeepInlineIntact(pending) }
@@ -192,6 +203,11 @@ fun MarkdownEditor(
     MarkdownShortcuts(state, pending, enabled = focused, onRequestLink = onRequestLink)
 
     var measured by remember { mutableStateOf<MeasuredMarkdown?>(null) }
+
+    // Read by the floating controls at layout time, never during composition: a scroll is a
+    // change of position, and reading it while composing recomposed every checkbox, copy button
+    // and picture in the note on every pixel the page moved.
+    val scrollOffset = remember(scroll) { { scroll.value } }
 
     // Which table border the user has picked out, named by where its table starts in the source.
     // Nothing clears it when the document moves under it: the border is only ever drawn against a
@@ -292,7 +308,7 @@ fun MarkdownEditor(
         inputTransformation = if (sourceMode) {
             ListIndent.then(ContinueList).then(applyPending)
         } else {
-            KeepBlocksIntact.then(KeepMarkersIntact).then(ListIndent).then(InsertTableRow)
+            KeepBlocksIntact.then(KeepMarkersIntact).then(KeepEscapesWhole).then(EscapeTablePipe).then(ListIndent).then(InsertTableRow)
                 .then(ContinueList).then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers)
                 .then(keepSpaceOnDelete).then(applyPending).then(keepSpace)
         },
@@ -308,7 +324,7 @@ fun MarkdownEditor(
         // frame. That frame is what made a checkbox jump to the line above on a backspace.
         onTextLayout = { result ->
             val source = state.text.toString()
-            measured = result()?.let { MeasuredMarkdown(it, source, sourceMode) }
+            measured = result()?.let { MeasuredMarkdown(it, source, sourceMode, activeCell) }
         },
         decorator = TextFieldDecorator { field ->
             val text = state.text.toString()
@@ -353,15 +369,15 @@ fun MarkdownEditor(
                     val result = shown.layout
                     shown.decorations.forEach { decoration ->
                         when (decoration) {
-                            is MdCodeBlock -> CopyCodeButton(decoration, result, shown.source, scroll.value)
-                            is MdTask -> TaskCheckbox(decoration, result, scroll.value) {
+                            is MdCodeBlock -> CopyCodeButton(decoration, result, shown.source, scrollOffset)
+                            is MdTask -> TaskCheckbox(decoration, result, scrollOffset) {
                                 toggleTask(state, decoration)
                             }
                             is MdTable -> {
                                 TableInsertButton(
                                     table = decoration,
                                     layout = result,
-                                    scroll = scroll.value,
+                                    scroll = scrollOffset,
                                     focused = border,
                                     onInsert = {
                                         insertIntoTable(state, text, it)
@@ -372,12 +388,12 @@ fun MarkdownEditor(
                                     TableMenuButton(
                                         table = decoration,
                                         layout = result,
-                                        scroll = scroll.value,
+                                        scroll = scrollOffset,
                                         onAction = { applyToTable(state, text, caret, it) },
                                     )
                                 }
                             }
-                            is MdImage -> MarkdownImage(decoration, result, pictures, scroll.value)
+                            is MdImage -> MarkdownImage(decoration, result, pictures, scrollOffset)
                             // The rest are shapes rather than controls, and are drawn behind the
                             // text instead of placed over it.
                             is MdRule, is MdQuote -> Unit
@@ -427,8 +443,12 @@ fun MarkdownEditor(
     // handle land in a cell's text as surely as a tap does.
     if (!sourceMode) {
         LaunchedEffect(state) {
-            snapshotFlow { state.selection }.collect { selection ->
-                val source = state.text.toString()
+            // The document as of the previous look, so that a caret put somewhere by the user's own
+            // typing can be told from one put there by a tap. See [MarkdownStructure.shouldSnapIntoRun].
+            var previous: String? = null
+            snapshotFlow { state.text.toString() to state.selection }.collect { (source, selection) ->
+                val before = previous
+                previous = source
                 // A caret that has come to rest inside markup nobody can see is not one the user
                 // placed, however they came to it — a tap in the few pixels above a heading, or an
                 // arrow key stepping into the hashes, which the field reports back as a range
@@ -441,6 +461,9 @@ fun MarkdownEditor(
                     }
                 }
                 if (!selection.collapsed) return@collect
+                // Where the user's own typing put the caret is where it belongs, however it looks
+                // to the rules below — a space after a cell's text, past a closer they just typed.
+                if (MarkdownStructure.caretPlacedByTyping(before, source, selection.start)) return@collect
                 val cell = MarkdownStructure.cellCaret(source, selection.start)
                 if (cell != null) {
                     state.edit { this.selection = TextRange(cell.coerceIn(0, length)) }
@@ -467,7 +490,7 @@ private fun BoxScope.CopyCodeButton(
     block: MdCodeBlock,
     layout: TextLayoutResult,
     source: String,
-    scroll: Int,
+    scroll: () -> Int,
 ) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -490,7 +513,7 @@ private fun BoxScope.CopyCodeButton(
                 val height = layout.getLineBottom(line) - top
                 IntOffset(
                     x = -4.dp.roundToPx(),
-                    y = (top - scroll + (height - 22.dp.toPx()) / 2f).roundToInt(),
+                    y = (top - scroll() + (height - 22.dp.toPx()) / 2f).roundToInt(),
                 )
             }
             .size(22.dp),
@@ -514,7 +537,7 @@ private fun BoxScope.CopyCodeButton(
 private fun BoxScope.TaskCheckbox(
     task: MdTask,
     layout: TextLayoutResult,
-    scroll: Int,
+    scroll: () -> Int,
     onToggle: () -> Unit,
 ) {
     val at = task.offset.coerceIn(0, layout.layoutInput.text.length)
@@ -538,7 +561,7 @@ private fun BoxScope.TaskCheckbox(
                         // its bounds, against the left edge of the blank.
                         x = (layout.getHorizontalPosition(at, true) - CheckboxPadding.toPx())
                             .roundToInt(),
-                        y = (top - scroll + (height - CheckboxTarget.toPx()) / 2f).roundToInt(),
+                        y = (top - scroll() + (height - CheckboxTarget.toPx()) / 2f).roundToInt(),
                     )
                 }
                 .size(CheckboxTarget),
@@ -597,7 +620,7 @@ private enum class TableAction(@param:StringRes val label: Int) {
 private fun BoxScope.TableMenuButton(
     table: MdTable,
     layout: TextLayoutResult,
-    scroll: Int,
+    scroll: () -> Int,
     onAction: (TableAction) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -614,7 +637,7 @@ private fun BoxScope.TableMenuButton(
                 val limit = layout.layoutInput.constraints.maxWidth - MenuButton.toPx()
                 IntOffset(
                     x = (grid.right + 4.dp.toPx()).coerceAtMost(limit).roundToInt(),
-                    y = ((grid.top + header) / 2f - scroll - MenuButton.toPx() / 2f).roundToInt(),
+                    y = ((grid.top + header) / 2f - scroll() - MenuButton.toPx() / 2f).roundToInt(),
                 )
             },
     ) {
@@ -646,7 +669,7 @@ private fun BoxScope.TableMenuButton(
 private fun BoxScope.TableInsertButton(
     table: MdTable,
     layout: TextLayoutResult,
-    scroll: Int,
+    scroll: () -> Int,
     focused: MdBorder?,
     onInsert: (MdBorder) -> Unit,
 ) {
@@ -665,7 +688,7 @@ private fun BoxScope.TableInsertButton(
                 .offset {
                     IntOffset(
                         x = (at.x - InsertButton.toPx() / 2f).roundToInt(),
-                        y = (at.y - scroll - InsertButton.toPx() / 2f).roundToInt(),
+                        y = (at.y - scroll() - InsertButton.toPx() / 2f).roundToInt(),
                     )
                 }
                 .size(InsertButton),
