@@ -19,12 +19,17 @@
         android:supportsRtl="true"
         android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.Notes">
+        <!-- adjustResize, never the default: with no Android scroll view in the window the system
+             would pick adjustPan, sliding the whole window up to show a caret the keyboard is about
+             to cover — on top of the screens' own imePadding, so the keyboard's room is given
+             twice. The window stays put; Compose handles the IME inset alone. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.Notes">
+            android:theme="@style/Theme.Notes"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
