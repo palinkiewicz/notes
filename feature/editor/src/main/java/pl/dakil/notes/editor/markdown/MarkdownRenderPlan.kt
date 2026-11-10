@@ -496,17 +496,21 @@ object MarkdownRenderer {
             }
         }
 
+        // Every range is mapped through the same finished edits, so they are indexed once: walking
+        // the whole edit list per range made a long note's plan quadratic.
+        val map = OffsetMap(edits)
+        val mappedDecorations = decorations.map { it.mapped(map) }
         val result = MarkdownRenderPlan(
             edits = edits,
             // The gaps go on last so that nothing overrides them: a leading style hung on the
             // newline that ends a block's last line reaches over the gap below it as well, and
             // would otherwise leave the blank line as tall as a line of code. They arrive already
             // in transformed coordinates — see [gap] for why they cannot be mapped like the rest.
-            styles = styles.map { it.mapped(edits) } + gaps,
-            decorations = decorations.map { it.mapped(edits) },
+            styles = styles.map { it.mapped(map) } + gaps,
+            decorations = mappedDecorations,
             // Read off the bars rather than counted again: a bar spans exactly the block of quoted
             // lines that has to be held clear of it, and is already merged and already mapped.
-            indents = decorations.map { it.mapped(edits) }.filterIsInstance<MdQuote>()
+            indents = mappedDecorations.filterIsInstance<MdQuote>()
                 .map { MdStyleRange(it.start, it.end, MdStyle.QUOTE) },
             inline = spans,
             atoms = atoms,
@@ -911,26 +915,59 @@ object MarkdownRenderer {
         gaps: MutableList<MdStyleRange>,
     ) {
         if (gapStyle(units[k - 1], units[k + 1]) != MdStyle.BLOCK_GAP) return
-        val at = opens(edits, lines.end(k))
+        val at = transformedOffset(edits, lines.end(k), includeInsertionAt = false)
         gaps += MdStyleRange(at, at + 1, MdStyle.BLOCK_GAP)
     }
 
+    /**
+     * [transformedOffset] for one finished list of edits, answered by binary search.
+     *
+     * Edits are sorted and disjoint, so the delta in front of an offset is a prefix sum; only the
+     * edit an offset falls inside and an insertion exactly at it need looking at by hand.
+     */
+    internal class OffsetMap(private val edits: List<MdEdit>) {
+        private val starts = IntArray(edits.size) { edits[it].start }
+        private val prefix = IntArray(edits.size + 1).also { sums ->
+            for (i in edits.indices) {
+                val e = edits[i]
+                sums[i + 1] = sums[i] + e.replacement.length - (e.end - e.start)
+            }
+        }
+
+        fun map(offset: Int, includeInsertionAt: Boolean): Int {
+            var low = 0
+            var high = starts.size
+            while (low < high) {
+                val mid = (low + high) ushr 1
+                if (starts[mid] < offset) low = mid + 1 else high = mid
+            }
+            var delta = prefix[low]
+            if (low > 0) {
+                val e = edits[low - 1]
+                if (e.end > offset) delta += (e.end - e.start) - (offset - e.start)
+            }
+            if (includeInsertionAt && low < edits.size) {
+                val e = edits[low]
+                if (e.start == offset && e.end == offset) delta += e.replacement.length
+            }
+            return offset + delta
+        }
+    }
+
     /** The transformed offset text inserted here should fall *after* — an opening edge. */
-    private fun opens(edits: List<MdEdit>, offset: Int) =
-        transformedOffset(edits, offset, includeInsertionAt = false)
+    private fun opens(map: OffsetMap, offset: Int) = map.map(offset, includeInsertionAt = false)
 
     /** The transformed offset text inserted here should fall *before* — a closing edge. */
-    private fun closes(edits: List<MdEdit>, offset: Int) =
-        transformedOffset(edits, offset, includeInsertionAt = true)
+    private fun closes(map: OffsetMap, offset: Int) = map.map(offset, includeInsertionAt = true)
 
     /**
      * A style range starts *before* any padding inserted at its first offset and ends *after* any
      * inserted at its last, so a cell's padding is styled along with the cell.
      */
-    private fun MdStyleRange.mapped(edits: List<MdEdit>) =
+    private fun MdStyleRange.mapped(edits: OffsetMap) =
         MdStyleRange(opens(edits, start), closes(edits, end), style, arg)
 
-    private fun MdDecoration.mapped(edits: List<MdEdit>): MdDecoration = when (this) {
+    private fun MdDecoration.mapped(edits: OffsetMap): MdDecoration = when (this) {
         is MdCodeBlock -> copy(
             // Starts close *after* whatever was inserted at them: a block's own first line is what
             // its box is measured from, not the blank line inserted to hold it off the line above.

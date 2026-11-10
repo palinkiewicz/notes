@@ -94,9 +94,23 @@ class MarkdownOutputTransformation(
     private val imageVersion: Int = 0,
     /** The table cell being typed in, drawn as typed. See [MarkdownRenderer.activeCell]. */
     private val activeCell: Int = -1,
+    /**
+     * The body text style, when this field shows only the block the caret is in.
+     *
+     * Non-null turns on the window: everything outside the caret's block is trimmed off (see
+     * [MarkdownBlocks]) and this style is laid over what is left, because the field's own text
+     * style is set a hair tall so that the empty line a block's last newline leaves behind takes
+     * no room. A static block draws the same two layers, so a block does not move when it becomes
+     * the one being typed in.
+     */
+    private val window: SpanStyle? = null,
 ) : OutputTransformation {
 
     override fun TextFieldBuffer.transformOutput() {
+        if (window != null) {
+            transformWindow(window)
+            return
+        }
         // Source mode renders nothing: that *is* the source, unchanged and unhidden. It still gets
         // the trailing line, so the bottom of the page is in the same place in both views.
         if (formatted) {
@@ -132,6 +146,30 @@ class MarkdownOutputTransformation(
         addStyle(styles.trailingSpace, end, end + 1)
     }
 
+    /**
+     * The window: only the items the selection is in, drawn exactly as the whole document's plan
+     * draws them.
+     *
+     * Worked out here, from this buffer's own text and selection, rather than handed in: the list
+     * of blocks around the field asks [MarkdownBlocks.layout] the same question of the same state,
+     * which is the only way the two agree in every frame. The tail goes first and then the head, so
+     * that what the remaining edits have to shuffle about is the block and not the note.
+     */
+    private fun TextFieldBuffer.transformWindow(body: SpanStyle) {
+        val source = toString()
+        val layout = MarkdownBlocks.layout(source, originalSelection.start, originalSelection.end, formatted)
+        val slice = MarkdownBlocks.window(layout, activeCell)
+        replace(slice.end, length, "")
+        replace(0, slice.start - slice.lead, "")
+        for (edit in slice.edits.asReversed()) replace(edit.start, edit.end, edit.replacement)
+        decorate(slice, styles, images, body)
+        if (slice.isLast) {
+            val end = length
+            replace(end, end, "\n")
+            addStyle(styles.trailingSpace, end, end + 1)
+        }
+    }
+
     // Two transformations built from the same theme must compare equal, or the field rebuilds its
     // layout on every recomposition.
     override fun equals(other: Any?): Boolean =
@@ -142,11 +180,49 @@ class MarkdownOutputTransformation(
                     formatted == other.formatted &&
                     images === other.images &&
                     imageVersion == other.imageVersion &&
-                    activeCell == other.activeCell
+                    activeCell == other.activeCell &&
+                    window == other.window
                 )
 
     override fun hashCode(): Int =
-        31 * (31 * (31 * (31 * styles.hashCode() + formatted.hashCode()) + System.identityHashCode(images)) + imageVersion) + activeCell
+        31 * (31 * (31 * (31 * (31 * styles.hashCode() + formatted.hashCode()) + System.identityHashCode(images)) + imageVersion) + activeCell) +
+            window.hashCode()
+}
+
+/**
+ * Hangs a slice's styles on [buffer]-like text: the body over everything but the step in front,
+ * then the plan's styles, quote indents and image heights.
+ *
+ * Shared by the live window and the static blocks around it, so the two cannot style one block two
+ * ways. [addStyle] and [addParagraph] are the two writes the targets differ in.
+ */
+internal inline fun decorateSlice(
+    slice: MdSlice,
+    styles: MarkdownStyles,
+    images: MarkdownImages?,
+    body: SpanStyle,
+    length: Int,
+    addStyle: (SpanStyle, Int, Int) -> Unit,
+    addParagraph: (ParagraphStyle, Int, Int) -> Unit,
+) {
+    if (length > slice.lead) addStyle(body, slice.lead, length)
+    for (range in slice.styles) {
+        if (range.end > range.start && range.end <= length) addStyle(styles.spanFor(range.style, range.arg), range.start, range.end)
+    }
+    for (range in slice.indents) {
+        if (range.end > range.start && range.end <= length) addParagraph(styles.quoteIndent, range.start, range.end)
+    }
+    if (images != null) {
+        for (decoration in slice.decorations) {
+            if (decoration is MdImage && decoration.offset < length) {
+                addParagraph(images.paragraphFor(decoration.url), decoration.offset, decoration.offset + 1)
+            }
+        }
+    }
+}
+
+private fun TextFieldBuffer.decorate(slice: MdSlice, styles: MarkdownStyles, images: MarkdownImages?, body: SpanStyle) {
+    decorateSlice(slice, styles, images, body, length, { s, a, b -> addStyle(s, a, b) }, { p, a, b -> addStyle(p, a, b) })
 }
 
 /**

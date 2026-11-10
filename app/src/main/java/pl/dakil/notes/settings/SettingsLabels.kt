@@ -182,6 +182,10 @@ fun ShortcutAction.labelRes(): Int = when (this) {
     ShortcutAction.TASK_LIST -> EditorR.string.markdown_task_list
     ShortcutAction.INDENT -> EditorR.string.markdown_indent_increase
     ShortcutAction.OUTDENT -> EditorR.string.markdown_indent_decrease
+    ShortcutAction.NOTE_START -> R.string.keymap_note_start
+    ShortcutAction.NOTE_END -> R.string.keymap_note_end
+    ShortcutAction.SELECT_TO_NOTE_START -> R.string.keymap_select_to_note_start
+    ShortcutAction.SELECT_TO_NOTE_END -> R.string.keymap_select_to_note_end
     ShortcutAction.SEARCH -> R.string.keymap_search
     ShortcutAction.NEW_INK_NOTE -> R.string.keymap_new_ink_note
     ShortcutAction.NEW_TEXT_NOTE -> R.string.keymap_new_text_note

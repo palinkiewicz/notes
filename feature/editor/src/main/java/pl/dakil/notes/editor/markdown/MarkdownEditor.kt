@@ -64,13 +64,18 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import pl.dakil.notes.editor.R
@@ -92,6 +97,11 @@ private class MeasuredMarkdown(
     sourceMode: Boolean,
     /** The cell drawn as typed when this was laid out. See [MarkdownRenderer.activeCell]. */
     activeCell: Int,
+    /**
+     * The block this field was showing, when it shows only one — see [MarkdownBlocks]. Everything
+     * is then placed in the window's coordinates rather than the whole document's.
+     */
+    val window: MdSlice? = null,
 ) {
     /**
      * The parse of [source], shared by everything that needs it for this layout.
@@ -105,7 +115,15 @@ private class MeasuredMarkdown(
 
     // Source mode shows the source, decorations and all left undrawn — a box round the backticks
     // would be claiming they are not there.
-    val decorations: List<MdDecoration> = if (sourceMode) emptyList() else plan.decorations
+    val decorations: List<MdDecoration> = when {
+        sourceMode -> emptyList()
+        window != null -> window.decorations
+        else -> plan.decorations
+    }
+
+    /** Where source offset [offset] is in this layout's text. */
+    fun toLayout(offset: Int): Int =
+        window?.toSlice(offset) ?: MarkdownRenderer.transformedOffset(plan.edits, offset)
 }
 
 /**
@@ -175,11 +193,24 @@ fun MarkdownEditor(
      * opens. Null leaves the shortcut alone.
      */
     onRequestLink: (() -> Unit)? = null,
+    /**
+     * Show only the block the caret is in, for a field that is one item of a list of blocks.
+     *
+     * The `.md` screen's way of laying out a long note without laying all of it out at every
+     * keystroke; see [MarkdownBlocks] and [MarkdownDocument]. The field still holds the whole
+     * document — every guard, the format bar and undo see what they always saw.
+     */
+    windowed: Boolean = false,
+    /** Image sizes shared with whatever draws the rest of the document. See [MarkdownImages]. */
+    sharedImages: MarkdownImages? = null,
+    /** The caller's handle on this field's focus, for one that moves focus in from outside it. */
+    focusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val colors = MaterialTheme.colorScheme
     val styles = rememberMarkdownStyles(attributes)
     val palette = rememberMarkdownDecorationPalette()
-    val pictures = rememberMarkdownImages(images)
+    val ownImages = rememberMarkdownImages(images)
+    val pictures = sharedImages ?: ownImages
     // Rebuilt when an image's size is learned, so the field lays the text out again with the room
     // the picture really needs. See [MarkdownImages.version].
     val imageVersion = pictures.version
@@ -191,14 +222,19 @@ fun MarkdownEditor(
             if (sourceMode) -1 else MarkdownRenderer.activeCell(state.text.toString(), state.selection.start)
         }
     }
-    val transformation = remember(styles, sourceMode, pictures, imageVersion, activeCell) {
-        MarkdownOutputTransformation(styles, !sourceMode, pictures, imageVersion, activeCell)
+    val baseStyle = markdownTextStyle(sourceMode)
+    // A windowed field sets its own text a hair tall and lays the real style over its text as a
+    // span: the empty line after a block's last newline takes its height from the field's style,
+    // and it has to take none. See [WindowBaseSize].
+    val windowBody = if (windowed) windowBodyStyle(baseStyle) else null
+    val transformation = remember(styles, sourceMode, pictures, imageVersion, activeCell, windowBody) {
+        MarkdownOutputTransformation(styles, !sourceMode, pictures, imageVersion, activeCell, windowBody)
     }
+    val keepWindow = remember(sourceMode) { KeepWindow(formatted = !sourceMode) }
     val applyPending = remember(pending) { ApplyPendingStyles(pending) }
     val keepInline = remember(pending) { KeepInlineIntact(pending) }
     val keepSpace = remember(pending) { KeepSpaceOutside(pending) }
     val keepSpaceOnDelete = remember(pending) { KeepSpaceOutsideOnDelete(pending) }
-    val focusRequester = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
     MarkdownShortcuts(state, pending, enabled = focused, onRequestLink = onRequestLink)
 
@@ -214,22 +250,12 @@ fun MarkdownEditor(
     // table whose offset still matches, so a stale one is inert rather than wrong.
     var border by remember { mutableStateOf<MdBorder?>(null) }
 
-    val textStyle = if (sourceMode) {
-        MonospaceStyle.copy(color = colors.onSurface)
-    } else {
-        // Line height is left unspecified on purpose: with it fixed, a heading's larger glyphs get
-        // clipped by the body line height, and the whole point of this mode is that a heading looks
-        // like a heading.
-        MaterialTheme.typography.bodyLarge.copy(
-            color = colors.onSurface,
-            lineHeight = TextUnit.Unspecified,
-        )
-    }
+    val textStyle = if (windowed) windowBaseStyle(baseStyle) else baseStyle
 
     BasicTextField(
         state = state,
         modifier = modifier
-            .fillMaxSize()
+            .then(if (windowed) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
             .focusRequester(focusRequester)
             .onFocusChanged { focused = it.isFocused }
             .shortcutsBeforeSoftKeyboard()
@@ -305,12 +331,17 @@ fun MarkdownEditor(
         // rather than closed early, and before [ApplyPendingStyles] and `keepSpace` because neither
         // of those has anything to do with a deletion — the replacement it makes has a non-zero
         // original range, which is exactly what excludes it from both.
-        inputTransformation = if (sourceMode) {
-            ListIndent.then(ContinueList).then(applyPending)
-        } else {
-            KeepBlocksIntact.then(KeepMarkersIntact).then(KeepEscapesWhole).then(EscapeTablePipe).then(ListIndent).then(InsertTableRow)
-                .then(ContinueList).then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers)
-                .then(keepSpaceOnDelete).then(applyPending).then(keepSpace)
+        inputTransformation = run {
+            val chain = if (sourceMode) {
+                ListIndent.then(ContinueList).then(applyPending)
+            } else {
+                KeepBlocksIntact.then(KeepMarkersIntact).then(KeepEscapesWhole).then(EscapeTablePipe).then(ListIndent).then(InsertTableRow)
+                    .then(ContinueList).then(KeepFenceIntact).then(keepInline).then(DropStrandedMarkers)
+                    .then(keepSpaceOnDelete).then(applyPending).then(keepSpace)
+            }
+            // First, so every guard after it judges an edit the user could have meant rather than
+            // one the window's trimmed edges invented. See [KeepWindow].
+            if (windowed) keepWindow.then(chain) else chain
         },
         // Present in source mode too, though it renders nothing there: it is also what keeps the
         // blank line at the foot of the document, and the page has the same bottom in both views.
@@ -324,7 +355,13 @@ fun MarkdownEditor(
         // frame. That frame is what made a checkbox jump to the line above on a backspace.
         onTextLayout = { result ->
             val source = state.text.toString()
-            measured = result()?.let { MeasuredMarkdown(it, source, sourceMode, activeCell) }
+            val window = if (windowed) {
+                val selection = state.selection
+                MarkdownBlocks.window(MarkdownBlocks.layout(source, selection.start, selection.end, !sourceMode), activeCell)
+            } else {
+                null
+            }
+            measured = result()?.let { MeasuredMarkdown(it, source, sourceMode, activeCell, window) }
         },
         decorator = TextFieldDecorator { field ->
             val text = state.text.toString()
@@ -343,12 +380,15 @@ fun MarkdownEditor(
                         // wider than the text: a block's box is drawn flush with the text column,
                         // so half of its one-dp outline falls outside it and would be shaved off.
                         // Vertically it clips exactly, so nothing a scroll has taken off the top is
-                        // painted over the bar above.
+                        // painted over the bar above — except in a window, which never scrolls and
+                        // whose block's box reaches a [BlockPadding] above its first line and below
+                        // its last, onto the gap beside it, exactly as a static block's does.
+                        val overhang = if (windowed) BlockPadding.toPx() + BlockBleed.toPx() else 0f
                         clipRect(
                             left = -BlockBleed.toPx(),
-                            top = 0f,
+                            top = -overhang,
                             right = size.width + BlockBleed.toPx(),
-                            bottom = size.height,
+                            bottom = size.height + overhang,
                         ) {
                             translate(top = -scroll.value.toFloat()) {
                                 drawMarkdownDecorations(decorations, result, palette, border)
@@ -431,7 +471,7 @@ fun MarkdownEditor(
         val shown = measured
         LaunchedEffect(shown, state.selection) {
             val laid = shown ?: return@LaunchedEffect
-            val at = MarkdownRenderer.transformedOffset(laid.plan.edits, state.selection.start)
+            val at = laid.toLayout(state.selection.start)
                 .coerceIn(0, laid.layout.layoutInput.text.length)
             val cursor = laid.layout.getCursorRect(at)
             onCaretBounds(cursor.top, cursor.bottom)
@@ -486,7 +526,7 @@ fun MarkdownEditor(
  * mostly empty space, so that corner was not worth much.
  */
 @Composable
-private fun BoxScope.CopyCodeButton(
+internal fun BoxScope.CopyCodeButton(
     block: MdCodeBlock,
     layout: TextLayoutResult,
     source: String,
@@ -573,6 +613,64 @@ private fun BoxScope.TaskCheckbox(
 private val CheckboxTarget = 24.dp
 private val CheckboxPadding = 2.dp
 
+/** The style a Markdown document is set in: the body face, or monospace for the source. */
+@Composable
+internal fun markdownTextStyle(sourceMode: Boolean): TextStyle {
+    val colors = MaterialTheme.colorScheme
+    return if (sourceMode) {
+        MonospaceStyle.copy(color = colors.onSurface)
+    } else {
+        // Line height is left unspecified on purpose: with it fixed, a heading's larger glyphs get
+        // clipped by the body line height, and the whole point of this mode is that a heading looks
+        // like a heading.
+        MaterialTheme.typography.bodyLarge.copy(
+            color = colors.onSurface,
+            lineHeight = TextUnit.Unspecified,
+        )
+    }
+}
+
+/**
+ * [style] as a span laid over a block of the `.md` screen. See [WindowBaseSize].
+ *
+ * Both sizes are restated in ems of the base. A span's `sp` font size reaches Android as a whole
+ * number of pixels — 16 sp is 42.5 px on a 2.66× screen and becomes 43 — which set every line two
+ * per cent wider than the same style set directly and wrapped words a line early; an em size
+ * multiplies the base exactly. Letter spacing likewise: a text style's `sp` spacing is relative to
+ * its own size, a span's would be absolute. Measured on a device to match to the pixel.
+ */
+internal fun windowBodyStyle(style: TextStyle): SpanStyle {
+    val size = style.fontSize
+    val spacing = style.letterSpacing
+    var span = style.toSpanStyle()
+    if (size.isSp && size.value > 0f) {
+        span = span.copy(fontSize = (size.value / WindowBaseSize.value).em)
+        if (spacing.isSp) span = span.copy(letterSpacing = (spacing.value / size.value).em)
+    }
+    return span
+}
+
+/**
+ * [style] as a block of the `.md` screen sets it underneath the style itself. See [WindowBaseSize].
+ *
+ * Without the style's line height, if it fixes one: a line height is a paragraph's, not a span's,
+ * so it would hold the hair-thin lines either side of a block at full height too. Source mode's
+ * monospace lines take the font's own spacing instead.
+ */
+internal fun windowBaseStyle(style: TextStyle): TextStyle =
+    style.copy(fontSize = WindowBaseSize, letterSpacing = TextUnit.Unspecified, lineHeight = TextUnit.Unspecified)
+
+/**
+ * The text size a block of the `.md` screen is set at underneath its real style.
+ *
+ * A block's text ends with the newline that ends it, and Compose gives the empty line after a final
+ * newline the height of the text style — not of any span on that newline. Set this small, with the
+ * body style laid over the whole text as a span, that line costs about two pixels instead of a
+ * line of body text, the same in a static block as in the live one. Measured on a device: the caret
+ * and every glyph land where they did with the style set directly.
+ */
+internal val WindowBaseSize = 0.5.sp
+
 /**
  * Flips the one character between a task's brackets.
  *
@@ -581,7 +679,7 @@ private val CheckboxPadding = 2.dp
  * replaced: the layout the tap was aimed with can be a frame behind the text, and a stale offset
  * has to miss rather than overwrite whatever moved into its place.
  */
-private fun toggleTask(state: TextFieldState, task: MdTask) {
+internal fun toggleTask(state: TextFieldState, task: MdTask) {
     state.edit {
         val at = task.sourceMark
         if (at !in 0 until length) return@edit

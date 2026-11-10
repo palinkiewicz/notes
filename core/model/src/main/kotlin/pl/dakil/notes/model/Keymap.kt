@@ -88,6 +88,13 @@ enum class ShortcutAction(
     INDENT("indent", ShortcutGroup.TEXT, TEXT_ONLY, false, listOf(plain(Keys.TAB))),
     OUTDENT("outdent", ShortcutGroup.TEXT, TEXT_ONLY, false, listOf(plain(Keys.TAB, shift = true))),
 
+    // The ends of the whole note. A `.md` note's field shows only the block being typed in, so the
+    // field's own Ctrl+Home would stop at the top of that block.
+    NOTE_START("noteStart", ShortcutGroup.TEXT, TEXT_ONLY, false, listOf(ctrl(Keys.MOVE_HOME))),
+    NOTE_END("noteEnd", ShortcutGroup.TEXT, TEXT_ONLY, false, listOf(ctrl(Keys.MOVE_END))),
+    SELECT_TO_NOTE_START("selectToNoteStart", ShortcutGroup.TEXT, TEXT_ONLY, false, listOf(ctrl(Keys.MOVE_HOME, shift = true))),
+    SELECT_TO_NOTE_END("selectToNoteEnd", ShortcutGroup.TEXT, TEXT_ONLY, false, listOf(ctrl(Keys.MOVE_END, shift = true))),
+
     SEARCH("search", ShortcutGroup.LIBRARY, LIBRARY_ONLY, false, listOf(ctrl(Keys.F))),
     NEW_INK_NOTE("newInkNote", ShortcutGroup.LIBRARY, LIBRARY_ONLY, false, listOf(ctrl(Keys.N))),
     NEW_TEXT_NOTE("newTextNote", ShortcutGroup.LIBRARY, LIBRARY_ONLY, false, listOf(ctrl(Keys.N, shift = true)));

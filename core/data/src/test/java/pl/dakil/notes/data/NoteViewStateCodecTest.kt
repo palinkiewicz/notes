@@ -22,9 +22,16 @@ class NoteViewStateCodecTest {
     }
 
     @Test
-    fun `a text note's scroll reads back as written`() {
-        val state = NoteViewState.Text(scroll = 5120)
+    fun `a text position round-trips as an anchor and an offset`() {
+        val state = NoteViewState.Text(anchor = 5120, offset = 37)
         assertEquals(state, NoteViewStateCodec.decode(NoteViewStateCodec.encode(state, 7L)))
+    }
+
+    @Test
+    fun `an old scroll entry is dropped rather than misread`() {
+        // Pixels down the editor, from before a note was a list of blocks; read as an anchor, 5120
+        // pixels would open the note at the 5120th character.
+        assertNull(NoteViewStateCodec.decode("t;7;5120"))
     }
 
     @Test
@@ -46,16 +53,17 @@ class NoteViewStateCodecTest {
         assertNull(NoteViewStateCodec.decode(""))
         assertNull(NoteViewStateCodec.decode("i;1;2"))
         assertNull(NoteViewStateCodec.decode("i;1;0;0;0"))
-        assertNull(NoteViewStateCodec.decode("t;1;lots"))
+        assertNull(NoteViewStateCodec.decode("u;1;lots;0"))
+        assertNull(NoteViewStateCodec.decode("u;1;-4;0"))
         assertNull(NoteViewStateCodec.decode("x;1;2;3"))
     }
 
     @Test
     fun `past the cap the entries used longest ago are the ones dropped`() {
         val entries = mapOf(
-            "a" to NoteViewStateCodec.encode(NoteViewState.Text(1), 30L),
-            "b" to NoteViewStateCodec.encode(NoteViewState.Text(1), 10L),
-            "c" to NoteViewStateCodec.encode(NoteViewState.Text(1), 20L),
+            "a" to NoteViewStateCodec.encode(NoteViewState.Text(1, 0), 30L),
+            "b" to NoteViewStateCodec.encode(NoteViewState.Text(1, 0), 10L),
+            "c" to NoteViewStateCodec.encode(NoteViewState.Text(1, 0), 20L),
         )
         assertEquals(listOf("b"), NoteViewStateCodec.overflow(entries, cap = 2))
         assertEquals(emptyList<String>(), NoteViewStateCodec.overflow(entries, cap = 3))

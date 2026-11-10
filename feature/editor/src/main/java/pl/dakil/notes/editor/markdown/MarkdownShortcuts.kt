@@ -2,6 +2,7 @@ package pl.dakil.notes.editor.markdown
 
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.TextRange
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutContext
@@ -49,6 +50,20 @@ internal fun nestEdit(text: String, start: Int, end: Int, deeper: Boolean): Mark
 }
 
 /**
+ * Where a jump to an end of the note leaves the selection, or null for an action that is not one.
+ *
+ * Whole-note rather than the field's own Ctrl+Home, which on the `.md` screen only reaches the top
+ * of the block on screen. With Shift the selection keeps its anchor and stretches to the end.
+ */
+internal fun noteJump(action: ShortcutAction, length: Int, start: Int, end: Int): Pair<Int, Int>? = when (action) {
+    ShortcutAction.NOTE_START -> 0 to 0
+    ShortcutAction.NOTE_END -> length to length
+    ShortcutAction.SELECT_TO_NOTE_START -> start to 0
+    ShortcutAction.SELECT_TO_NOTE_END -> start to length
+    else -> null
+}
+
+/**
  * The formatting shortcuts, for as long as [enabled] — the caller passes whether its field holds the
  * caret, since a key pressed while focus is elsewhere is not about this text.
  *
@@ -63,6 +78,11 @@ internal fun MarkdownShortcuts(
     onRequestLink: (() -> Unit)?,
 ) {
     ShortcutHandler(ShortcutContext.TEXT, enabled = enabled) { action ->
+        val selection = state.selection
+        noteJump(action, state.text.length, selection.start, selection.end)?.let { (from, to) ->
+            state.edit { this.selection = TextRange(from, to) }
+            return@ShortcutHandler true
+        }
         when (val command = formatCommandFor(action)) {
             null -> false
             is FormatCommand.Wrap -> {

@@ -8,6 +8,7 @@ import pl.dakil.notes.editor.markdown.FormatCommand
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
 import pl.dakil.notes.editor.markdown.formatCommandFor
 import pl.dakil.notes.editor.markdown.nestEdit
+import pl.dakil.notes.editor.markdown.noteJump
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutContext
 
@@ -28,12 +29,12 @@ class MarkdownShortcutsTest {
     }
 
     @Test
-    fun `every shortcut that only fires while typing is a formatting command`() {
+    fun `every shortcut that only fires while typing is a formatting command or a jump`() {
         // A TEXT-only action with no command here would be a key the settings screen offers and
         // that then does nothing at all.
         for (action in ShortcutAction.entries) {
             if (action.contexts == setOf(ShortcutContext.TEXT)) {
-                assertNotNull("$action does nothing", formatCommandFor(action))
+                assertNotNull("$action does nothing", formatCommandFor(action) ?: noteJump(action, 1, 0, 0))
             }
         }
     }
@@ -62,5 +63,18 @@ class MarkdownShortcutsTest {
     fun `tab outside a list is left alone`() {
         assertNull(nestEdit("plain words", 3, 3, deeper = true))
         assertNull(nestEdit("# Heading", 4, 4, deeper = false))
+    }
+
+    @Test
+    fun `ctrl home goes to the start of the document from any block`() {
+        // The field on screen holds one block; its own Ctrl+Home would stop at that block's top.
+        assertEquals(0 to 0, noteJump(ShortcutAction.NOTE_START, length = 900, start = 640, end = 640))
+        assertEquals(900 to 900, noteJump(ShortcutAction.NOTE_END, length = 900, start = 12, end = 12))
+    }
+
+    @Test
+    fun `shift with ctrl home stretches the selection from where it was anchored`() {
+        assertEquals(640 to 0, noteJump(ShortcutAction.SELECT_TO_NOTE_START, length = 900, start = 640, end = 700))
+        assertEquals(640 to 900, noteJump(ShortcutAction.SELECT_TO_NOTE_END, length = 900, start = 640, end = 650))
     }
 }

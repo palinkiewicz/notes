@@ -208,6 +208,10 @@
     <string name="keymap_body_text">Zwykły tekst</string>
     <string name="keymap_indent_hint">Tylko w elemencie listy. Gdzie indziej klawisz działa jak zwykle.</string>
     <string name="keymap_search">Szukaj notatek</string>
+    <string name="keymap_note_start">Przejdź na początek notatki</string>
+    <string name="keymap_note_end">Przejdź na koniec notatki</string>
+    <string name="keymap_select_to_note_start">Zaznacz do początku notatki</string>
+    <string name="keymap_select_to_note_end">Zaznacz do końca notatki</string>
     <string name="keymap_new_ink_note">Nowa notatka odręczna</string>
     <string name="keymap_new_text_note">Nowa notatka tekstowa</string>
 

@@ -1,5 +1,13 @@
 package pl.dakil.notes.editor.markdown
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -178,5 +186,94 @@ fun MarkdownRenderPlan.toAnnotatedString(
                 }
             }
         }
+    }.toAnnotatedString()
+}
+
+/**
+ * One block of a `.md` note that nobody is typing in, drawn from its [MdSlice].
+ *
+ * The other half of [MarkdownDocument]: the block the caret is in is a live field, every other one
+ * is this. Both are styled by [decorateSlice] from the same slice of the same plan, both set their
+ * text at [WindowBaseSize] under the [body] style, and both draw the same decorations, so a block
+ * that becomes the live one does not move a pixel. What a tap on it means is the caller's: the
+ * offset handed to [onTap] is a place in the document.
+ */
+@Composable
+internal fun MarkdownSliceText(
+    slice: MdSlice,
+    source: String,
+    styles: MarkdownStyles,
+    textStyle: TextStyle,
+    body: SpanStyle,
+    pictures: MarkdownImages,
+    /** The document's selection, drawn where it reaches into this block. */
+    selection: TextRange,
+    onTap: (sourceOffset: Int) -> Unit,
+    onToggleTask: (MdTask) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = rememberMarkdownDecorationPalette()
+    val highlight = LocalTextSelectionColors.current.backgroundColor
+    val imageVersion = pictures.version
+    val text = remember(slice.text, slice.styles, slice.indents, slice.decorations, styles, body, pictures, imageVersion, pictures.columnPx) {
+        slice.toAnnotatedString(styles, body, pictures)
+    }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val current by rememberUpdatedState(slice)
+    val tap by rememberUpdatedState(onTap)
+
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .onSizeChanged { pictures.columnPx = it.width }
+            .drawBehind {
+                val result = layout ?: return@drawBehind
+                val from = maxOf(selection.min, slice.start)
+                val to = minOf(selection.max, slice.end)
+                if (to > from) {
+                    val a = slice.toSlice(from).coerceIn(0, result.layoutInput.text.length)
+                    val b = slice.toSlice(to).coerceIn(a, result.layoutInput.text.length)
+                    drawPath(result.getPathForRange(a, b), highlight)
+                }
+                drawMarkdownDecorations(slice.decorations, result, palette)
+            }
+            .pointerInput(Unit) {
+                detectTapGestures { position ->
+                    val result = layout ?: return@detectTapGestures
+                    tap(current.toSource(result.getOffsetForPosition(position)))
+                }
+            },
+    ) {
+        Text(
+            text = text,
+            style = textStyle,
+            modifier = Modifier.fillMaxWidth(),
+            onTextLayout = { layout = it },
+        )
+        val result = layout
+        if (result != null) {
+            for (decoration in slice.decorations) {
+                when (decoration) {
+                    is MdTask -> StaticTaskCheckbox(decoration, result) { _, _ -> onToggleTask(decoration) }
+                    is MdImage -> MarkdownImage(decoration, result, pictures)
+                    is MdCodeBlock -> CopyCodeButton(decoration, result, source) { 0 }
+                    else -> Unit
+                }
+            }
+        }
+    }
+}
+
+/** A slice as text for a `Text`: the same styling the live window gets, plus the note's last line. */
+internal fun MdSlice.toAnnotatedString(
+    styles: MarkdownStyles,
+    body: SpanStyle,
+    images: MarkdownImages?,
+): AnnotatedString {
+    val full = if (isLast) text + "\n" else text
+    return AnnotatedString.Builder(full).apply {
+        decorateSlice(this@toAnnotatedString, styles, images, body, text.length, { s, a, b -> addStyle(s, a, b) }, { p, a, b -> addStyle(p, a, b) })
+        if (isLast) addStyle(styles.trailingSpace, text.length, text.length + 1)
     }.toAnnotatedString()
 }

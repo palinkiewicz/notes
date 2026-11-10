@@ -206,6 +206,10 @@
     <string name="keymap_body_text">Body text</string>
     <string name="keymap_indent_hint">Only in a list item. Anywhere else the key works as usual.</string>
     <string name="keymap_search">Search notes</string>
+    <string name="keymap_note_start">Go to start of note</string>
+    <string name="keymap_note_end">Go to end of note</string>
+    <string name="keymap_select_to_note_start">Select to start of note</string>
+    <string name="keymap_select_to_note_end">Select to end of note</string>
     <string name="keymap_new_ink_note">New ink note</string>
     <string name="keymap_new_text_note">New text note</string>
     <string name="keymap_more_x" translatable="false">+%1$d</string>

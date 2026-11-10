@@ -18,13 +18,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import pl.dakil.notes.data.SaveState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.takeWhile
-import kotlinx.coroutines.withTimeoutOrNull
 import pl.dakil.notes.editor.SaveViewOnLeave
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarHost
@@ -60,7 +55,8 @@ import pl.dakil.notes.editor.markdown.InsertImageDialogs
 import pl.dakil.notes.editor.markdown.MarkdownActions
 import pl.dakil.notes.editor.markdown.rememberImageInsertState
 import pl.dakil.notes.editor.markdown.FormatPopup
-import pl.dakil.notes.editor.markdown.MarkdownEditor
+import pl.dakil.notes.editor.markdown.MarkdownDocument
+import pl.dakil.notes.editor.markdown.rememberMarkdownDocumentState
 import pl.dakil.notes.editor.markdown.MarkdownFormatBar
 import pl.dakil.notes.editor.markdown.MarkdownFormatRail
 import pl.dakil.notes.editor.markdown.PendingStyles
@@ -357,30 +353,13 @@ fun TextNoteScreen(
                 }
 
                 else -> Row(Modifier.fillMaxSize()) {
-                    // Opened where it was left, when the user asked for that. `maxValue` reads
-                    // `Int.MAX_VALUE` until the field has been measured, and scrolling before then
-                    // would land on a guess.
-                    //
-                    // The first measurement is not the last: images load after the text, and until
-                    // each one does it is a line tall. Scrolling once then clamped the saved spot
-                    // to a note with no pictures in it. So the view follows the note as it grows,
-                    // until it reaches the spot — or until the user scrolls, which is them choosing
-                    // somewhere else, or the pictures stop arriving.
-                    val scroll = rememberScrollState()
-                    LaunchedEffect(Unit) {
-                        val saved = viewModel.savedScroll() ?: return@LaunchedEffect
-                        var placed = -1
-                        withTimeoutOrNull(RESTORE_WINDOW_MS) {
-                            snapshotFlow { scroll.maxValue }
-                                .filter { it != Int.MAX_VALUE }
-                                .takeWhile { placed < 0 || (placed < saved && scroll.value == placed) }
-                                .collect { max ->
-                                    scroll.scrollTo(saved.coerceAtMost(max))
-                                    placed = scroll.value
-                                }
-                        }
+                    // Opened where it was left, when the user asked for that: a place in the text,
+                    // so pictures loading above it at their real height cannot push it away.
+                    val document = rememberMarkdownDocumentState()
+                    val initialPosition = remember { viewModel.savedPosition()?.let { it.anchor to it.offset } }
+                    SaveViewOnLeave {
+                        document.position()?.let { (anchor, offset) -> viewModel.rememberPosition(anchor, offset) }
                     }
-                    SaveViewOnLeave { viewModel.rememberScroll(scroll.value) }
                     if (expanded) {
                         MarkdownFormatRail(
                             state = text,
@@ -394,17 +373,18 @@ fun TextNoteScreen(
                             savedColors = state.savedColors,
                         )
                     }
-                    MarkdownEditor(
+                    MarkdownDocument(
                         state = text,
                         sourceMode = state.sourceMode,
+                        documentState = document,
                         pending = pending,
                         modifier = Modifier.fillMaxSize(),
-                        scroll = scroll,
                         // Only a note with nothing in it opens ready to type.
                         autoFocus = text.text.isEmpty(),
                         attributes = state.pandoc,
                         images = viewModel,
                         onRequestLink = { reference = ReferenceKind.LINK },
+                        initialPosition = initialPosition,
                     )
                 }
             }
@@ -412,5 +392,3 @@ fun TextNoteScreen(
     }
 }
 
-/** How long a reopened note keeps following its images down to where it was left. */
-private const val RESTORE_WINDOW_MS = 5_000L

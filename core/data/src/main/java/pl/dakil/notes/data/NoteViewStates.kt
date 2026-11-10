@@ -8,8 +8,14 @@ sealed interface NoteViewState {
     /** A sheet's pan and zoom, in the same raw terms `SheetTransform` keeps them. */
     data class Ink(val zoom: Float, val offsetX: Float, val offsetY: Float) : NoteViewState
 
-    /** A `.md` note's scroll, in pixels down the editor. */
-    data class Text(val scroll: Int) : NoteViewState
+    /**
+     * A `.md` note's scroll: the source offset of the block at the top of the screen, and how many
+     * pixels of that block were scrolled past.
+     *
+     * Not pixels down the whole note: the note is a lazily laid out list of blocks, which has no
+     * such number, and an anchor in the text survives images loading above it at a new height.
+     */
+    data class Text(val anchor: Int, val offset: Int) : NoteViewState
 }
 
 /**
@@ -24,7 +30,9 @@ internal object NoteViewStateCodec {
         // `Float.toString`, never a formatter: it is locale-free, where `%f` on a Polish device
         // writes `1,5` and the file reads back as garbage.
         is NoteViewState.Ink -> "i;$usedAtMs;${state.zoom};${state.offsetX};${state.offsetY}"
-        is NoteViewState.Text -> "t;$usedAtMs;${state.scroll}"
+        // `u`, not the `t` that once held pixels down the editor: a pixel count read back as an
+        // anchor would open the note at some unrelated character, so old entries decode to nothing.
+        is NoteViewState.Text -> "u;$usedAtMs;${state.anchor};${state.offset}"
     }
 
     fun decode(text: String): NoteViewState? {
@@ -38,7 +46,11 @@ internal object NoteViewStateCodec {
                 if (!zoom.isFinite() || zoom <= 0f || !y.isFinite()) null
                 else NoteViewState.Ink(zoom, x, y)
             }
-            "t" -> if (parts.size != 3) null else parts[2].toIntOrNull()?.let(NoteViewState::Text)
+            "u" -> if (parts.size != 4) null else {
+                val anchor = parts[2].toIntOrNull() ?: return null
+                val offset = parts[3].toIntOrNull() ?: return null
+                if (anchor < 0) null else NoteViewState.Text(anchor, offset)
+            }
             else -> null
         }
     }

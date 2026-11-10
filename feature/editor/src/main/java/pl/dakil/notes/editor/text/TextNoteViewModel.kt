@@ -154,17 +154,20 @@ class TextNoteViewModel(
             .launchIn(viewModelScope)
     }
 
-    /** How far down the open note was left, or null when that is not being remembered. */
-    fun savedScroll(): Int? {
+    /**
+     * Where the open note was left — the source offset of the block at the top and how far into it
+     * — or null when that is not being remembered.
+     */
+    fun savedPosition(): NoteViewState.Text? {
         val ref = _state.value.ref ?: return null
         if (!settings.read().rememberTextPosition) return null
-        return (viewStates.get(ref) as? NoteViewState.Text)?.scroll
+        return viewStates.get(ref) as? NoteViewState.Text
     }
 
-    /** Records how far down the open note is — and nothing at all with the setting off. */
-    fun rememberScroll(scroll: Int) {
+    /** Records where the open note is — and nothing at all with the setting off. */
+    fun rememberPosition(anchor: Int, offset: Int) {
         val ref = _state.value.ref ?: return
-        if (settings.read().rememberTextPosition) viewStates.put(ref, NoteViewState.Text(scroll))
+        if (settings.read().rememberTextPosition) viewStates.put(ref, NoteViewState.Text(anchor, offset))
     }
 
     /** The export sheet's choices as last left, shared with ink notes. */

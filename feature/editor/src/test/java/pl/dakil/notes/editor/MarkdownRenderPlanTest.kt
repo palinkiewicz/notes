@@ -774,7 +774,7 @@ class MarkdownRenderPlanTest {
         }
     }
 
-    private companion object {
+    internal companion object {
         val KITCHEN_SINK = """
             # Title
 
