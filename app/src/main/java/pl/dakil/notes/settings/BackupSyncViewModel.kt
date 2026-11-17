@@ -16,10 +16,12 @@ import kotlinx.coroutines.withContext
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.SyncFrequency
 import pl.dakil.notes.data.SyncProvider
+import pl.dakil.notes.data.sync.BackupContents
 import pl.dakil.notes.data.sync.BackupResult
 import pl.dakil.notes.data.sync.BackupRunner
 import pl.dakil.notes.data.sync.RestoreResult
 import pl.dakil.notes.data.sync.SyncCoordinator
+import pl.dakil.notes.sync.BackupGroup
 import pl.dakil.notes.sync.SyncOutcome
 import pl.dakil.notes.sync.SyncScheduler
 import pl.dakil.notes.sync.remote.GoogleCredential
@@ -27,6 +29,9 @@ import pl.dakil.notes.sync.remote.GoogleOAuth
 import pl.dakil.notes.sync.remote.PkceChallenge
 import pl.dakil.notes.sync.remote.WebDavAccount
 import pl.dakil.notes.sync.remote.WebDavBackend
+
+/** An archive the user picked, looked through, and waiting on their choice of what to take from it. */
+data class PendingRestore(val uri: Uri, val contents: BackupContents)
 
 /** Where the Drive wizard has got to. */
 enum class DriveStep { INTRODUCTION, CREDENTIALS, AUTHORIZING, CONNECTED }
@@ -37,6 +42,9 @@ data class BackupSyncUiState(
     val lastBackup: BackupResult? = null,
     val lastSync: SyncOutcome? = null,
     val lastRestore: RestoreResult? = null,
+    val pendingRestore: PendingRestore? = null,
+    /** Set when a picked file turned out not to be an archive at all. */
+    val restoreUnreadable: Boolean = false,
     val driveStep: DriveStep = DriveStep.INTRODUCTION,
     val driveConnected: Boolean = false,
     /** Set while the browser is open, so the screen can offer to cancel. */
@@ -102,10 +110,30 @@ class BackupSyncViewModel(
         _state.update { it.copy(lastBackup = result) }
     }
 
-    fun restoreFrom(uri: Uri) = busy {
-        val result = backup.restoreFrom(uri)
-        _state.update { it.copy(lastRestore = result) }
+    /**
+     * Looks through a picked archive first, so the user chooses what to take from it knowing what
+     * is in it — and an archive from before backups held settings offers just its notes.
+     */
+    fun inspectBackup(uri: Uri) = busy {
+        val contents = backup.inspect(uri)
+        _state.update {
+            if (contents == null) it.copy(restoreUnreadable = true)
+            else it.copy(pendingRestore = PendingRestore(uri, contents))
+        }
     }
+
+    fun confirmRestore(notes: Boolean, groups: Set<BackupGroup>) {
+        val pending = _state.value.pendingRestore ?: return
+        _state.update { it.copy(pendingRestore = null) }
+        busy {
+            val result = backup.restoreFrom(pending.uri, notes, groups)
+            // The schedule may have come back with the settings, and only this reaches the jobs.
+            if (BackupGroup.SETTINGS in groups) reschedule()
+            _state.update { it.copy(lastRestore = result) }
+        }
+    }
+
+    fun cancelRestore() = _state.update { it.copy(pendingRestore = null) }
 
     // ---- Sync -----------------------------------------------------------------------------------
 
@@ -243,7 +271,10 @@ class BackupSyncViewModel(
     }
 
     fun acknowledge() = _state.update {
-        it.copy(message = null, lastBackup = null, lastSync = null, lastRestore = null, webDavProbe = null)
+        it.copy(
+            message = null, lastBackup = null, lastSync = null, lastRestore = null, webDavProbe = null,
+            restoreUnreadable = false,
+        )
     }
 
     override fun onCleared() {

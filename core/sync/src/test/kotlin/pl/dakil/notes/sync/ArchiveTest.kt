@@ -3,6 +3,7 @@ package pl.dakil.notes.sync
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -36,6 +37,13 @@ class ArchiveTest {
         val second = zipOf(entry("A.md", "a"), entry("B.md", "b"))
 
         assertArrayEquals(first, second)
+    }
+
+    @Test
+    fun `the settings entry is a name no library file can have and sync never carries`() {
+        // A backup collects the library through `isIgnored`, so a dot-file there never reaches an
+        // archive: the settings entry cannot shadow a note, and restoring it can be told apart.
+        assertTrue(SyncPlanner.isIgnored(LibraryArchive.SETTINGS_ENTRY))
     }
 
     @Test

@@ -21,6 +21,17 @@ data class ArchiveEntry(val path: String, val open: () -> InputStream)
  */
 object LibraryArchive {
 
+    /**
+     * The archive's one entry that is not a library file: the app's settings, as
+     * [SettingsSnapshot.encode] wrote them.
+     *
+     * A dot-file at the root on purpose. The library never holds one — `SyncPlanner.isIgnored`
+     * skips dot-files when a backup is collected — so it cannot collide with a note, and a build
+     * from before settings were backed up restores it as a hidden file nothing ever reads, rather
+     * than as something that turns up in the library.
+     */
+    const val SETTINGS_ENTRY = ".daknote-settings.json"
+
     /** Not zero: some tools reject a 1970 entry outright, and MS-DOS time cannot express it. */
     private const val FIXED_TIME = 315_532_800_000L // 1980-01-01T00:00:00Z
 

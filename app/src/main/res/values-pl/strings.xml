@@ -257,12 +257,28 @@
     <string name="settings_backup_wifi">Tylko przez Wi-Fi</string>
     <string name="settings_backup_now">Utwórz kopię teraz</string>
     <string name="settings_backup_restore">Przywróć z kopii…</string>
-    <string name="settings_backup_restore_description">Dodaje pliki z powrotem. Nic z obecnych notatek nie zostanie zastąpione.</string>
+    <string name="settings_backup_restore_description">Wybierz, co przywrócić. Notatki są dodawane obok obecnych; nic nie zostanie nadpisane.</string>
     <string name="settings_backup_never">Nigdy</string>
     <string name="settings_backup_last">Ostatnia kopia: %1$s</string>
     <string name="settings_backup_pruned">Zapisano %1$s z %2$d plikami i usunięto %3$d starszych kopii.</string>
     <string name="settings_backup_failed">Kopia nie powiodła się: %1$s</string>
     <string name="settings_restore_failed">Przywracanie nie powiodło się: %1$s</string>
+    <string name="common_cancel">Anuluj</string>
+    <string name="settings_restore_choose_title">Przywróć z tej kopii</string>
+    <string name="settings_restore_choose_confirm">Przywróć</string>
+    <string name="settings_restore_notes_description">Dodawane obok obecnych notatek</string>
+    <string name="settings_restore_group_settings">Ustawienia aplikacji</string>
+    <string name="settings_restore_group_settings_description">Wygląd, pióro i wprowadzanie, skróty klawiszowe, edytor i harmonogram kopii</string>
+    <string name="settings_restore_group_tools">Narzędzia</string>
+    <string name="settings_restore_group_tools_description">Kolor, grubość i krycie każdego narzędzia oraz używane narzędzie</string>
+    <string name="settings_restore_group_palette">Paleta kolorów</string>
+    <string name="settings_restore_group_palette_description">Zapisane i ostatnio używane kolory</string>
+    <string name="settings_restore_group_paper">Motywy papieru</string>
+    <string name="settings_restore_group_paper_description">Zapisane motywy papieru i motyw dla nowych notatek</string>
+    <string name="settings_restore_replaces">Wybrane ustawienia zastąpią te na tym urządzeniu.</string>
+    <string name="settings_restore_notes_only">Ta kopia powstała, zanim kopie obejmowały ustawienia, więc zawiera tylko notatki.</string>
+    <string name="settings_restore_unreadable">Nie udało się odczytać pliku jako kopii.</string>
+    <string name="settings_restore_done_settings">Przywrócono ustawienia.</string>
 
     <string name="settings_sync">Synchronizacja</string>
     <string name="settings_sync_summary">Kopiuj notatki na wybrany serwer</string>
@@ -343,6 +359,12 @@
         <item quantity="few">Przywrócono %1$d pliki.</item>
         <item quantity="many">Przywrócono %1$d plików.</item>
         <item quantity="other">Przywrócono %1$d pliku.</item>
+    </plurals>
+    <plurals name="settings_restore_choose_notes">
+        <item quantity="one">Notatki (%1$d plik)</item>
+        <item quantity="few">Notatki (%1$d pliki)</item>
+        <item quantity="many">Notatki (%1$d plików)</item>
+        <item quantity="other">Notatki (%1$d pliku)</item>
     </plurals>
     <plurals name="settings_sync_conflicts_notes">
         <item quantity="one">%1$d notatkę zmieniono w dwóch miejscach. Zachowano obie wersje.</item>

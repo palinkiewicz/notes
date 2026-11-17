@@ -24,6 +24,9 @@ import pl.dakil.notes.model.Keymap
 import pl.dakil.notes.model.RenderOrder
 import pl.dakil.notes.model.StylusButtonAction
 import pl.dakil.notes.model.ViewMode
+import pl.dakil.notes.sync.BackupGroup
+import pl.dakil.notes.sync.PrefValue
+import pl.dakil.notes.sync.SettingsSnapshot
 import java.util.Locale
 
 /** Where the toolbar sits, so left-handed users and tablet users can put it somewhere sensible. */
@@ -416,6 +419,60 @@ class SettingsRepository(context: Context) {
     fun clearToolState() = prefs.edit().remove(KEY_TOOL_STATE).apply()
 
     /**
+     * Emits the stored tools whenever they change, from here or from a restore.
+     *
+     * The editor's own writes come back through this too; it tells them apart by comparing with
+     * what it last wrote, so only a value from somewhere else replaces the tools in hand.
+     */
+    fun toolStateChanges(): Flow<String?> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            // A null key is `clear()`, which takes the tools with it.
+            if (key == null || key == KEY_TOOL_STATE) trySend(prefs.getString(KEY_TOOL_STATE, null))
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    // ---- Backup ----------------------------------------------------------------------------------
+
+    /** Everything a backup carries, sorted into the groups a restore offers. */
+    fun exportSnapshot(): SettingsSnapshot {
+        val groups = LinkedHashMap<BackupGroup, MutableMap<String, PrefValue>>()
+        for ((key, raw) in prefs.all) {
+            val group = backupGroupOf(key) ?: continue
+            val value = PrefValue.of(raw) ?: continue
+            groups.getOrPut(group) { LinkedHashMap() }[key] = value
+        }
+        return SettingsSnapshot(groups)
+    }
+
+    /**
+     * Replaces the [chosen] groups with what [snapshot] holds for them, and returns how many groups
+     * were replaced.
+     *
+     * `commit` rather than `apply`: the restore reports success once this returns, and a process
+     * killed in between would otherwise have said "restored" about settings that never landed.
+     */
+    fun importSnapshot(snapshot: SettingsSnapshot, chosen: Set<BackupGroup>): Int {
+        val plan = planSettingsImport(snapshot, chosen, prefs.all)
+        if (plan.groups.isEmpty()) return 0
+        val editor = prefs.edit()
+        plan.remove.forEach(editor::remove)
+        for ((key, value) in plan.put) {
+            when (value) {
+                is PrefValue.Bool -> editor.putBoolean(key, value.value)
+                is PrefValue.IntV -> editor.putInt(key, value.value)
+                is PrefValue.LongV -> editor.putLong(key, value.value)
+                is PrefValue.FloatV -> editor.putFloat(key, value.value)
+                is PrefValue.Str -> editor.putString(key, value.value)
+                is PrefValue.StrSet -> editor.putStringSet(key, value.value)
+            }
+        }
+        editor.commit()
+        return plan.groups.size
+    }
+
+    /**
      * The export sheet's choices as last left. Not a field of [AppSettings] for the same reason as
      * [readToolState]: nothing but the export sheet reads it, and it changes on every tap there.
      */
@@ -591,7 +648,29 @@ class SettingsRepository(context: Context) {
         )
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * Which part of a backup a stored key belongs to, or null for a key that never leaves
+         * this device.
+         *
+         * Everything not named here is a setting, so a preference added later is backed up without
+         * anyone remembering to list it. What has to be listed is what must *not* travel: the
+         * library's location and the backup folder are SAF grants this device holds and another
+         * cannot use, the account names belong with secrets sealed by this device's keystore, the
+         * last-run times would make every backup of an unchanged phone differ, and the device id is
+         * this installation's name. Of backup and sync only the schedule moves with the user.
+         */
+        fun backupGroupOf(key: String): BackupGroup? = when (key) {
+            KEY_TOOL_STATE, KEY_REMEMBER_TOOLS -> BackupGroup.TOOLS
+            KEY_SAVED_COLORS, KEY_RECENT_COLORS -> BackupGroup.PALETTE
+            KEY_PAPER_THEMES, KEY_DEFAULT_PAPER_THEME -> BackupGroup.PAPER
+            KEY_BACKUP_FREQUENCY, KEY_BACKUP_KEEP, KEY_BACKUP_CHARGING, KEY_BACKUP_WIFI,
+            KEY_SYNC_FREQUENCY, KEY_SYNC_WIFI, KEY_SYNC_TWO_WAY -> BackupGroup.SETTINGS
+            else -> if (DEVICE_ONLY_PREFIXES.any(key::startsWith)) null else BackupGroup.SETTINGS
+        }
+
+        private val DEVICE_ONLY_PREFIXES = listOf("library.", "backup.", "sync.")
+
         const val KEY_FINGER_DRAWING = "input.fingerDrawing"
         const val KEY_PALM_WINDOW = "input.palmWindowMs"
         const val KEY_PALM_SIZE = "input.palmTouchMajor"

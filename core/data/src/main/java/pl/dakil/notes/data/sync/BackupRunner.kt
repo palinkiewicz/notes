@@ -12,8 +12,10 @@ import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.data.StoreListing
 import pl.dakil.notes.data.StoreRef
 import pl.dakil.notes.sync.ArchiveEntry
+import pl.dakil.notes.sync.BackupGroup
 import pl.dakil.notes.sync.LibraryArchive
 import pl.dakil.notes.sync.Retention
+import pl.dakil.notes.sync.SettingsSnapshot
 import pl.dakil.notes.sync.SyncPlanner
 import java.io.ByteArrayInputStream
 
@@ -23,9 +25,18 @@ sealed interface BackupResult {
 }
 
 sealed interface RestoreResult {
-    data class Done(val restored: Int) : RestoreResult
+    /** [restored] library files written, and [settingsGroups] parts of the settings replaced. */
+    data class Done(val restored: Int, val settingsGroups: Int = 0) : RestoreResult
     data class Failed(val reason: String) : RestoreResult
 }
+
+/**
+ * What an archive holds, read before restoring so the user can choose what to take from it.
+ *
+ * An archive from before backups carried settings has [groups] empty, and restores exactly as it
+ * always did.
+ */
+data class BackupContents(val noteFiles: Int, val groups: Set<BackupGroup>)
 
 /**
  * Writes the whole library to a `.zip` wherever the user pointed, and reads one back.
@@ -58,6 +69,9 @@ class BackupRunner(
             // restores from after losing the original.
             return@withContext BackupResult.Failed("The library could not be read in full")
         }
+        // Not counted in the result's file count: the screen reports files, and this is not one.
+        val settingsBytes = settings.exportSnapshot().encode().toByteArray(Charsets.UTF_8)
+        entries += ArchiveEntry(LibraryArchive.SETTINGS_ENTRY) { ByteArrayInputStream(settingsBytes) }
 
         val name = Retention.nameFor(clock())
         val target = destination.newChild(destinationRoot, name, "application/zip")
@@ -67,7 +81,7 @@ class BackupRunner(
 
         val pruned = prune(destination, destinationRoot)
         settings.setLastBackupAt(clock())
-        BackupResult.Done(name, entries.size, pruned)
+        BackupResult.Done(name, entries.size - 1, pruned)
     }
 
     /** Reads every file under the library root, refusing rather than skipping what it cannot. */
@@ -108,18 +122,60 @@ class BackupRunner(
     }
 
     /**
-     * Reads an archive back into the library.
-     *
-     * Never overwrites: a name already taken steps aside to ` (2)`, the same rule a new note
-     * follows. Restoring is something people do when they are already having a bad day, and one
-     * that quietly replaced the notes they still had would make it worse.
+     * Looks through an archive without changing anything: how many library files it holds, and
+     * which parts of the settings. Null when it cannot be opened or is not an archive at all.
      */
-    suspend fun restoreFrom(archiveUri: Uri): RestoreResult = withContext(io) {
-        val root = store.root() ?: return@withContext RestoreResult.Failed("No library")
-        var restored = 0
+    suspend fun inspect(archiveUri: Uri): BackupContents? = withContext(io) {
+        var files = 0
+        var snapshot: SettingsSnapshot? = null
         runCatching {
             context.contentResolver.openInputStream(archiveUri)?.use { input ->
                 LibraryArchive.read(input) { path, stream ->
+                    if (path == LibraryArchive.SETTINGS_ENTRY) {
+                        snapshot = SettingsSnapshot.decode(stream.readBytes().toString(Charsets.UTF_8))
+                    } else {
+                        files++
+                    }
+                }
+            } ?: return@withContext null
+        }.onFailure { return@withContext null }
+        BackupContents(files, snapshot?.nonEmptyGroups.orEmpty())
+    }
+
+    /**
+     * Reads an archive back: its files into the library when [notes] is set, and the settings
+     * [groups] chosen.
+     *
+     * Files never overwrite: a name already taken steps aside to ` (2)`, the same rule a new note
+     * follows. Restoring is something people do when they are already having a bad day, and one
+     * that quietly replaced the notes they still had would make it worse. Settings, by contrast,
+     * are replaced — there is one theme, and two palettes merged is neither of them — which is why
+     * each group is a choice and none is forced on anyone.
+     */
+    suspend fun restoreFrom(
+        archiveUri: Uri,
+        notes: Boolean = true,
+        groups: Set<BackupGroup> = emptySet(),
+    ): RestoreResult = withContext(io) {
+        val root = if (notes) {
+            store.root() ?: return@withContext RestoreResult.Failed("No library")
+        } else {
+            null
+        }
+        var restored = 0
+        var snapshot: SettingsSnapshot? = null
+        runCatching {
+            context.contentResolver.openInputStream(archiveUri)?.use { input ->
+                LibraryArchive.read(input) { path, stream ->
+                    // Never written into the library, whatever was chosen: it is the archive's
+                    // own record of the settings, not one of the user's files.
+                    if (path == LibraryArchive.SETTINGS_ENTRY) {
+                        if (groups.isNotEmpty()) {
+                            snapshot = SettingsSnapshot.decode(stream.readBytes().toString(Charsets.UTF_8))
+                        }
+                        return@read
+                    }
+                    if (root == null) return@read
                     val bytes = stream.readBytes()
                     kotlinx.coroutines.runBlocking {
                         val parent = ensureDirectory(root, path.substringBeforeLast('/', ""))
@@ -133,8 +189,9 @@ class BackupRunner(
             } ?: return@withContext RestoreResult.Failed("The archive could not be opened")
         }.onFailure { return@withContext RestoreResult.Failed(it.message ?: "The archive could not be read") }
 
-        repository.refreshIndex(root, "", recursive = true)
-        RestoreResult.Done(restored)
+        val settingsGroups = snapshot?.let { settings.importSnapshot(it, groups) } ?: 0
+        if (root != null && restored > 0) repository.refreshIndex(root, "", recursive = true)
+        RestoreResult.Done(restored, settingsGroups)
     }
 
     private suspend fun ensureDirectory(root: StoreRef, path: String): StoreRef? {

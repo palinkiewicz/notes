@@ -15,6 +15,7 @@ import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutGroup
 import pl.dakil.notes.model.StylusButtonAction
+import pl.dakil.notes.sync.BackupGroup
 import pl.dakil.notes.editor.R as EditorR
 
 /**
@@ -224,5 +225,25 @@ fun ShortcutGroup.whereLabel(): String = stringResource(
         ShortcutGroup.TOOLS, ShortcutGroup.SELECTION, ShortcutGroup.VIEW -> R.string.keymap_where_sheet
         ShortcutGroup.TEXT -> R.string.keymap_where_text
         ShortcutGroup.LIBRARY -> R.string.keymap_where_library
+    },
+)
+
+@Composable
+fun BackupGroup.label(): String = stringResource(
+    when (this) {
+        BackupGroup.SETTINGS -> R.string.settings_restore_group_settings
+        BackupGroup.TOOLS -> R.string.settings_restore_group_tools
+        BackupGroup.PALETTE -> R.string.settings_restore_group_palette
+        BackupGroup.PAPER -> R.string.settings_restore_group_paper
+    },
+)
+
+@Composable
+fun BackupGroup.description(): String = stringResource(
+    when (this) {
+        BackupGroup.SETTINGS -> R.string.settings_restore_group_settings_description
+        BackupGroup.TOOLS -> R.string.settings_restore_group_tools_description
+        BackupGroup.PALETTE -> R.string.settings_restore_group_palette_description
+        BackupGroup.PAPER -> R.string.settings_restore_group_paper_description
     },
 )

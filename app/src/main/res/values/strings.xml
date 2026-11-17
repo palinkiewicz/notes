@@ -261,12 +261,28 @@
     <string name="settings_backup_wifi">Only on Wi-Fi</string>
     <string name="settings_backup_now">Back up now</string>
     <string name="settings_backup_restore">Restore from a backup…</string>
-    <string name="settings_backup_restore_description">Adds the files back. Nothing you have now is replaced.</string>
+    <string name="settings_backup_restore_description">Choose what to bring back. Notes are added next to the ones you have; nothing is overwritten.</string>
     <string name="settings_backup_never">Never</string>
     <string name="settings_backup_last">Last backup: %1$s</string>
     <string name="settings_backup_pruned">Saved %1$s with %2$d files, and removed %3$d older copies.</string>
     <string name="settings_backup_failed">Backup failed: %1$s</string>
     <string name="settings_restore_failed">Restore failed: %1$s</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="settings_restore_choose_title">Restore from this backup</string>
+    <string name="settings_restore_choose_confirm">Restore</string>
+    <string name="settings_restore_notes_description">Added next to the notes you have</string>
+    <string name="settings_restore_group_settings">App settings</string>
+    <string name="settings_restore_group_settings_description">Appearance, pen and input, keyboard shortcuts, editor and backup schedule</string>
+    <string name="settings_restore_group_tools">Tools</string>
+    <string name="settings_restore_group_tools_description">Each tool\'s colour, width and opacity, and the tool in hand</string>
+    <string name="settings_restore_group_palette">Colour palette</string>
+    <string name="settings_restore_group_palette_description">Saved and recent colours</string>
+    <string name="settings_restore_group_paper">Paper themes</string>
+    <string name="settings_restore_group_paper_description">Saved paper themes and the one new notes start on</string>
+    <string name="settings_restore_replaces">Settings you pick replace the ones on this device.</string>
+    <string name="settings_restore_notes_only">This backup was made before backups included settings, so it holds only notes.</string>
+    <string name="settings_restore_unreadable">The file could not be read as a backup.</string>
+    <string name="settings_restore_done_settings">Settings restored.</string>
 
     <string name="settings_sync">Sync</string>
     <string name="settings_sync_summary">Mirror your notes to a server you choose</string>
@@ -341,6 +357,10 @@ It takes about five minutes, once.</string>
     <plurals name="settings_restore_done_files">
         <item quantity="one">Restored %1$d file.</item>
         <item quantity="other">Restored %1$d files.</item>
+    </plurals>
+    <plurals name="settings_restore_choose_notes">
+        <item quantity="one">Notes (%1$d file)</item>
+        <item quantity="other">Notes (%1$d files)</item>
     </plurals>
     <plurals name="settings_sync_conflicts_notes">
         <item quantity="one">%1$d note changed in two places. Both versions were kept.</item>

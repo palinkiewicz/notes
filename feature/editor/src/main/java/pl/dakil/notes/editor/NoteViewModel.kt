@@ -288,6 +288,12 @@ class NoteViewModel(
     /** A box that has been put on the page but not yet into the history. See [createTextBlock]. */
     private var pendingBox: BlockId? = null
 
+    /**
+     * What [saveTools] last wrote, so its own writes are not mistaken for a restore. Declared
+     * before `init`, which sets it: an initialiser after it would run later and wipe it.
+     */
+    private var lastSavedTools: String? = null
+
     init {
         restoreTools()
 
@@ -331,6 +337,14 @@ class NoteViewModel(
             .debounce(TOOL_SAVE_MS)
             .onEach(::saveTools)
             .launchIn(viewModelScope)
+
+        // This model lives as long as the activity, Settings included, so a restore from a backup
+        // happens with the old tools still in hand — and the debounce above, or `onCleared`, would
+        // write them straight back over the restored ones. A stored value this model did not write
+        // came from somewhere else, and is taken up instead.
+        settings.toolStateChanges()
+            .onEach { stored -> if (stored != lastSavedTools) restoreTools() }
+            .launchIn(viewModelScope)
     }
 
     override fun onCleared() {
@@ -344,7 +358,9 @@ class NoteViewModel(
     /** Picks up the tools as they were left, when the user has asked for them to be kept. */
     private fun restoreTools() {
         if (!settings.read().rememberTools) return
-        val saved = ToolState.decode(settings.readToolState())
+        val stored = settings.readToolState()
+        lastSavedTools = stored
+        val saved = ToolState.decode(stored)
         _state.update {
             it.copy(
                 tool = saved.presets.first { spec -> spec.tool == saved.lastDrawing },
@@ -356,7 +372,10 @@ class NoteViewModel(
     }
 
     private fun saveTools(tools: ToolState) {
-        if (settings.read().rememberTools) settings.writeToolState(tools.encode())
+        if (!settings.read().rememberTools) return
+        val encoded = tools.encode()
+        lastSavedTools = encoded
+        settings.writeToolState(encoded)
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------------
