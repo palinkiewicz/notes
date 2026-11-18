@@ -54,7 +54,6 @@ import pl.dakil.notes.model.InkBlock
 import pl.dakil.notes.model.Rect
 import pl.dakil.notes.model.ShapeSpec
 import pl.dakil.notes.model.Sheet
-import pl.dakil.notes.ui.color.ColorPickerSheet
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.ui.theme.tabular
@@ -100,6 +99,7 @@ fun SelectionChrome(
     transform: SheetTransform,
     ptToPx: Float,
     paged: Boolean,
+    colorPicker: NoteColorPicker?,
     modifier: Modifier = Modifier,
 ) {
     val selection = state.selection ?: return
@@ -468,7 +468,8 @@ fun SelectionChrome(
     // bury the rest of the history under it.
     pickingColor?.let { target ->
         val inside = target == InkTarget.INSIDE
-        ColorPickerSheet(
+        NoteColorSheet(
+            picker = colorPicker,
             title = stringResource(
                 if (inside) R.string.editor_selection_inside_colour else R.string.editor_selection_colour,
             ),

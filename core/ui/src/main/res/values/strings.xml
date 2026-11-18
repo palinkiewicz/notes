@@ -24,6 +24,7 @@
     <string name="ui_color_presets">Presets</string>
     <string name="ui_color_recent">Recent</string>
     <string name="ui_color_saved">Saved</string>
+    <string name="ui_color_pick_from_note">Pick colour from note</string>
     <string name="ui_color_save">Save colour</string>
     <string name="ui_color_unsave">Remove from saved</string>
     <string name="ui_color_already_saved">Already saved</string>

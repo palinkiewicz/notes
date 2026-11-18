@@ -70,7 +70,6 @@ import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
-import pl.dakil.notes.ui.color.ColorPickerSheet
 import pl.dakil.notes.ui.color.SavedPalette
 import pl.dakil.notes.ui.designsystem.AppMenu
 import pl.dakil.notes.ui.designsystem.AppMenuGroup
@@ -152,6 +151,19 @@ fun EditorScreen(
     // resource id, because the view model has no `Context` to resolve one with.
     val errorMessage = state.error ?: state.errorRes?.let { stringResource(it) }
 
+    // The eyedropper needs paper to touch, so it is on offer only while the sheet is showing.
+    val colorPicker = remember { NoteColorPicker() }
+    val sheetShown = sheet != null && !state.isLoading && errorMessage == null
+    val availablePicker = colorPicker.takeIf { sheetShown }
+    LaunchedEffect(sheetShown) { if (!sheetShown) colorPicker.cancel() }
+    BackHandler(enabled = colorPicker.active) { colorPicker.cancel() }
+    fun pickToolColor(tool: ToolId, target: InkTarget) {
+        val spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool)
+        colorPicker.start(spec.colorOf(target)) { picked ->
+            viewModel.setToolColor(tool, picked, target)
+            viewModel.rememberColor(picked)
+        }
+    }
 
     // The sheet's keys. Typing in a box is the TEXT context, so a bare letter types rather than
     // picking up a pen; zoom is answered by SheetEditor, and formatting by the box's own field.
@@ -162,6 +174,10 @@ fun EditorScreen(
         // is the one authority — so its built-in keys must not reach it, whatever they are bound to.
         consume = { typing && it in TextFieldUndoKeys },
     ) { action ->
+        // The bars are out of reach during a pick, and their keys should be no different.
+        if (colorPicker.active) {
+            return@ShortcutHandler (action == ShortcutAction.DESELECT).also { if (it) colorPicker.cancel() }
+        }
         fun tool(pick: () -> Unit): Boolean {
             toolPopup = null
             pick()
@@ -258,7 +274,8 @@ fun EditorScreen(
     // Pen colour, applied live so the swatch and the next stroke follow the drag.
     editingPen?.let { (tool, target) ->
         val spec = state.toolPresets.firstOrNull { it.tool == tool } ?: ToolSpec.defaultFor(tool)
-        ColorPickerSheet(
+        NoteColorSheet(
+            picker = availablePicker,
             title = stringResource(target.label(tool)),
             initial = spec.colorOf(target),
             presets = ColorCodec.INK_PRESETS,
@@ -281,7 +298,8 @@ fun EditorScreen(
             PageColorTarget.LINES -> background.pattern.color
             PageColorTarget.MARGIN -> background.pattern.marginColor
         }
-        ColorPickerSheet(
+        NoteColorSheet(
+            picker = availablePicker,
             title = when (target) {
                 PageColorTarget.PAPER -> stringResource(R.string.editor_paper_colour)
                 PageColorTarget.LINES -> stringResource(R.string.editor_line_colour)
@@ -468,7 +486,11 @@ fun EditorScreen(
         // height, which is what lets the transform scroll a box clear of the keyboard.
         modifier = modifier.fillMaxSize().imePadding(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
+        topBar = topBar@{
+            if (colorPicker.active) {
+                ColorPickBar(onCancel = colorPicker::cancel)
+                return@topBar
+            }
             TopAppBar(
                 modifier = Modifier.dismissToolPopupOnPress { toolPopup = null },
                 title = {
@@ -562,40 +584,43 @@ fun EditorScreen(
                 // swapped: the tools are how you get *out* of the text — pick a pen and the pen is
                 // what the next touch does — so taking them away while typing would make leaving a
                 // box a thing you have to discover.
-                Column {
-                    if (state.editingTextBlock != null) {
-                        MarkdownFormatBar(
-                            state = viewModel.textField,
-                            pending = viewModel.pendingStyles,
-                            openPopup = formatPopup,
-                            onPopupChange = { formatPopup = it },
-                            onInsertLink = { reference = ReferenceKind.LINK },
-                            onInsertImage = { insertImageFromBox(link = false) },
-                            onInsertImageLink = if (imageInsert.longPressOpensLink) {
-                                { insertImageFromBox(link = true) }
-                            } else {
-                                null
-                            },
-                            // A sheet is paper, not a Markdown file: it can set its own sizes and colours.
-                            attributes = true,
-                            savedColors = state.savedColors,
-                            compact = true,
+                InertWhilePicking(colorPicker) {
+                    Column {
+                        if (state.editingTextBlock != null) {
+                            MarkdownFormatBar(
+                                state = viewModel.textField,
+                                pending = viewModel.pendingStyles,
+                                openPopup = formatPopup,
+                                onPopupChange = { formatPopup = it },
+                                onInsertLink = { reference = ReferenceKind.LINK },
+                                onInsertImage = { insertImageFromBox(link = false) },
+                                onInsertImageLink = if (imageInsert.longPressOpensLink) {
+                                    { insertImageFromBox(link = true) }
+                                } else {
+                                    null
+                                },
+                                // A sheet is paper, not a Markdown file: it can set its own sizes and colours.
+                                attributes = true,
+                                savedColors = state.savedColors,
+                                compact = true,
+                            )
+                        }
+                        EditorToolbar(
+                            state = state,
+                            openPopup = toolPopup,
+                            onPopupChange = { toolPopup = it },
+                            onSelectTool = viewModel::selectTool,
+                            onSelectTextTool = viewModel::selectTextTool,
+                            onSelectImageTool = viewModel::selectImageTool,
+                            onUpdateTool = viewModel::updateTool,
+                            onToggleFingerDrawing = viewModel::setFingerDrawing,
+                            onToggleRuler = viewModel::setRuler,
+                            onOpenColorPicker = { tool, target -> editingPen = tool to target },
+                            palette = rememberSavedPalette(state.savedColors, viewModel),
+                            onPickColor = if (sheetShown) ::pickToolColor else null,
+                            compact = state.editingTextBlock != null,
                         )
                     }
-                    EditorToolbar(
-                        state = state,
-                        openPopup = toolPopup,
-                        onPopupChange = { toolPopup = it },
-                        onSelectTool = viewModel::selectTool,
-                        onSelectTextTool = viewModel::selectTextTool,
-                        onSelectImageTool = viewModel::selectImageTool,
-                        onUpdateTool = viewModel::updateTool,
-                        onToggleFingerDrawing = viewModel::setFingerDrawing,
-                        onToggleRuler = viewModel::setRuler,
-                        onOpenColorPicker = { tool, target -> editingPen = tool to target },
-                        palette = rememberSavedPalette(state.savedColors, viewModel),
-                        compact = state.editingTextBlock != null,
-                    )
                 }
             }
         },
@@ -623,36 +648,41 @@ fun EditorScreen(
                     // On a tablet the tools dock beside the sheet instead of taking a bottom bar,
                     // keeping the page area as tall as possible.
                     if (expanded && state.editingTextBlock != null) {
-                        MarkdownFormatRail(
-                            state = viewModel.textField,
-                            pending = viewModel.pendingStyles,
-                            openPopup = formatPopup,
-                            onPopupChange = { formatPopup = it },
-                            onInsertLink = { reference = ReferenceKind.LINK },
-                            onInsertImage = { insertImageFromBox(link = false) },
-                            onInsertImageLink = if (imageInsert.longPressOpensLink) {
-                                { insertImageFromBox(link = true) }
-                            } else {
-                                null
-                            },
-                            attributes = true,
-                            savedColors = state.savedColors,
-                        )
+                        InertWhilePicking(colorPicker) {
+                            MarkdownFormatRail(
+                                state = viewModel.textField,
+                                pending = viewModel.pendingStyles,
+                                openPopup = formatPopup,
+                                onPopupChange = { formatPopup = it },
+                                onInsertLink = { reference = ReferenceKind.LINK },
+                                onInsertImage = { insertImageFromBox(link = false) },
+                                onInsertImageLink = if (imageInsert.longPressOpensLink) {
+                                    { insertImageFromBox(link = true) }
+                                } else {
+                                    null
+                                },
+                                attributes = true,
+                                savedColors = state.savedColors,
+                            )
+                        }
                     }
                     if (expanded) {
-                        EditorToolRail(
-                            state = state,
-                            openPopup = toolPopup,
-                            onPopupChange = { toolPopup = it },
-                            onSelectTool = viewModel::selectTool,
-                            onSelectTextTool = viewModel::selectTextTool,
-                            onSelectImageTool = viewModel::selectImageTool,
-                            onUpdateTool = viewModel::updateTool,
-                            onToggleFingerDrawing = viewModel::setFingerDrawing,
-                            onToggleRuler = viewModel::setRuler,
-                            onOpenColorPicker = { tool, target -> editingPen = tool to target },
-                            palette = rememberSavedPalette(state.savedColors, viewModel),
-                        )
+                        InertWhilePicking(colorPicker) {
+                            EditorToolRail(
+                                state = state,
+                                openPopup = toolPopup,
+                                onPopupChange = { toolPopup = it },
+                                onSelectTool = viewModel::selectTool,
+                                onSelectTextTool = viewModel::selectTextTool,
+                                onSelectImageTool = viewModel::selectImageTool,
+                                onUpdateTool = viewModel::updateTool,
+                                onToggleFingerDrawing = viewModel::setFingerDrawing,
+                                onToggleRuler = viewModel::setRuler,
+                                onOpenColorPicker = { tool, target -> editingPen = tool to target },
+                                palette = rememberSavedPalette(state.savedColors, viewModel),
+                                onPickColor = if (sheetShown) ::pickToolColor else null,
+                            )
+                        }
                     }
                     SheetEditor(
                         state = state,
@@ -663,6 +693,7 @@ fun EditorScreen(
                             imageSpot = x to y
                             imageInsert.start()
                         },
+                        colorPicker = colorPicker,
                     )
                 }
             }

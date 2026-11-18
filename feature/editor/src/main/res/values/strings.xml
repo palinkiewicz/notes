@@ -68,6 +68,8 @@
     <string name="editor_line_colour">Line colour</string>
     <string name="editor_margin_colour">Margin colour</string>
     <string name="editor_custom_colour">Custom colour</string>
+    <string name="editor_pick_colour">Pick colour from note</string>
+    <string name="editor_pick_colour_hint">Touch a colour in the note</string>
     <string name="editor_colour">Colour</string>
 
     <!--  TOOLBAR  -->

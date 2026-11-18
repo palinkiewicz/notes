@@ -103,6 +103,8 @@ fun ColorPicker(
      * vanishing a gutter's width short of it.
      */
     horizontalPadding: Dp = 0.dp,
+    /** Shows the eyedropper beside the hex field; null where there is no note to pick from. */
+    onPickFromNote: (() -> Unit)? = null,
 ) {
     val padded = Modifier.padding(horizontal = horizontalPadding)
     val hsv = remember(initial) { ColorCodec.toHsv(initial) }
@@ -191,6 +193,15 @@ fun ColorPicker(
                 ),
                 modifier = Modifier.weight(1f),
             )
+            if (onPickFromNote != null) {
+                IconButton(onClick = onPickFromNote, shapes = IconButtonDefaults.shapes()) {
+                    Icon(
+                        imageVector = NotesIcons.Eyedropper,
+                        contentDescription = stringResource(R.string.ui_color_pick_from_note),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (palette != null) SaveToggle(current = current, palette = palette)
         }
 

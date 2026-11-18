@@ -24,6 +24,7 @@
     <string name="ui_color_presets">Standardowe</string>
     <string name="ui_color_recent">Ostatnie</string>
     <string name="ui_color_saved">Zapisane</string>
+    <string name="ui_color_pick_from_note">Pobierz kolor z notatki</string>
     <string name="ui_color_save">Zapisz kolor</string>
     <string name="ui_color_unsave">Usuń z zapisanych</string>
     <string name="ui_color_already_saved">Już zapisany</string>

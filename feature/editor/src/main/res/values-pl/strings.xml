@@ -68,6 +68,8 @@
     <string name="editor_paper_colour">Kolor papieru</string>
     <string name="editor_line_colour">Kolor linii</string>
     <string name="editor_margin_colour">Kolor marginesu</string>
+    <string name="editor_pick_colour">Pobierz kolor z notatki</string>
+    <string name="editor_pick_colour_hint">Dotknij koloru w notatce</string>
     <string name="editor_custom_colour">Własny kolor</string>
     <string name="editor_colour">Kolor</string>
 

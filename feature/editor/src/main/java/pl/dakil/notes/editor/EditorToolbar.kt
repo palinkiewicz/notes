@@ -131,6 +131,8 @@ fun EditorToolbar(
     onOpenColorPicker: (ToolId, InkTarget) -> Unit,
     /** What a long-press on an unsaved colour saves into; null offers no saving. */
     palette: SavedPalette? = null,
+    /** Takes the pen's colour from the note; null while there is no note on screen. */
+    onPickColor: ((ToolId, InkTarget) -> Unit)? = null,
     /**
      * Whether the formatting bar is stacked above this one.
      *
@@ -159,6 +161,7 @@ fun EditorToolbar(
                 onSelectImageTool = onSelectImageTool,
                 onUpdateTool = onUpdateTool,
                 onOpenColorPicker = onOpenColorPicker,
+                onPickColor = onPickColor,
                 palette = palette,
                 onOpenOptions = { optionsFor = it },
             )
@@ -209,6 +212,7 @@ fun EditorToolRail(
     onToggleRuler: (Boolean) -> Unit,
     onOpenColorPicker: (ToolId, InkTarget) -> Unit,
     palette: SavedPalette? = null,
+    onPickColor: ((ToolId, InkTarget) -> Unit)? = null,
 ) {
     var optionsFor by remember { mutableStateOf<ToolId?>(null) }
 
@@ -223,6 +227,7 @@ fun EditorToolRail(
             onSelectImageTool = onSelectImageTool,
             onUpdateTool = onUpdateTool,
             onOpenColorPicker = onOpenColorPicker,
+            onPickColor = onPickColor,
             palette = palette,
             onOpenOptions = { optionsFor = it },
         )
@@ -269,6 +274,7 @@ private fun ToolControls(
     onSelectImageTool: () -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onOpenColorPicker: (ToolId, InkTarget) -> Unit,
+    onPickColor: ((ToolId, InkTarget) -> Unit)?,
     palette: SavedPalette?,
     onOpenOptions: (ToolId) -> Unit,
 ) {
@@ -346,6 +352,7 @@ private fun ToolControls(
                 onOpenChange = { onPopupChange(if (it) popup else null) },
                 onUpdateTool = onUpdateTool,
                 onOpenPicker = onOpenColorPicker,
+                onPickColor = onPickColor,
                 palette = palette,
             )
         }
@@ -645,6 +652,7 @@ private fun ColorButton(
     onOpenChange: (Boolean) -> Unit,
     onUpdateTool: (ToolSpec) -> Unit,
     onOpenPicker: (ToolId, InkTarget) -> Unit,
+    onPickColor: ((ToolId, InkTarget) -> Unit)?,
     palette: SavedPalette?,
 ) {
     val spec = state.tool
@@ -699,6 +707,17 @@ private fun ColorButton(
                         },
                         palette = palette,
                         onMenuOpenChange = { saveMenuOpen = it },
+                    )
+                }
+                if (onPickColor != null) {
+                    SelectorItem(
+                        icon = NotesIcons.Eyedropper,
+                        label = stringResource(R.string.editor_pick_colour),
+                        selected = false,
+                        onClick = {
+                            onOpenChange(false)
+                            onPickColor(spec.tool, target)
+                        },
                     )
                 }
                 SelectorItem(

@@ -22,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,6 +89,8 @@ fun SheetEditor(
     modifier: Modifier = Modifier,
     /** Called when the image tool is active and the user taps the canvas, with document coordinates. */
     onImageToolTap: ((x: Float, y: Float) -> Unit)? = null,
+    /** The eyedropper; while it is active this sheet answers it instead of taking input. */
+    colorPicker: NoteColorPicker? = null,
 ) {
     val sheet = state.sheet ?: return
     val density = LocalDensity.current
@@ -195,6 +198,12 @@ fun SheetEditor(
             else -> false
         }
     }
+
+    // The eyedropper copies the screen, so controls floating over the paper would be in the copy,
+    // and in the way of the colour under them. Hidden rather than removed: the selection's chrome
+    // holds the very colour sheet that may have asked for this pick.
+    val picking = colorPicker?.active == true
+    val chromeWhilePicking = if (picking) Modifier.alpha(0f) else Modifier
 
     Box(
         modifier = modifier
@@ -308,7 +317,7 @@ fun SheetEditor(
                 }
             },
             onAddPage = viewModel::addPage,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().then(chromeWhilePicking),
         )
 
         // The selection's grips, out here for the same reason the box's are: a grip scaled with
@@ -324,7 +333,8 @@ fun SheetEditor(
             transform = transform,
             ptToPx = ptToPx,
             paged = paged,
-            modifier = Modifier.fillMaxSize(),
+            colorPicker = colorPicker,
+            modifier = Modifier.fillMaxSize().then(chromeWhilePicking),
         )
 
         // Over the top of the page, in the window's coordinates like the rest of the chrome. It is
@@ -338,8 +348,14 @@ fun SheetEditor(
             onRemovePreset = viewModel::removeZoomPreset,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 8.dp),
+                .padding(top = 8.dp)
+                .then(chromeWhilePicking),
         )
+
+        // Last, so it is what a touch reaches first: nothing under it can draw or select meanwhile.
+        if (colorPicker != null && picking) {
+            ColorPickOverlay(colorPicker, Modifier.fillMaxSize())
+        }
     }
 }
 

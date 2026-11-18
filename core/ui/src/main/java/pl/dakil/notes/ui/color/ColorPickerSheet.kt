@@ -35,6 +35,10 @@ import pl.dakil.notes.ui.icons.NotesIcons
  *
  * Changes are applied as the user drags — seeing the page or the pen change underneath is the whole
  * point of picking a colour — but the value at open is kept so "Cancel" can genuinely put it back.
+ *
+ * [onPickFromNote] offers the eyedropper and receives the colour being mixed. The host closes the
+ * sheet for it and opens a new one afterwards, passing the first one's colour as [cancelColor] so
+ * that Cancel still goes all the way back.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,9 +52,11 @@ fun ColorPickerSheet(
     presets: IntArray = ColorCodec.INK_PRESETS,
     recents: List<Int> = emptyList(),
     palette: SavedPalette? = null,
+    cancelColor: Int = initial,
+    onPickFromNote: ((Int) -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val original = remember { initial }
+    val original = remember { cancelColor }
     var current by remember { mutableIntStateOf(initial) }
 
     ModalBottomSheet(
@@ -121,6 +127,7 @@ fun ColorPickerSheet(
                 recents = recents,
                 palette = palette,
                 horizontalPadding = SheetGutter,
+                onPickFromNote = onPickFromNote?.let { pick -> { pick(current) } },
             )
         }
     }

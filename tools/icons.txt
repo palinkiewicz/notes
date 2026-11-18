@@ -76,6 +76,7 @@ lock_open_right
 note_add
 open_with
 palette
+colorize
 rotate_right
 straighten
 stylus

@@ -152,6 +152,9 @@ object NotesIcons {
     val Ruler: ImageVector @Composable get() = sym(R.drawable.sym_straighten)
     val Palette: ImageVector @Composable get() = sym(R.drawable.sym_palette)
 
+    /** Take a colour from what is on the page. */
+    val Eyedropper: ImageVector @Composable get() = sym(R.drawable.sym_colorize)
+
     /** Save this colour to the palette. */
     val Bookmark: ImageVector @Composable get() = sym(R.drawable.sym_bookmark)
 
