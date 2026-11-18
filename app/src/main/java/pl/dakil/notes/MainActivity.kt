@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.KeyboardShortcutGroup
 import android.view.KeyboardShortcutInfo
 import android.view.Menu
+import android.view.View
 import androidx.core.content.IntentCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,6 +27,7 @@ import pl.dakil.notes.ui.keys.LocalShortcutDispatcher
 import pl.dakil.notes.ui.designsystem.MotionPreferences
 import pl.dakil.notes.ui.keys.ShortcutDispatcher
 import pl.dakil.notes.ui.keys.metaState
+import pl.dakil.notes.ui.motion.keepImeInsetsCurrent
 import pl.dakil.notes.ui.theme.NotesTheme
 import pl.dakil.notes.ui.theme.resolveDark
 
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
         container.applicationScope.launch { LauncherShortcuts.publish(this@MainActivity) }
 
         enableEdgeToEdge()
+        findViewById<View>(android.R.id.content).keepImeInsetsCurrent()
         setContent {
             // Read straight from the repository rather than through a view model: this is the one
             // place that has to see a theme change immediately, and routing it through a saved state

@@ -148,24 +148,30 @@ internal fun HandleButton(
     elevation: Dp = 2.dp,
     onClick: () -> Unit,
 ) {
-    val current by rememberUpdatedState(onClick)
     HandleSurface(
-        modifier = modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                awaitFirstDown().consume()
-                val up = waitForUpOrCancellation()
-                if (up != null) {
-                    up.consume()
-                    current()
-                }
-            }
-        },
+        modifier = modifier.handleTap(onClick),
         icon = icon,
         description = description,
         container = container,
         content = content,
         elevation = elevation,
     )
+}
+
+/** A tap that is consumed from the first touch, so the sheet under a grip never sees it. */
+@Composable
+internal fun Modifier.handleTap(onTap: () -> Unit): Modifier {
+    val current by rememberUpdatedState(onTap)
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown().consume()
+            val up = waitForUpOrCancellation()
+            if (up != null) {
+                up.consume()
+                current()
+            }
+        }
+    }
 }
 
 @Composable

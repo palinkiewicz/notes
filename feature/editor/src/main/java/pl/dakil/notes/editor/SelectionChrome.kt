@@ -2,14 +2,13 @@ package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,10 +18,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
@@ -485,17 +488,31 @@ fun SelectionChrome(
 
 /**
  * The selection bar's way to the inside colour of marker ink: the colour itself in a ring, the same
- * face the toolbar's inside button wears, so the two read as one control in two places.
+ * face the toolbar's inside button wears, so the two read as one control in two places. It takes
+ * exactly the room of the [BarButton]s beside it, so the bar stays one even row.
  */
 @Composable
-private fun InsideColorButton(color: Int, onClick: () -> Unit) {
+private fun InsideColorButton(color: Int, onPick: () -> Unit) {
     val description = stringResource(R.string.editor_selection_inside_colour)
-    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }, shapes = IconButtonDefaults.shapes()) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(HandleSize)
+            .handleTap(onPick)
+            .semantics {
+                contentDescription = description
+                role = Role.Button
+                onClick {
+                    onPick()
+                    true
+                }
+            },
+    ) {
         Surface(
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(InsideSwatchSize),
             shape = CircleShape,
             color = Color(color),
-            border = BorderStroke(2.5.dp, LocalContentColor.current),
+            border = BorderStroke(2.dp, LocalContentColor.current),
             content = {},
         )
     }
@@ -645,3 +662,6 @@ private object Readout
  * would overlap into one blob that pins whichever corner Compose happened to hit-test first.
  */
 private val ApexHandleSize = 24.dp
+
+/** Matches the visual weight of the icons on the selection bar. */
+private val InsideSwatchSize = 18.dp

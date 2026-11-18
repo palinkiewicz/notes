@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.ui.R
@@ -67,10 +69,17 @@ fun ColorPickerSheet(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = SheetGutter),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(title, style = MaterialTheme.typography.titleLarge)
+                // The title gives way, not the buttons: a long one wraps beside them, where a
+                // squeezed button would stack its label a letter per line.
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
                         onClick = {
@@ -78,7 +87,7 @@ fun ColorPickerSheet(
                             onDismiss()
                         },
                         shapes = ButtonDefaults.shapes(),
-                    ) { Text(stringResource(R.string.ui_cancel)) }
+                    ) { Text(stringResource(R.string.ui_cancel), maxLines = 1, softWrap = false) }
                     TextButton(
                         onClick = {
                             onCommit(current)
@@ -86,8 +95,17 @@ fun ColorPickerSheet(
                         },
                         shapes = ButtonDefaults.shapes(),
                     ) {
-                        Icon(NotesIcons.Check, contentDescription = null)
-                        Text(stringResource(R.string.ui_done), modifier = Modifier.padding(start = 4.dp))
+                        Icon(
+                            NotesIcons.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Text(
+                            stringResource(R.string.ui_done),
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(start = ButtonDefaults.IconSpacing),
+                        )
                     }
                 }
             }
