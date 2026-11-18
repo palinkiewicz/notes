@@ -24,6 +24,21 @@ android {
     }
 }
 
+
+// Experimental M3 Expressive and foundation APIs are used throughout; opting in once here keeps
+// every screen free of @OptIn noise. They are pinned by version, so a change to one is a build
+// break to fix rather than a silent shift.
+kotlin {
+    compilerOptions {
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+            "androidx.compose.foundation.ExperimentalFoundationApi",
+            "androidx.compose.foundation.layout.ExperimentalLayoutApi",
+        )
+    }
+}
+
 dependencies {
     // Colour maths and document-level colour constants live in the model.
     api(project(":core:model"))
@@ -34,11 +49,11 @@ dependencies {
     api(libs.androidx.compose.ui.graphics)
     api(libs.androidx.compose.foundation)
     api(libs.androidx.compose.material3)
-    api(libs.androidx.compose.material.icons.core)
     api(libs.androidx.compose.material3.adaptive)
     api(libs.androidx.compose.material3.adaptive.layout)
     api(libs.androidx.compose.material3.adaptive.navigation)
     api(libs.androidx.compose.material3.adaptive.navigation.suite)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     debugImplementation(libs.androidx.compose.ui.tooling)
     api(libs.androidx.compose.ui.tooling.preview)

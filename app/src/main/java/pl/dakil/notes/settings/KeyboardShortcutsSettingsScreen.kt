@@ -12,12 +12,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,28 +26,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,17 +48,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.R
@@ -77,12 +64,18 @@ import pl.dakil.notes.model.KeyChord
 import pl.dakil.notes.model.Keymap
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutGroup
-import pl.dakil.notes.ui.components.flatTopAppBarColors
+import pl.dakil.notes.ui.designsystem.BackButton
+import pl.dakil.notes.ui.designsystem.CardShape
+import pl.dakil.notes.ui.designsystem.CollapsingScaffold
+import pl.dakil.notes.ui.designsystem.ShapedIcon
+import pl.dakil.notes.ui.designsystem.segmentedItemColors
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.keys.KeyCaps
 import pl.dakil.notes.ui.keys.label
 import pl.dakil.notes.ui.keys.modifierLabels
 import pl.dakil.notes.ui.keys.toChord
+import pl.dakil.notes.ui.theme.SegmentedShapes
+import pl.dakil.notes.ui.theme.Spacing
 import pl.dakil.notes.ui.R as UiR
 
 /**
@@ -97,7 +90,6 @@ import pl.dakil.notes.ui.R as UiR
  * ceremony but because a dialog is a window of its own: the app's shortcuts are dispatched by the
  * activity's window, so none of them can fire while a key is being recorded.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KeyboardShortcutsSettingsScreen(
     keymap: Keymap,
@@ -107,7 +99,6 @@ fun KeyboardShortcutsSettingsScreen(
     var editing by remember { mutableStateOf<ShortcutAction?>(null) }
     var confirmingReset by remember { mutableStateOf(false) }
     val hasKeyboard = LocalConfiguration.current.keyboard != Configuration.KEYBOARD_NOKEYS
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     editing?.let { action ->
         ShortcutDialog(
@@ -131,38 +122,31 @@ fun KeyboardShortcutsSettingsScreen(
                         confirmingReset = false
                         onChange(Keymap.DEFAULT)
                     },
+                    shapes = ButtonDefaults.shapes(),
                 ) { Text(stringResource(R.string.keymap_reset_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmingReset = false }) { Text(stringResource(UiR.string.ui_cancel)) }
+                TextButton(onClick = { confirmingReset = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(UiR.string.ui_cancel)) }
             },
         )
     }
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_keyboard_shortcuts)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.common_back))
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { confirmingReset = true }, enabled = !keymap.isDefault) {
-                        Text(stringResource(R.string.keymap_reset_action))
-                    }
-                },
-                colors = flatTopAppBarColors(),
-                scrollBehavior = scrollBehavior,
-            )
+    CollapsingScaffold(
+        title = stringResource(R.string.settings_keyboard_shortcuts),
+        navigationIcon = { BackButton(onNavigateBack) },
+        actions = {
+            TextButton(
+                onClick = { confirmingReset = true },
+                enabled = !keymap.isDefault,
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text(stringResource(R.string.keymap_reset_action))
+            }
         },
-        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = Spacing.gutter, end = Spacing.gutter, bottom = Spacing.xxl),
         ) {
             item(key = "intro") {
                 Intro(keymap = keymap, hasKeyboard = hasKeyboard)
@@ -170,11 +154,12 @@ fun KeyboardShortcutsSettingsScreen(
             for (group in ShortcutGroup.entries) {
                 val actions = ShortcutAction.entries.filter { it.group == group }
                 item(key = "header-${group.name}") { GroupHeader(group) }
-                items(actions, key = { it.key }) { action ->
+                itemsIndexed(actions, key = { _, action -> action.key }) { index, action ->
                     ShortcutRow(
                         action = action,
                         keymap = keymap,
-                        shape = groupShape(first = action == actions.first(), last = action == actions.last()),
+                        index = index,
+                        count = actions.size,
                         onClick = { editing = action },
                     )
                 }
@@ -185,7 +170,10 @@ fun KeyboardShortcutsSettingsScreen(
 
 @Composable
 private fun Intro(keymap: Keymap, hasKeyboard: Boolean) {
-    Column(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        Modifier.padding(top = Spacing.s, bottom = Spacing.xs),
+        verticalArrangement = Arrangement.spacedBy(Spacing.m),
+    ) {
         val overview = keymap.bindings(ShortcutAction.SHOW_SHORTCUTS).firstOrNull()
         val description = stringResource(R.string.keymap_description)
         Text(
@@ -193,22 +181,27 @@ private fun Intro(keymap: Keymap, hasKeyboard: Boolean) {
             else description + " " + stringResource(R.string.keymap_description_overview_x, overview.label()),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.l),
         )
         // Said up front rather than discovered at the record button: without a keyboard, this whole
         // screen is setting up for later, and that is worth knowing before anything is tapped.
         if (!hasKeyboard) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+            Surface(
+                shape = CardShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(Spacing.l),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.l),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(NotesIcons.Keyboard, contentDescription = null)
+                    ShapedIcon(
+                        icon = NotesIcons.Keyboard,
+                        polygon = MaterialShapes.Cookie9Sided,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    )
                     Text(stringResource(R.string.keymap_no_keyboard), style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -218,11 +211,12 @@ private fun Intro(keymap: Keymap, hasKeyboard: Boolean) {
 
 @Composable
 private fun GroupHeader(group: ShortcutGroup) {
-    Column(Modifier.padding(start = 4.dp, top = 24.dp, bottom = 8.dp)) {
+    Column(Modifier.padding(start = Spacing.l, end = Spacing.l, top = Spacing.xl, bottom = Spacing.s)) {
         Text(
             text = stringResource(group.titleRes()),
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.labelLargeEmphasized,
             color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.semantics { heading() },
         )
         Text(
             text = group.whereLabel(),
@@ -239,12 +233,14 @@ private fun GroupHeader(group: ShortcutGroup) {
  * down the right edge; the dialog shows them all.
  */
 @Composable
-private fun ShortcutRow(action: ShortcutAction, keymap: Keymap, shape: Shape, onClick: () -> Unit) {
+private fun ShortcutRow(action: ShortcutAction, keymap: Keymap, index: Int, count: Int, onClick: () -> Unit) {
     val chords = keymap.bindings(action)
     val changed = !keymap.isDefault(action)
-    Column(Modifier.padding(top = 2.dp)) {
-        ListItem(
-            headlineContent = { Text(action.label()) },
+    Column(Modifier.padding(top = if (index > 0) SegmentedShapes.gap else 0.dp)) {
+        SegmentedListItem(
+            onClick = onClick,
+            shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+            colors = segmentedItemColors(),
             supportingContent = if (changed) {
                 {
                     Text(
@@ -266,7 +262,7 @@ private fun ShortcutRow(action: ShortcutAction, keymap: Keymap, shape: Shape, on
                     )
                 } else {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         KeyCaps(first)
@@ -280,26 +276,8 @@ private fun ShortcutRow(action: ShortcutAction, keymap: Keymap, shape: Shape, on
                     }
                 }
             },
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .clickable(onClick = onClick),
-        )
+        ) { Text(action.label()) }
     }
-}
-
-/** A group's rows as one card, rounded at its ends and joined in the middle, as Drawing order does. */
-private fun groupShape(first: Boolean, last: Boolean): Shape {
-    val outer = 20.dp
-    val inner = 4.dp
-    return RoundedCornerShape(
-        topStart = if (first) outer else inner,
-        topEnd = if (first) outer else inner,
-        bottomStart = if (last) outer else inner,
-        bottomEnd = if (last) outer else inner,
-    )
 }
 
 /** What the recorder has to say about the key it was just given. */
@@ -316,7 +294,6 @@ private sealed interface Recorded {
  * to the defaults. Changes are saved as they are made — Done only closes — so there is no state in
  * which the screen behind and the dialog disagree.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ShortcutDialog(
     action: ShortcutAction,
@@ -407,6 +384,7 @@ private fun ShortcutDialog(
                             },
                             enabled = canRecord,
                             contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                            shapes = ButtonDefaults.shapes(),
                         ) {
                             Icon(
                                 imageVector = NotesIcons.Add,
@@ -442,7 +420,7 @@ private fun ShortcutDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(UiR.string.ui_done)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(UiR.string.ui_done)) }
         },
         dismissButton = {
             TextButton(
@@ -452,6 +430,7 @@ private fun ShortcutDialog(
                     recording = false
                 },
                 enabled = !keymap.isDefault(action),
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.keymap_reset_default)) }
         },
     )
@@ -519,7 +498,7 @@ private fun Recorder(onChord: (KeyChord) -> Unit, onCancel: () -> Unit) {
             } else {
                 KeyCaps(modifiers + "…")
             }
-            TextButton(onClick = onCancel) { Text(stringResource(UiR.string.ui_cancel)) }
+            TextButton(onClick = onCancel, shapes = ButtonDefaults.shapes()) { Text(stringResource(UiR.string.ui_cancel)) }
         }
     }
 }
@@ -546,7 +525,7 @@ private fun RecordedMessage(message: Recorded, onReplace: (KeyChord) -> Unit) {
                 Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
             }
             if (chord != null) {
-                TextButton(onClick = { onReplace(chord) }, modifier = Modifier.align(Alignment.End)) {
+                TextButton(onClick = { onReplace(chord) }, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.keymap_conflict_replace))
                 }
             }

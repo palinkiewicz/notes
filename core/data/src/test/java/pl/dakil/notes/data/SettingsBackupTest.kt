@@ -46,6 +46,22 @@ class SettingsBackupTest {
         assertEquals(BackupGroup.SETTINGS, groupOf("ui.someFutureThing"))
     }
 
+    /**
+     * The Feel settings describe how the person likes the app to respond, not this phone, so a
+     * restore on a new device should bring back their quiet, still app rather than a buzzing one.
+     */
+    @Test
+    fun `the feel settings travel with the rest of the settings`() {
+        for (key in listOf(
+            SettingsRepository.KEY_HAPTICS,
+            SettingsRepository.KEY_ANIMATED_NUMBERS,
+            SettingsRepository.KEY_DECORATIVE_ANIMATIONS,
+            SettingsRepository.KEY_PROGRESS_STYLE,
+        )) {
+            assertEquals(key, BackupGroup.SETTINGS, groupOf(key))
+        }
+    }
+
     private val backup = SettingsSnapshot(
         mapOf(
             BackupGroup.SETTINGS to mapOf("ui.pureBlack" to PrefValue.Bool(true)),

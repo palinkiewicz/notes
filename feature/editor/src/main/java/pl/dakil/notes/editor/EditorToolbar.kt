@@ -1,15 +1,21 @@
 package pl.dakil.notes.editor
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,22 +32,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +57,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
@@ -57,8 +66,10 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -73,9 +84,15 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import pl.dakil.notes.ui.designsystem.AppSlider
+import pl.dakil.notes.ui.designsystem.SegmentedGroup
+import pl.dakil.notes.ui.designsystem.pressScale
+import pl.dakil.notes.ui.designsystem.rememberHaptics
+import pl.dakil.notes.ui.theme.tabular
 import java.util.Locale
 import kotlin.math.roundToInt
 import pl.dakil.notes.editor.R
@@ -87,6 +104,7 @@ import pl.dakil.notes.ui.color.ColorSwatch
 import pl.dakil.notes.ui.color.SaveColorMenuItem
 import pl.dakil.notes.ui.color.SavedColorMenuItems
 import pl.dakil.notes.ui.color.SavedPalette
+import pl.dakil.notes.ui.designsystem.decorativeMotion
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /**
@@ -364,18 +382,15 @@ private fun FillToggle(
 ) {
     if (state.textToolActive || state.imageToolActive || !state.tool.tool.isDrawing) return
     val spec = state.tool
-    FilledIconToggleButton(
+    ToolToggle(
         checked = spec.fill,
         onCheckedChange = {
             onPopupChange(null)
             onUpdateTool(spec.copy(fill = it))
         },
-    ) {
-        Icon(
-            imageVector = NotesIcons.Fill,
-            contentDescription = stringResource(R.string.editor_fill_shape),
-        )
-    }
+        icon = NotesIcons.Fill,
+        description = stringResource(R.string.editor_fill_shape),
+    )
 }
 
 /**
@@ -392,18 +407,15 @@ private fun FingerDrawingToggle(
     onToggle: (Boolean) -> Unit,
 ) {
     if (!state.fingerDrawingAvailable) return
-    FilledIconToggleButton(
+    ToolToggle(
         checked = state.inputConfig.fingerDrawingEnabled,
         onCheckedChange = {
             onPopupChange(null)
             onToggle(it)
         },
-    ) {
-        Icon(
-            imageVector = NotesIcons.TouchApp,
-            contentDescription = stringResource(R.string.editor_finger_drawing),
-        )
-    }
+        icon = NotesIcons.TouchApp,
+        description = stringResource(R.string.editor_finger_drawing),
+    )
 }
 
 /**
@@ -415,8 +427,32 @@ private fun FingerDrawingToggle(
  */
 @Composable
 private fun RulerToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    FilledIconToggleButton(checked = checked, onCheckedChange = onCheckedChange) {
-        Icon(NotesIcons.Ruler, contentDescription = stringResource(R.string.editor_ruler))
+    ToolToggle(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        icon = NotesIcons.Ruler,
+        description = stringResource(R.string.editor_ruler),
+    )
+}
+
+/** One of the bar's switches: squares off while it is on, and clicks as it goes. */
+@Composable
+private fun ToolToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    icon: ImageVector,
+    description: String,
+) {
+    val haptics = rememberHaptics()
+    FilledIconToggleButton(
+        checked = checked,
+        onCheckedChange = {
+            haptics.toggle(it)
+            onCheckedChange(it)
+        },
+        shapes = IconButtonDefaults.toggleableShapes(),
+    ) {
+        Icon(icon, contentDescription = description)
     }
 }
 
@@ -460,6 +496,37 @@ fun Modifier.dismissToolPopupOnPress(onDismiss: () -> Unit): Modifier {
 internal enum class PopupPlacement { ABOVE, END }
 
 /**
+ * The face every button on the tool and format bars shares: a circle at rest, a tinted rounded
+ * square while selected, and a small squish under the finger.
+ *
+ * The animated values are read only in the layer and draw phases, so a button changing state
+ * recomposes nothing, and the bars stay out of composition while the pen is moving.
+ */
+@Composable
+internal fun Modifier.toolFace(selected: Boolean, interaction: InteractionSource): Modifier {
+    val motion = MaterialTheme.motionScheme
+    val corner by animateDpAsState(
+        targetValue = if (selected) SelectedToolCorner else ToolButtonSize / 2,
+        animationSpec = motion.fastSpatialSpec(),
+        label = "toolCorner",
+    )
+    val tint = MaterialTheme.colorScheme.secondaryContainer
+    val container by animateColorAsState(
+        targetValue = if (selected) tint else tint.copy(alpha = 0f),
+        animationSpec = motion.fastEffectsSpec(),
+        label = "toolContainer",
+    )
+    return this
+        .pressScale(interaction, pressedScale = ToolPressScale)
+        .graphicsLayer {
+            // The spring overshoots, and a corner has no meaning below zero.
+            shape = RoundedCornerShape(corner.coerceAtLeast(0.dp))
+            clip = true
+        }
+        .drawBehind { drawRect(container) }
+}
+
+/**
  * A tool button: an icon, contained while its tool is the selected one.
  *
  * Not an `IconToggleButton` because these carry a long press as well, and Material's icon buttons
@@ -476,15 +543,26 @@ internal fun ToolBarButton(
     // Where a variant popup hangs, so it is anchored on the button it belongs to.
     content: @Composable () -> Unit = {},
 ) {
+    val haptics = rememberHaptics()
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .then(
-                if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
-                else Modifier
-            )
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .size(ToolButtonSize)
+            .toolFace(selected, interaction)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = {
+                    if (!selected) haptics.tick()
+                    onClick()
+                },
+                onLongClick = onLongClick?.let {
+                    {
+                        haptics.longPress()
+                        it()
+                    }
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -574,12 +652,18 @@ private fun ColorButton(
     // The save menu is a window of its own, so a tap on it is a tap outside the row; while it is
     // up, that must not count as dismissing the row it was opened from.
     var saveMenuOpen by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
 
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(ToolButtonSize)
+            .pressScale(interaction, pressedScale = ToolPressScale)
             .clip(CircleShape)
-            .clickable(onClickLabel = stringResource(target.label(spec.tool))) { onOpenChange(!open) },
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClickLabel = stringResource(target.label(spec.tool)),
+            ) { onOpenChange(!open) },
         contentAlignment = Alignment.Center,
     ) {
         InkSwatch(spec = spec, target = target)
@@ -720,16 +804,21 @@ private fun SizeButton(
         onUpdateTool(if (erasing) spec.copy(eraserRadius = newValue) else spec.copy(width = newValue))
     }
 
+    val interaction = remember { MutableInteractionSource() }
+
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(ToolButtonSize)
+            .pressScale(interaction, pressedScale = ToolPressScale)
             .clip(CircleShape)
-            .clickable { onOpenChange(!open) },
+            .clickable(interactionSource = interaction, indication = LocalIndication.current) {
+                onOpenChange(!open)
+            },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = formatSize(value),
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.tabular(),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             softWrap = false,
@@ -740,7 +829,7 @@ private fun SizeButton(
             InlineSelector(placement = placement, onDismiss = { onOpenChange(false) }) {
                 Text(
                     text = formatSize(value),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelLarge.tabular(),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     softWrap = false,
@@ -758,7 +847,7 @@ private fun SizeButton(
                             customDialogOpen = true
                         },
                 )
-                Slider(
+                AppSlider(
                     value = value,
                     onValueChange = { applyValue(it) },
                     valueRange = range,
@@ -828,10 +917,11 @@ private fun SizeCustomDialog(
             TextButton(
                 enabled = parsed != null,
                 onClick = { parsed?.let(onConfirm) },
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.editor_ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_cancel)) }
         },
     )
 }
@@ -852,6 +942,11 @@ internal fun InlineSelector(
 ) {
     val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
     val position = remember(placement, gap) { InlineSelectorPosition(placement, gap) }
+    // Grows out of the button that opened it. Decoration, so it can be turned off with the rest.
+    val decorative = decorativeMotion
+    val appear = remember { Animatable(if (decorative) 0f else 1f) }
+    val appearSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    LaunchedEffect(Unit) { appear.animateTo(1f, appearSpec) }
 
     Popup(
         popupPositionProvider = position,
@@ -859,6 +954,16 @@ internal fun InlineSelector(
         properties = PopupProperties(focusable = false),
     ) {
         Surface(
+            modifier = Modifier.graphicsLayer {
+                val scale = lerp(SELECTOR_START_SCALE, 1f, appear.value)
+                scaleX = scale
+                scaleY = scale
+                alpha = appear.value.coerceIn(0f, 1f)
+                transformOrigin = when (placement) {
+                    PopupPlacement.ABOVE -> TransformOrigin(0.5f, 1f)
+                    PopupPlacement.END -> TransformOrigin(0f, 0.5f)
+                }
+            },
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 3.dp,
@@ -922,15 +1027,16 @@ internal fun SelectorItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val haptics = rememberHaptics()
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .then(
-                if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
-                else Modifier
-            )
-            .clickable(onClick = onClick),
+            .size(ToolButtonSize)
+            .toolFace(selected, interaction)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current) {
+                if (!selected) haptics.tick()
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -985,8 +1091,13 @@ private fun SwatchItem(
                 else SaveColorMenuItem(color, palette) { setMenuOpen(false) }
             }
         }
+        val swatchSize by animateDpAsState(
+            targetValue = if (selected) 32.dp else 28.dp,
+            animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+            label = "swatchSize",
+        )
         Surface(
-            modifier = Modifier.size(if (selected) 32.dp else 28.dp),
+            modifier = Modifier.size(swatchSize),
             shape = CircleShape,
             color = Color(color),
             border = BorderStroke(
@@ -1085,48 +1196,52 @@ private fun ToolOptionsSheet(
                     )
                 }
 
-                LabelledSlider(stringResource(R.string.editor_width), spec.width, WIDTH_RANGE) {
-                    onSpecChange(spec.copy(width = it))
-                }
-                if (marker) {
+                SegmentedGroup(Modifier.padding(horizontal = OptionsGroupGutter, vertical = 8.dp)) {
+                    LabelledSlider(stringResource(R.string.editor_width), spec.width, WIDTH_RANGE) {
+                        onSpecChange(spec.copy(width = it))
+                    }
+                    if (marker) {
+                        LabelledSlider(
+                            label = stringResource(R.string.editor_outline_thickness),
+                            value = spec.rim,
+                            range = StrokeCore.RIM_MIN..StrokeCore.RIM_MAX,
+                            // A share of the width is what it is, and a percentage is how people read
+                            // one; 0.2 would look like a length in points next to the width above it.
+                            format = { String.format(Locale.getDefault(), "%d%%", (it * 100f).roundToInt()) },
+                        ) {
+                            onSpecChange(spec.copy(rim = it))
+                        }
+                    }
+                    LabelledSlider(stringResource(R.string.editor_opacity), spec.opacity, 0.05f..1f) {
+                        onSpecChange(spec.copy(opacity = it))
+                    }
+                    LabelledSlider(stringResource(R.string.editor_smoothing), spec.smoothing, 0f..1f) {
+                        onSpecChange(spec.copy(smoothing = it))
+                    }
                     LabelledSlider(
-                        label = stringResource(R.string.editor_outline_thickness),
-                        value = spec.rim,
-                        range = StrokeCore.RIM_MIN..StrokeCore.RIM_MAX,
-                        // A share of the width is what it is, and a percentage is how people read
-                        // one; 0.2 would look like a length in points next to the width above it.
-                        format = { String.format(Locale.getDefault(), "%d%%", (it * 100f).roundToInt()) },
+                        stringResource(R.string.editor_pressure_sensitivity),
+                        spec.pressureInfluence,
+                        0f..1f,
                     ) {
-                        onSpecChange(spec.copy(rim = it))
+                        onSpecChange(spec.copy(pressureInfluence = it))
+                    }
+                    LabelledSlider(
+                        stringResource(R.string.editor_speed_thinning),
+                        spec.speedInfluence,
+                        0f..1f,
+                    ) {
+                        onSpecChange(spec.copy(speedInfluence = it))
                     }
                 }
-                LabelledSlider(stringResource(R.string.editor_opacity), spec.opacity, 0.05f..1f) {
-                    onSpecChange(spec.copy(opacity = it))
-                }
-                LabelledSlider(stringResource(R.string.editor_smoothing), spec.smoothing, 0f..1f) {
-                    onSpecChange(spec.copy(smoothing = it))
-                }
-                LabelledSlider(
-                    stringResource(R.string.editor_pressure_sensitivity),
-                    spec.pressureInfluence,
-                    0f..1f,
-                ) {
-                    onSpecChange(spec.copy(pressureInfluence = it))
-                }
-                LabelledSlider(
-                    stringResource(R.string.editor_speed_thinning),
-                    spec.speedInfluence,
-                    0f..1f,
-                ) {
-                    onSpecChange(spec.copy(speedInfluence = it))
-                }
             } else {
-                LabelledSlider(
-                    stringResource(R.string.editor_eraser_size),
-                    spec.eraserRadius,
-                    ERASER_RANGE,
-                ) {
-                    onSpecChange(spec.copy(eraserRadius = it))
+                SegmentedGroup(Modifier.padding(horizontal = OptionsGroupGutter)) {
+                    LabelledSlider(
+                        stringResource(R.string.editor_eraser_size),
+                        spec.eraserRadius,
+                        ERASER_RANGE,
+                    ) {
+                        onSpecChange(spec.copy(eraserRadius = it))
+                    }
                 }
             }
         }
@@ -1145,16 +1260,22 @@ private fun LabelledSlider(
     },
     onChange: (Float) -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = OptionsGutter)) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.labelLarge)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            // Plain text: it changes on every frame of a drag, which is no time to be rolling digits.
             Text(
                 text = format(value),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleSmallEmphasized.tabular(),
+                color = MaterialTheme.colorScheme.primary,
             )
         }
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+        AppSlider(value = value, onValueChange = onChange, valueRange = range)
     }
 }
 
@@ -1289,7 +1410,7 @@ private fun MarkerPreview(spec: ToolSpec, onSwap: () -> Unit) {
                 }
             }
         }
-        FilledTonalIconButton(onClick = onSwap) {
+        FilledTonalIconButton(onClick = onSwap, shapes = IconButtonDefaults.shapes()) {
             Icon(NotesIcons.Swap, contentDescription = stringResource(R.string.editor_swap_colours))
         }
     }
@@ -1330,27 +1451,47 @@ private fun SavableSwatch(
 /** The tool sheet's side margin, carried by each row rather than the sheet; see [ToolOptionsSheet]. */
 private val OptionsGutter = 24.dp
 
+/** The narrower margin of the sheet's cards, whose own padding brings their text back to the gutter. */
+private val OptionsGroupGutter = 16.dp
+
+private val ToolButtonSize = 48.dp
+private val SelectedToolCorner = 16.dp
+private const val ToolPressScale = 0.88f
+private const val SELECTOR_START_SCALE = 0.85f
+
 private data class ToolEntry(
     val tool: ToolId,
     @param:StringRes val label: Int,
-    val icon: ImageVector,
-)
+) {
+    /** Resolved in composition, where the icon's drawable is read. */
+    val icon: ImageVector
+        @Composable get() = when (tool) {
+            ToolId.PEN -> NotesIcons.Pen
+            ToolId.FOUNTAIN_PEN -> NotesIcons.FountainPen
+            ToolId.PENCIL -> NotesIcons.Pencil
+            ToolId.HIGHLIGHTER -> NotesIcons.Highlighter
+            ToolId.MARKER -> NotesIcons.Marker
+            ToolId.ERASER_STROKE -> NotesIcons.EraserStroke
+            ToolId.ERASER_POINT -> NotesIcons.EraserPoint
+            ToolId.LASSO -> NotesIcons.Lasso
+        }
+}
 
 private val DRAWING_TOOLS = listOf(
-    ToolEntry(ToolId.PEN, R.string.editor_tool_pen, NotesIcons.Pen),
-    ToolEntry(ToolId.FOUNTAIN_PEN, R.string.editor_tool_fountain, NotesIcons.FountainPen),
-    ToolEntry(ToolId.PENCIL, R.string.editor_tool_pencil, NotesIcons.Pencil),
-    ToolEntry(ToolId.HIGHLIGHTER, R.string.editor_tool_highlighter, NotesIcons.Highlighter),
-    ToolEntry(ToolId.MARKER, R.string.editor_tool_marker, NotesIcons.Marker),
+    ToolEntry(ToolId.PEN, R.string.editor_tool_pen),
+    ToolEntry(ToolId.FOUNTAIN_PEN, R.string.editor_tool_fountain),
+    ToolEntry(ToolId.PENCIL, R.string.editor_tool_pencil),
+    ToolEntry(ToolId.HIGHLIGHTER, R.string.editor_tool_highlighter),
+    ToolEntry(ToolId.MARKER, R.string.editor_tool_marker),
 )
 
 private val ERASER_TOOLS = listOf(
-    ToolEntry(ToolId.ERASER_STROKE, R.string.editor_tool_erase_stroke, NotesIcons.EraserStroke),
-    ToolEntry(ToolId.ERASER_POINT, R.string.editor_tool_erase_area, NotesIcons.EraserPoint),
+    ToolEntry(ToolId.ERASER_STROKE, R.string.editor_tool_erase_stroke),
+    ToolEntry(ToolId.ERASER_POINT, R.string.editor_tool_erase_area),
 )
 
 private val TOOL_ENTRIES = DRAWING_TOOLS + ERASER_TOOLS +
-    ToolEntry(ToolId.LASSO, R.string.editor_tool_select, NotesIcons.Lasso)
+    ToolEntry(ToolId.LASSO, R.string.editor_tool_select)
 
 /** The height of the tool bar when it is the lower of two. See [EditorToolbar]'s `compact`. */
 private val CompactBarHeight = 56.dp

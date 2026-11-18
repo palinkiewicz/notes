@@ -24,6 +24,21 @@ android {
     }
 }
 
+
+// Experimental M3 Expressive and foundation APIs are used throughout; opting in once here keeps
+// every screen free of @OptIn noise. They are pinned by version, so a change to one is a build
+// break to fix rather than a silent shift.
+kotlin {
+    compilerOptions {
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+            "androidx.compose.foundation.ExperimentalFoundationApi",
+            "androidx.compose.foundation.layout.ExperimentalLayoutApi",
+        )
+    }
+}
+
 dependencies {
     api(project(":core:model"))
     api(project(":core:data"))

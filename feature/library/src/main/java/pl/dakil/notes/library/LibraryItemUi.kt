@@ -1,13 +1,15 @@
 package pl.dakil.notes.library
 
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.ripple
+import pl.dakil.notes.ui.designsystem.AppHaptics
+import pl.dakil.notes.ui.designsystem.rememberHaptics
+
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import pl.dakil.notes.format.NoteKind
 import pl.dakil.notes.library.R
@@ -34,26 +36,43 @@ class LibraryItemHandlers(
  * away entirely. While a move is in flight nothing may be selected: the selection *is* the thing
  * being moved, and letting it change halfway would leave the user carrying a different armful than
  * the one they picked up.
+ *
+ * [interactionSource] is shared with whatever draws the press — the card's squish.
  */
-@OptIn(ExperimentalFoundationApi::class)
-fun Modifier.libraryItem(item: LibraryItem, handlers: LibraryItemHandlers): Modifier = composed {
-    val haptics = LocalHapticFeedback.current
-    combinedClickable(
-        onClick = { if (handlers.selecting) handlers.onToggle(item) else handlers.onOpen(item) },
-        onLongClick = if (handlers.moving) {
-            null
-        } else {
-            {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                handlers.onToggle(item)
-            }
-        },
+@Composable
+fun Modifier.libraryItem(
+    item: LibraryItem,
+    handlers: LibraryItemHandlers,
+    interactionSource: MutableInteractionSource? = null,
+): Modifier {
+    val haptics = rememberHaptics()
+    return combinedClickable(
+        interactionSource = interactionSource,
+        indication = if (interactionSource != null) ripple() else LocalIndication.current,
+        onClick = { handlers.click(item) },
+        onLongClick = handlers.longClick(item, haptics),
     )
 }
 
+/** What a tap on [item] does: add it to a running selection, or open it. */
+fun LibraryItemHandlers.click(item: LibraryItem) {
+    if (selecting) onToggle(item) else onOpen(item)
+}
+
+/** What a long press on [item] does, or null while a move is running and nothing may be picked. */
+fun LibraryItemHandlers.longClick(item: LibraryItem, haptics: AppHaptics): (() -> Unit)? =
+    if (moving) {
+        null
+    } else {
+        {
+            haptics.longPress()
+            onToggle(item)
+        }
+    }
+
 /** The glyph that says what a row is, at a glance and without reading its name. */
 val LibraryItem.icon: ImageVector
-    get() = when (this) {
+    @Composable get() = when (this) {
         is LibraryItem.Folder -> NotesIcons.Folder
         is LibraryItem.Note -> when (summary.kind) {
             NoteKind.INK -> NotesIcons.InkNote

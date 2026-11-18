@@ -16,19 +16,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -58,6 +57,9 @@ import pl.dakil.notes.model.PageSelection
 import pl.dakil.notes.model.PdfImageQuality
 import pl.dakil.notes.model.RasterScale
 import pl.dakil.notes.model.RasterSize
+import pl.dakil.notes.ui.designsystem.AppCircularProgress
+import pl.dakil.notes.ui.designsystem.ConnectedToggleRow
+import pl.dakil.notes.ui.designsystem.ToggleOption
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** What happens to an export once it is rendered: written to a file, or handed to another app. */
@@ -247,12 +249,12 @@ fun ExportSheet(
                     onClick = { export(ExportAction.SAVE) },
                     enabled = ready,
                     modifier = Modifier.weight(1f),
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     if (exporting) {
-                        CircularProgressIndicator(
+                        AppCircularProgress(
                             modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = LocalContentColor.current,
                         )
                     } else {
                         Text(stringResource(R.string.editor_export_action))
@@ -261,6 +263,7 @@ fun ExportSheet(
                 FilledTonalIconButton(
                     onClick = { export(ExportAction.SHARE) },
                     enabled = ready,
+                    shapes = IconButtonDefaults.shapes(),
                 ) {
                     Icon(NotesIcons.Share, contentDescription = stringResource(R.string.editor_export_share))
                 }
@@ -270,7 +273,6 @@ fun ExportSheet(
 }
 
 /** For the format: three peers, not a scale, whose labels fit side by side at phone width. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T> SegmentedChoice(
     choices: List<T>,
@@ -278,15 +280,12 @@ private fun <T> SegmentedChoice(
     label: @Composable (T) -> String,
     onSelect: (T) -> Unit,
 ) {
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-        choices.forEachIndexed { index, choice ->
-            SegmentedButton(
-                selected = choice == selected,
-                onClick = { onSelect(choice) },
-                shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
-            ) { Text(label(choice)) }
-        }
-    }
+    ConnectedToggleRow(
+        options = choices.map { ToggleOption(it, label(it)) },
+        selected = selected,
+        onSelect = onSelect,
+        modifier = Modifier.padding(horizontal = 24.dp),
+    )
 }
 
 /**

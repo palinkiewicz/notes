@@ -25,6 +25,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,10 +52,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ColorPalette
@@ -255,6 +254,7 @@ private fun SaveToggle(current: Int, palette: SavedPalette) {
     IconButton(
         onClick = { if (saved) palette.onRemove(current) else palette.onSave(current) },
         enabled = enabled,
+        shapes = IconButtonDefaults.shapes(),
     ) {
         Icon(
             imageVector = if (saved) NotesIcons.BookmarkFilled else NotesIcons.Bookmark,

@@ -1,6 +1,5 @@
 package pl.dakil.notes
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +21,7 @@ import pl.dakil.notes.data.sync.BackupRunner
 import pl.dakil.notes.data.sync.SyncCoordinator
 import pl.dakil.notes.data.NoteViewStates
 import pl.dakil.notes.data.SettingsRepository
+import pl.dakil.notes.settings.AboutScreen
 import pl.dakil.notes.settings.AppearanceSettingsScreen
 import pl.dakil.notes.settings.DrawingOrderSettingsScreen
 import pl.dakil.notes.settings.EditorSettingsScreen
@@ -39,13 +39,14 @@ import pl.dakil.notes.settings.WebDavSetupScreen
 import pl.dakil.notes.settings.StorageSettingsScreen
 import pl.dakil.notes.settings.StorageSettingsViewModel
 import pl.dakil.notes.ui.motion.blockInputWhileExiting
+import pl.dakil.notes.ui.motion.predictiveBack
 import pl.dakil.notes.ui.motion.pushScreen
 import pl.dakil.notes.ui.motion.screenTransitionGround
 
 /** The pages of the settings section. The root is the index; the rest are pushed over it. */
 private enum class SettingsPage {
     ROOT, APPEARANCE, EDITOR, DRAWING_ORDER, KEYBOARD_SHORTCUTS, PAPER_COLOURS, PAPER_THEMES, SAVED_COLORS, INPUT, STORAGE,
-    BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV, TRASH;
+    BACKUP, SYNC, SYNC_DRIVE, SYNC_WEBDAV, TRASH, ABOUT;
 
     /**
      * Where back goes — the system gesture and the toolbar arrow alike, so the two cannot disagree.
@@ -96,21 +97,24 @@ fun SettingsScreen(
         factory = BackupSyncViewModel.factory(context, settings, backup, sync)
     )
 
-    // Registered deeper than the shell's "back returns to the library" handler, and back handlers
-    // run innermost first, so this one takes the gesture while a subscreen is open and yields it at
-    // the root without the two needing to know about each other.
-    BackHandler(enabled = page != SettingsPage.ROOT) { page = page.parent }
-
     AnimatedContent(
         targetState = page,
         modifier = Modifier.screenTransitionGround(),
         transitionSpec = { pushScreen(forward = targetState.depth > initialState.depth) },
         label = "settingsPage",
     ) { target ->
-        Box(Modifier.fillMaxSize().then(blockInputWhileExiting())) {
-            // `target`, not `page`: the outgoing screen is still composed during the transition,
-            // and its arrow has to lead to its own parent.
-            val back = { page = target.parent }
+        // `target`, not `page`: the outgoing screen is still composed during the transition, and
+        // its arrow has to lead to its own parent.
+        val back = { page = target.parent }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(blockInputWhileExiting())
+                // Registered deeper than the shell's "back returns to the library" handler, and back
+                // handlers run innermost first, so a subscreen takes the gesture while it is open and
+                // the root yields it without the two needing to know about each other.
+                .predictiveBack(enabled = target != SettingsPage.ROOT && target == page, onBack = back),
+        ) {
             when (target) {
                 SettingsPage.ROOT -> SettingsRootScreen(
                     onNavigateToAppearance = { page = SettingsPage.APPEARANCE },
@@ -121,6 +125,7 @@ fun SettingsScreen(
                     onNavigateToBackup = { page = SettingsPage.BACKUP },
                     onNavigateToSync = { page = SettingsPage.SYNC },
                     onNavigateToTrash = { page = SettingsPage.TRASH },
+                    onNavigateToAbout = { page = SettingsPage.ABOUT },
                 )
 
                 SettingsPage.APPEARANCE -> AppearanceSettingsScreen(
@@ -207,6 +212,8 @@ fun SettingsScreen(
                     viewModel = viewModel(factory = TrashViewModel.factory(trash)),
                     onNavigateBack = back,
                 )
+
+                SettingsPage.ABOUT -> AboutScreen(onNavigateBack = back)
 
                 SettingsPage.SYNC_WEBDAV -> WebDavSetupScreen(
                     current = current,

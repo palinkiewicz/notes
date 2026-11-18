@@ -1,17 +1,7 @@
 package pl.dakil.notes.settings
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -19,13 +9,10 @@ import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.model.StylusButtonAction
-import pl.dakil.notes.ui.components.flatTopAppBarColors
-import pl.dakil.notes.ui.icons.NotesIcons
 import java.util.Locale
 import kotlin.math.roundToInt
 
 /** How the pen, and the hand resting beside it, are read. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InputSettingsScreen(
     current: AppSettings,
@@ -34,33 +21,10 @@ fun InputSettingsScreen(
     onOpenKeyboardShortcuts: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_input)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = NotesIcons.Back,
-                            contentDescription = stringResource(R.string.common_back),
-                        )
-                    }
-                },
-                colors = flatTopAppBarColors(),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            val input = current.input
+    val input = current.input
 
-            SectionHeader(stringResource(R.string.settings_drawing))
-
+    SettingsSubscreen(stringResource(R.string.settings_input), onNavigateBack) {
+        SettingsGroup(stringResource(R.string.settings_drawing)) {
             SwitchRow(
                 title = stringResource(R.string.settings_finger_drawing),
                 summary = stringResource(R.string.settings_finger_drawing_description),
@@ -90,9 +54,9 @@ fun InputSettingsScreen(
                 summary = stringResource(R.string.settings_drawing_order_summary),
                 onClick = onOpenDrawingOrder,
             )
+        }
 
-            SectionHeader(stringResource(R.string.settings_palm_rejection))
-
+        SettingsGroup(stringResource(R.string.settings_palm_rejection)) {
             SliderRow(
                 title = stringResource(R.string.settings_palm_window),
                 summary = stringResource(R.string.settings_palm_window_description),
@@ -115,9 +79,9 @@ fun InputSettingsScreen(
                 },
                 onChange = settings::setPalmTouchMajorThreshold,
             )
+        }
 
-            SectionHeader(stringResource(R.string.settings_pressure))
-
+        SettingsGroup(stringResource(R.string.settings_pressure)) {
             SliderRow(
                 title = stringResource(R.string.settings_smoothing),
                 summary = stringResource(R.string.settings_smoothing_description),
@@ -148,9 +112,12 @@ fun InputSettingsScreen(
                 options = PressureCurvePresets.map { it to it.label() },
                 onSelect = settings::setPressureCurve,
             )
+        }
 
-            SectionHeader(stringResource(R.string.settings_auto_shape))
-
+        SettingsGroup(
+            title = stringResource(R.string.settings_section_shapes),
+            modifier = Modifier.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
+        ) {
             SwitchRow(
                 title = stringResource(R.string.settings_auto_shape),
                 summary = stringResource(R.string.settings_auto_shape_description),
@@ -169,9 +136,9 @@ fun InputSettingsScreen(
                     onChange = { settings.setAutoShapeHoldMs(it.roundToInt().toLong()) },
                 )
             }
+        }
 
-            SectionHeader(stringResource(R.string.settings_keyboard))
-
+        SettingsGroup(stringResource(R.string.settings_keyboard)) {
             NavigationRow(
                 title = stringResource(R.string.settings_keyboard_shortcuts),
                 summary = stringResource(R.string.settings_keyboard_shortcuts_summary),

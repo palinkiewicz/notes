@@ -18,10 +18,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import kotlinx.coroutines.launch
 import pl.dakil.notes.model.ShortcutAction
+import pl.dakil.notes.model.ProgressStyle
 import pl.dakil.notes.model.ShortcutGroup
 import pl.dakil.notes.settings.labelRes
 import pl.dakil.notes.settings.titleRes
 import pl.dakil.notes.ui.keys.LocalShortcutDispatcher
+import pl.dakil.notes.ui.designsystem.MotionPreferences
 import pl.dakil.notes.ui.keys.ShortcutDispatcher
 import pl.dakil.notes.ui.keys.metaState
 import pl.dakil.notes.ui.theme.NotesTheme
@@ -56,10 +58,22 @@ class MainActivity : ComponentActivity() {
             val dark = settings.darkTheme.resolveDark()
             SideEffect { shortcuts.keymap = settings.keymap }
 
+            // The Feel settings, as one stable value: the theme hands it down through a static
+            // local, so it must only change when one of the four choices does.
+            val motion = remember(settings.animatedNumbers, settings.decorativeAnimations, settings.progressStyle) {
+                MotionPreferences(
+                    animatedNumbers = settings.animatedNumbers,
+                    decorative = settings.decorativeAnimations,
+                    wavyProgress = settings.progressStyle == ProgressStyle.WAVY,
+                )
+            }
+
             NotesTheme(
                 colorTheme = settings.colorTheme,
                 darkThemeOption = settings.darkTheme,
                 pureBlack = settings.pureBlack,
+                hapticsEnabled = settings.hapticsEnabled,
+                motion = motion,
             ) {
                 // The canvas needs to know the theme directly: page colours come from the document,
                 // not from the M3 scheme, so it picks the light or dark paper itself.

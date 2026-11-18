@@ -43,6 +43,7 @@ import pl.dakil.notes.editor.canvas.RulerOverlay
 import pl.dakil.notes.editor.canvas.RulerState
 import pl.dakil.notes.editor.canvas.SelectionController
 import pl.dakil.notes.ui.keys.ShortcutHandler
+import pl.dakil.notes.ui.theme.NoteContentTheme
 import pl.dakil.notes.ui.sheet.SheetPainter
 import pl.dakil.notes.editor.canvas.rulerEdgeAt
 import pl.dakil.notes.ui.sheet.SheetPainter.drawSheet
@@ -208,17 +209,22 @@ fun SheetEditor(
     ) {
         Layout(
             content = {
-                SheetLayers(
-                    state = state,
-                    viewModel = viewModel,
-                    ptToPx = ptToPx,
-                    paged = paged,
-                    darkTheme = darkTheme,
-                    transform = transform,
-                    ruler = ruler,
-                    selectionController = selectionController,
-                    onImageToolTap = onImageToolTap,
-                )
+                // The paper and everything on it in the note's own theme, so the chrome's font and
+                // colour crossfade never reach a text box. No layout node: `measurables.first()`
+                // below is still the layers themselves.
+                NoteContentTheme {
+                    SheetLayers(
+                        state = state,
+                        viewModel = viewModel,
+                        ptToPx = ptToPx,
+                        paged = paged,
+                        darkTheme = darkTheme,
+                        transform = transform,
+                        ruler = ruler,
+                        selectionController = selectionController,
+                        onImageToolTap = onImageToolTap,
+                    )
+                }
             },
         ) { measurables, constraints ->
             // The viewport is taken from the incoming constraints rather than from onSizeChanged,

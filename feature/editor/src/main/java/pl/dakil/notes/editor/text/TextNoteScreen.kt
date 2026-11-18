@@ -8,13 +8,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import pl.dakil.notes.data.SaveState
@@ -65,7 +64,12 @@ import pl.dakil.notes.editor.markdown.ReferenceKind
 import pl.dakil.notes.editor.markdown.replaceAllWith
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutContext
+import pl.dakil.notes.ui.designsystem.AppMenu
+import pl.dakil.notes.ui.designsystem.AppMenuGroup
+import pl.dakil.notes.ui.designsystem.AppMenuItem
+import pl.dakil.notes.ui.designsystem.appTopBarColors
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
+import pl.dakil.notes.ui.theme.NoteContentTheme
 import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.keys.ShortcutHandler
@@ -271,43 +275,47 @@ fun TextNoteScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.Back, contentDescription = stringResource(R.string.editor_back))
                     }
                 },
+                colors = appTopBarColors(),
                 actions = {
-                    IconButton(onClick = { undo.undo() }, enabled = undo.canUndo) {
+                    IconButton(onClick = { undo.undo() }, enabled = undo.canUndo, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.Undo, contentDescription = stringResource(R.string.editor_undo))
                     }
-                    IconButton(onClick = { undo.redo() }, enabled = undo.canRedo) {
+                    IconButton(onClick = { undo.redo() }, enabled = undo.canRedo, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.Redo, contentDescription = stringResource(R.string.editor_redo))
                     }
                     Box {
-                        IconButton(onClick = { moreMenuOpen = true }) {
+                        IconButton(onClick = { moreMenuOpen = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(NotesIcons.More, contentDescription = stringResource(R.string.editor_more))
                         }
-                        DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_tags)) },
-                                leadingIcon = { Icon(NotesIcons.Tag, contentDescription = null) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    tagging = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_export)) },
-                                leadingIcon = { Icon(NotesIcons.Export, contentDescription = null) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    exportOpen = true
-                                },
-                            )
+                        AppMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                            AppMenuGroup {
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_tags),
+                                    icon = NotesIcons.Tag,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        tagging = true
+                                    },
+                                )
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_export),
+                                    icon = NotesIcons.Export,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        exportOpen = true
+                                    },
+                                )
+                            }
                         }
                     }
                     FilledIconToggleButton(
                         checked = state.sourceMode,
                         onCheckedChange = viewModel::setSourceMode,
+                        shapes = IconButtonDefaults.toggleableShapes(),
                     ) {
                         Icon(
                             imageVector = if (state.sourceMode) NotesIcons.Preview else NotesIcons.Source,
@@ -341,7 +349,7 @@ fun TextNoteScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
+                    LoadingIndicator()
                 }
 
                 errorMessage != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -373,19 +381,22 @@ fun TextNoteScreen(
                             savedColors = state.savedColors,
                         )
                     }
-                    MarkdownDocument(
-                        state = text,
-                        sourceMode = state.sourceMode,
-                        documentState = document,
-                        pending = pending,
-                        modifier = Modifier.fillMaxSize(),
-                        // Only a note with nothing in it opens ready to type.
-                        autoFocus = text.text.isEmpty(),
-                        attributes = state.pandoc,
-                        images = viewModel,
-                        onRequestLink = { reference = ReferenceKind.LINK },
-                        initialPosition = initialPosition,
-                    )
+                    // The note in its own theme: the chrome's font and colour crossfade stay out.
+                    NoteContentTheme {
+                        MarkdownDocument(
+                            state = text,
+                            sourceMode = state.sourceMode,
+                            documentState = document,
+                            pending = pending,
+                            modifier = Modifier.fillMaxSize(),
+                            // Only a note with nothing in it opens ready to type.
+                            autoFocus = text.text.isEmpty(),
+                            attributes = state.pandoc,
+                            images = viewModel,
+                            onRequestLink = { reference = ReferenceKind.LINK },
+                            initialPosition = initialPosition,
+                        )
+                    }
                 }
             }
         }

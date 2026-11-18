@@ -17,8 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -49,6 +48,10 @@ import pl.dakil.notes.model.PageBackground
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PaperThemes
+import pl.dakil.notes.ui.designsystem.AppMenu
+import pl.dakil.notes.ui.designsystem.AppMenuGroup
+import pl.dakil.notes.ui.designsystem.AppMenuItem
+import pl.dakil.notes.ui.designsystem.SelectionBadge
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** What can be done to one saved theme, from its long-press menu or a settings row. */
@@ -151,10 +154,10 @@ fun PaperThemeCards(
                 TextButton(onClick = {
                     actions.onDelete(theme.id)
                     deleting = null
-                }) { Text(stringResource(R.string.editor_theme_delete)) }
+                }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_theme_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.editor_cancel)) }
+                TextButton(onClick = { deleting = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_cancel)) }
             },
         )
     }
@@ -178,7 +181,7 @@ private fun SaveCurrentCard(enabled: Boolean, onClick: () -> Unit) {
         OutlinedCard(
             onClick = onClick,
             enabled = enabled,
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.size(width = CARD_WIDTH, height = CARD_HEIGHT),
         ) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
@@ -204,7 +207,7 @@ private fun ThemeCard(
     onDelete: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(16.dp)
     var menuOpen by remember { mutableStateOf(false) }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(CARD_WIDTH)) {
@@ -226,6 +229,7 @@ private fun ThemeCard(
                         onLongClickLabel = stringResource(R.string.editor_theme_options),
                     ),
             ) {
+                SelectionBadge(selected, Modifier.align(Alignment.TopStart).padding(6.dp), size = 24.dp)
                 if (isDefault) {
                     // On its own ground, like the pattern labels: the paper can be any colour.
                     Surface(
@@ -242,34 +246,33 @@ private fun ThemeCard(
                     }
                 }
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.editor_theme_update)) },
-                    enabled = canUpdate,
-                    onClick = { menuOpen = false; onUpdate() },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(
-                                if (isDefault) R.string.editor_theme_unset_default
-                                else R.string.editor_theme_set_default
-                            )
-                        )
-                    },
-                    leadingIcon = { Icon(NotesIcons.Default, contentDescription = null) },
-                    onClick = { menuOpen = false; onToggleDefault() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.editor_theme_rename)) },
-                    leadingIcon = { Icon(NotesIcons.Rename, contentDescription = null) },
-                    onClick = { menuOpen = false; onRename() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.editor_theme_delete)) },
-                    leadingIcon = { Icon(NotesIcons.Delete, contentDescription = null) },
-                    onClick = { menuOpen = false; onDelete() },
-                )
+            AppMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                AppMenuGroup {
+                    AppMenuItem(
+                        text = stringResource(R.string.editor_theme_update),
+                        enabled = canUpdate,
+                        onClick = { menuOpen = false; onUpdate() },
+                    )
+                    AppMenuItem(
+                        text = stringResource(
+                            if (isDefault) R.string.editor_theme_unset_default
+                            else R.string.editor_theme_set_default
+                        ),
+                        icon = NotesIcons.Default,
+                        onClick = { menuOpen = false; onToggleDefault() },
+                    )
+                    AppMenuItem(
+                        text = stringResource(R.string.editor_theme_rename),
+                        icon = NotesIcons.Rename,
+                        onClick = { menuOpen = false; onRename() },
+                    )
+                    AppMenuItem(
+                        text = stringResource(R.string.editor_theme_delete),
+                        icon = NotesIcons.Delete,
+                        destructive = true,
+                        onClick = { menuOpen = false; onDelete() },
+                    )
+                }
             }
         }
         CardLabel(theme.name)
@@ -322,12 +325,12 @@ fun ThemeNameDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = { clean?.let(onConfirm) }, enabled = clean != null) {
+            TextButton(onClick = { clean?.let(onConfirm) }, enabled = clean != null, shapes = ButtonDefaults.shapes()) {
                 Text(stringResource(R.string.editor_ok))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_cancel)) }
         },
     )
 }

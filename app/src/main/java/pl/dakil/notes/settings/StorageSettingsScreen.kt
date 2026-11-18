@@ -3,22 +3,11 @@ package pl.dakil.notes.settings
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import pl.dakil.notes.R
 import pl.dakil.notes.data.AdoptOutcome
 import pl.dakil.notes.data.LibraryRootKind
+import pl.dakil.notes.ui.designsystem.AppCircularProgress
 
 /**
  * Where the notes live, and how to move them somewhere the user can reach.
@@ -38,7 +28,6 @@ import pl.dakil.notes.data.LibraryRootKind
  * whole of the backup story for anyone already running Syncthing, a cloud client with a
  * `DocumentsProvider`, or nothing but a USB cable.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StorageSettingsScreen(
     viewModel: StorageSettingsViewModel,
@@ -54,31 +43,8 @@ fun StorageSettingsScreen(
         AdoptOutcomeDialog(outcome = outcome, onDismiss = viewModel::acknowledge)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_storage)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = pl.dakil.notes.ui.icons.NotesIcons.Back,
-                            contentDescription = stringResource(R.string.common_back),
-                        )
-                    }
-                },
-                colors = pl.dakil.notes.ui.components.flatTopAppBarColors(),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            SectionHeader(stringResource(R.string.settings_storage_location))
-
+    SettingsSubscreen(stringResource(R.string.settings_storage), onNavigateBack) {
+        SettingsGroup(stringResource(R.string.settings_storage_location)) {
             SettingRow(
                 title = stringResource(R.string.settings_storage_folder),
                 // The URI is shown decoded rather than prettified: a wrong folder is much easier to
@@ -88,7 +54,7 @@ fun StorageSettingsScreen(
                 enabled = !state.busy,
                 onClick = { picker.launch(null) },
                 trailing = if (state.busy) {
-                    { CircularProgressIndicator(Modifier.size(24.dp)) }
+                    { AppCircularProgress(Modifier.size(24.dp)) }
                 } else {
                     null
                 },
@@ -129,7 +95,7 @@ private fun AdoptOutcomeDialog(outcome: AdoptOutcome, onDismiss: () -> Unit) {
         title = { Text(stringResource(R.string.settings_storage)) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.common_close)) }
         },
     )
 }

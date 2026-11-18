@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.ui.designsystem.SelectionBadge
 import pl.dakil.notes.ui.sheet.SheetPainter.drawPattern
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PageBackground
@@ -38,7 +39,7 @@ import pl.dakil.notes.model.PageMargins
 import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PatternType
 
-private val CARD_SHAPE_RADIUS = 12.dp
+private val CARD_SHAPE_RADIUS = 16.dp
 
 /**
  * How much paper a pattern preview shows, in points.
@@ -97,7 +98,7 @@ private fun SizeCard(
         modifier = Modifier
             .width(84.dp)
             .clip(RoundedCornerShape(CARD_SHAPE_RADIUS))
-            .background(if (selected) scheme.secondaryContainer else scheme.surfaceVariant)
+            .background(if (selected) scheme.secondaryContainer else scheme.surfaceContainerHigh)
             .border(
                 width = if (selected) 2.dp else 1.dp,
                 color = if (selected) scheme.primary else scheme.outlineVariant,
@@ -204,6 +205,7 @@ private fun PatternCard(
                 .background(scheme.surface.copy(alpha = 0.85f))
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         )
+        SelectionBadge(selected, Modifier.align(Alignment.TopEnd).padding(6.dp), size = 24.dp)
     }
 }
 

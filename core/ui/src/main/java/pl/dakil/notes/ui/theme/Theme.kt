@@ -1,23 +1,36 @@
 package pl.dakil.notes.ui.theme
 
 import android.app.Activity
+import android.content.Context
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.DarkThemeOption
+import pl.dakil.notes.ui.designsystem.LocalMotionPreferences
+import pl.dakil.notes.ui.designsystem.MotionPreferences
 
 // ---- The bundled palettes -----------------------------------------------------------------------
 //
@@ -319,7 +332,12 @@ fun colorSchemeFor(colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme {
     // `rememberSaveable` state further up the tree (the app shell's current destination) on that
     // transition. Reading it here every time keeps the call structure identical across all branches.
     val context = LocalContext.current
-    return when (colorTheme) {
+    return colorSchemeFor(context, colorTheme, darkTheme)
+}
+
+/** [colorSchemeFor] outside composition, for a theme that remembers its scheme. */
+internal fun colorSchemeFor(context: Context, colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme =
+    when (colorTheme) {
         AppColorTheme.DYNAMIC ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -331,7 +349,6 @@ fun colorSchemeFor(colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme {
 
         else -> bundled(colorTheme, darkTheme)
     }
-}
 
 private fun bundled(colorTheme: AppColorTheme, darkTheme: Boolean): ColorScheme {
     val scheme = when (colorTheme) {
@@ -358,21 +375,42 @@ fun DarkThemeOption.resolveDark(): Boolean = when (this) {
 /**
  * The app theme.
  *
+ * Material 3 Expressive throughout the chrome: the expressive motion scheme (springs that overshoot
+ * a little), the rounded corner scale and Google Sans Flex. Switching palette, dark mode or pure
+ * black crossfades every role instead of snapping.
+ *
+ * Notes themselves are drawn under [NoteContentTheme], which keeps their own type, shapes and
+ * timing, and is handed [LocalNoteColorScheme] — the settled scheme, never a frame of the fade.
+ *
  * Dynamic colour is offered rather than assumed: a note app sitting inside the user's wallpaper
- * palette is a good default on the phones that have one, but it is now one entry in a picker
- * instead of the only behaviour, and it is not available at all below Android 12.
+ * palette is a good default on the phones that have one, but it is one entry in a picker instead of
+ * the only behaviour, and it is not available at all below Android 12.
+ *
+ * [hapticsEnabled] and [motion] are the Feel settings. Haptics are switched off at the source, by
+ * providing a [LocalHapticFeedback] that does nothing, so every component and every screen goes
+ * quiet at once — including the ones that never heard of the setting.
  */
 @Composable
 fun NotesTheme(
     colorTheme: AppColorTheme = AppColorTheme.DAKILS_NOTES,
     darkThemeOption: DarkThemeOption = DarkThemeOption.SYSTEM,
     pureBlack: Boolean = false,
+    hapticsEnabled: Boolean = true,
+    motion: MotionPreferences = MotionPreferences(),
     content: @Composable () -> Unit,
 ) {
     val darkTheme = darkThemeOption.resolveDark()
 
-    val colorScheme = colorSchemeFor(colorTheme, darkTheme)
-        .let { if (darkTheme && pureBlack) it.toPureBlack() else it }
+    val context = LocalContext.current
+    // Remembered so the scheme keeps its identity between recompositions: the note surfaces key
+    // their text styles on it, and a fresh but equal scheme would rebuild them for nothing.
+    // The configuration is a key because the wallpaper palette arrives as one: a new wallpaper on
+    // Android 12+ is a configuration change, and DYNAMIC must pick it up.
+    val configuration = LocalConfiguration.current
+    val colorScheme = remember(colorTheme, darkTheme, pureBlack, configuration) {
+        colorSchemeFor(context, colorTheme, darkTheme)
+            .let { if (darkTheme && pureBlack) it.toPureBlack() else it }
+    }
 
     // The app's own dark flag can now disagree with the system's, and the system bars are painted by
     // the platform from the system setting. Without this the status bar icons come out white on a
@@ -388,9 +426,117 @@ fun NotesTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = NotesTypography,
-        content = content,
+    val haptics = if (hapticsEnabled) LocalHapticFeedback.current else NoHapticFeedback
+    CompositionLocalProvider(
+        LocalNoteColorScheme provides colorScheme,
+        LocalHapticFeedback provides haptics,
+        LocalMotionPreferences provides motion,
+    ) {
+        MaterialExpressiveTheme(
+            colorScheme = animateColorScheme(colorScheme),
+            motionScheme = MotionScheme.expressive(),
+            shapes = NotesShapes,
+            typography = ChromeTypography,
+            content = content,
+        )
+    }
+}
+
+/** What haptics do when the user has turned them off. */
+private object NoHapticFeedback : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
+
+/**
+ * Crossfades every role so switching theme, dark mode or pure black glides instead of snapping.
+ *
+ * The copy is remembered on the animated values, so while nothing is animating the chrome sees one
+ * stable scheme rather than a new (if equal) object on every recomposition.
+ */
+@Composable
+private fun animateColorScheme(target: ColorScheme): ColorScheme {
+    val spec: AnimationSpec<Color> = tween(durationMillis = 450)
+
+    @Composable
+    fun Color.animated(): Color = animateColorAsState(this, spec, label = "scheme").value
+
+    val roles = listOf(
+        target.primary.animated(),
+        target.onPrimary.animated(),
+        target.primaryContainer.animated(),
+        target.onPrimaryContainer.animated(),
+        target.inversePrimary.animated(),
+        target.secondary.animated(),
+        target.onSecondary.animated(),
+        target.secondaryContainer.animated(),
+        target.onSecondaryContainer.animated(),
+        target.tertiary.animated(),
+        target.onTertiary.animated(),
+        target.tertiaryContainer.animated(),
+        target.onTertiaryContainer.animated(),
+        target.background.animated(),
+        target.onBackground.animated(),
+        target.surface.animated(),
+        target.onSurface.animated(),
+        target.surfaceVariant.animated(),
+        target.onSurfaceVariant.animated(),
+        target.surfaceTint.animated(),
+        target.inverseSurface.animated(),
+        target.inverseOnSurface.animated(),
+        target.error.animated(),
+        target.onError.animated(),
+        target.errorContainer.animated(),
+        target.onErrorContainer.animated(),
+        target.outline.animated(),
+        target.outlineVariant.animated(),
+        target.scrim.animated(),
+        target.surfaceBright.animated(),
+        target.surfaceDim.animated(),
+        target.surfaceContainer.animated(),
+        target.surfaceContainerHigh.animated(),
+        target.surfaceContainerHighest.animated(),
+        target.surfaceContainerLow.animated(),
+        target.surfaceContainerLowest.animated(),
     )
+    return remember(roles) {
+        var i = 0
+        target.copy(
+            primary = roles[i++],
+            onPrimary = roles[i++],
+            primaryContainer = roles[i++],
+            onPrimaryContainer = roles[i++],
+            inversePrimary = roles[i++],
+            secondary = roles[i++],
+            onSecondary = roles[i++],
+            secondaryContainer = roles[i++],
+            onSecondaryContainer = roles[i++],
+            tertiary = roles[i++],
+            onTertiary = roles[i++],
+            tertiaryContainer = roles[i++],
+            onTertiaryContainer = roles[i++],
+            background = roles[i++],
+            onBackground = roles[i++],
+            surface = roles[i++],
+            onSurface = roles[i++],
+            surfaceVariant = roles[i++],
+            onSurfaceVariant = roles[i++],
+            surfaceTint = roles[i++],
+            inverseSurface = roles[i++],
+            inverseOnSurface = roles[i++],
+            error = roles[i++],
+            onError = roles[i++],
+            errorContainer = roles[i++],
+            onErrorContainer = roles[i++],
+            outline = roles[i++],
+            outlineVariant = roles[i++],
+            scrim = roles[i++],
+            surfaceBright = roles[i++],
+            surfaceDim = roles[i++],
+            surfaceContainer = roles[i++],
+            surfaceContainerHigh = roles[i++],
+            surfaceContainerHighest = roles[i++],
+            surfaceContainerLow = roles[i++],
+            surfaceContainerLowest = roles[i],
+        )
+    }
 }

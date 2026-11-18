@@ -4,7 +4,6 @@
     <string name="app_name">Notes</string>
 
     <!--  COMMON  -->
-    <string name="common_back">Back</string>
     <string name="common_close">Close</string>
 
     <!--  NAVIGATION  -->
@@ -21,7 +20,7 @@
     <!--  SETTINGS  -->
     <string name="settings_title">Settings</string>
     <string name="settings_appearance">Appearance</string>
-    <string name="settings_appearance_summary">Theme, dark mode and library layout</string>
+    <string name="settings_appearance_summary">Colours, dark mode and feel</string>
     <string name="settings_input">Pen &amp; input</string>
     <string name="settings_input_summary">Stylus, palm rejection, pressure and keyboard</string>
     <string name="settings_about">About app</string>
@@ -29,6 +28,10 @@
     <string name="settings_section_general">General</string>
     <string name="settings_section_notes">Notes</string>
     <string name="settings_section_data">Your data</string>
+    <string name="settings_section_app">App</string>
+    <string name="settings_section_schedule">Schedule</string>
+    <string name="settings_section_manual">By hand</string>
+    <string name="settings_section_shapes">Shapes</string>
     <string name="settings_editor">Editor</string>
     <string name="settings_editor_summary">Reopening, scrolling, text notes and images</string>
     <string name="settings_paper_colours">Paper &amp; colours</string>
@@ -46,6 +49,15 @@
     <string name="settings_library">Library</string>
     <string name="settings_notes_layout">Notes layout</string>
     <string name="settings_notes_layout_description">Cards show a preview of each note; the list fits more of them on screen.</string>
+    <string name="settings_section_feel">Feel</string>
+    <string name="settings_haptics">Haptic feedback</string>
+    <string name="settings_haptics_description">Subtle vibrations when toggling, dragging and confirming</string>
+    <string name="settings_animated_numbers">Animated numbers</string>
+    <string name="settings_animated_numbers_description">Changing digits roll into place, odometer-style</string>
+    <string name="settings_decorative_animations">Decorative animations</string>
+    <string name="settings_decorative_animations_description">Spins, shape morphs and cards sliding in. Screen transitions stay</string>
+    <string name="settings_progress_style">Progress bars</string>
+    <string name="settings_progress_style_description">How progress bars are drawn</string>
     <string name="settings_images">Images</string>
     <string name="settings_image_insert">Inserting an image</string>
     <string name="settings_image_insert_description">What the image button does. With the photo picker first, hold the button to insert an image from a link instead.</string>
@@ -113,6 +125,8 @@
 
     <string name="library_layout_cards">Floating cards</string>
     <string name="library_layout_list">List</string>
+    <string name="progress_style_wavy">Wavy</string>
+    <string name="progress_style_straight">Straight</string>
 
     <string name="unit_centimetres">Centimetres</string>
     <string name="unit_millimetres">Millimetres</string>
@@ -233,6 +247,12 @@
     <string name="about_repository_link" translatable="false">GitHub</string>
     <string name="about_author">Author</string>
     <string name="about_credit">Idea, and a loving girlfriend</string>
+    <string name="about_section_project">The project</string>
+    <string name="about_section_made_with">Made with</string>
+    <string name="about_font_name" translatable="false">Google Sans Flex</string>
+    <string name="about_font_licence" translatable="false">SIL Open Font License 1.1</string>
+    <string name="about_symbols_name" translatable="false">Material Symbols</string>
+    <string name="about_symbols_licence" translatable="false">Apache License 2.0</string>
 
     <!--  STORAGE SETTINGS  -->
     <string name="settings_storage">Storage</string>

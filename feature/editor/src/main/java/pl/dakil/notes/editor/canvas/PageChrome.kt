@@ -1,12 +1,13 @@
 package pl.dakil.notes.editor.canvas
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -201,7 +202,7 @@ private fun HeaderAction(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(34.dp)) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(34.dp), shapes = IconButtonDefaults.shapes()) {
         Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(17.dp))
     }
 }
@@ -214,7 +215,7 @@ private fun AddPageButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 2.dp,
     ) {
-        TextButton(onClick = onClick) {
+        TextButton(onClick = onClick, shapes = ButtonDefaults.shapes()) {
             Icon(
                 imageVector = NotesIcons.AddPage,
                 contentDescription = null,

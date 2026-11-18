@@ -1,19 +1,7 @@
 package pl.dakil.notes.settings
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,8 +15,7 @@ import pl.dakil.notes.data.SyncFrequency
 import pl.dakil.notes.data.SyncProvider
 import pl.dakil.notes.sync.SyncOutcome
 import pl.dakil.notes.sync.SyncRefusal
-import pl.dakil.notes.ui.components.flatTopAppBarColors
-import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.designsystem.AppCircularProgress
 
 /**
  * Mirroring the library to a server the user chose.
@@ -37,7 +24,6 @@ import pl.dakil.notes.ui.icons.NotesIcons
  * of syncing to Drive is that the notes are still `.md` and `.daknote` files anyone can open from a
  * browser. An account is optional and the app works completely without one.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SyncSettingsScreen(
     current: AppSettings,
@@ -69,24 +55,8 @@ fun SyncSettingsScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_sync)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.common_back))
-                    }
-                },
-                colors = flatTopAppBarColors(),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
-
-            SectionHeader(stringResource(R.string.settings_sync_provider))
-
+    SettingsSubscreen(stringResource(R.string.settings_sync), onNavigateBack) {
+        SettingsGroup(stringResource(R.string.settings_sync_provider)) {
             when (current.syncProvider) {
                 SyncProvider.NONE -> {
                     SettingRow(
@@ -116,7 +86,7 @@ fun SyncSettingsScreen(
                         enabled = !state.busy,
                         onClick = if (current.syncProvider == SyncProvider.DRIVE) onNavigateToDrive else onNavigateToWebDav,
                         trailing = if (state.busy) {
-                            { CircularProgressIndicator(Modifier.size(24.dp)) }
+                            { AppCircularProgress(Modifier.size(24.dp)) }
                         } else {
                             null
                         },

@@ -8,14 +8,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,6 +26,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.ui.designsystem.AppSlider
+import pl.dakil.notes.ui.designsystem.ConnectedToggleRow
+import pl.dakil.notes.ui.designsystem.ToggleOption
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.model.MarginLink
 import pl.dakil.notes.model.MeasurementUnit
@@ -136,7 +136,7 @@ private fun LengthDialog(
                         unit.parse(typed)?.let { points = it.coerceIn(range) }
                     },
                 )
-                Slider(
+                AppSlider(
                     value = points,
                     onValueChange = {
                         points = it
@@ -147,10 +147,10 @@ private fun LengthDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(unit.snapPoints(points).coerceIn(range)) }) { Text(stringResource(R.string.editor_ok)) }
+            TextButton(onClick = { onConfirm(unit.snapPoints(points).coerceIn(range)) }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_cancel)) }
         },
     )
 }
@@ -278,20 +278,15 @@ private fun MarginsDialog(
         title = { Text(stringResource(R.string.editor_margins)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    val options = listOf(
-                        stringResource(R.string.editor_margins_link_all) to MarginLink.ALL,
-                        stringResource(R.string.editor_margins_link_axes) to MarginLink.AXES,
-                        stringResource(R.string.editor_margins_link_each) to MarginLink.EACH,
-                    )
-                    options.forEachIndexed { i, (label, mode) ->
-                        SegmentedButton(
-                            selected = link == mode,
-                            onClick = { retie(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
-                        ) { Text(label) }
-                    }
-                }
+                ConnectedToggleRow(
+                    options = listOf(
+                        ToggleOption(MarginLink.ALL, stringResource(R.string.editor_margins_link_all)),
+                        ToggleOption(MarginLink.AXES, stringResource(R.string.editor_margins_link_axes)),
+                        ToggleOption(MarginLink.EACH, stringResource(R.string.editor_margins_link_each)),
+                    ),
+                    selected = link,
+                    onSelect = { retie(it) },
+                )
 
                 // Top, right, bottom, left — the order the shorthand on the row is read in.
                 when (link) {
@@ -353,10 +348,11 @@ private fun MarginsDialog(
                     val (t, r, b, l) = parsed.map { (it ?: 0f).coerceIn(range) }
                     onConfirm(PageMargins(left = l, top = t, right = r, bottom = b))
                 },
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.editor_ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_cancel)) }
         },
     )
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.ui.sheet.SheetPainter
+import pl.dakil.notes.ui.theme.NoteContentTheme
 import pl.dakil.notes.editor.canvas.SheetTransform
 import pl.dakil.notes.editor.markdown.MarkdownEditor
 import pl.dakil.notes.model.Rect
@@ -112,17 +113,21 @@ fun TextBoxChrome(
 
     Box(modifier) {
         if (state.editingTextBlock == id) {
-            EditableTextBox(
-                box = box,
-                sheet = sheet,
-                viewModel = viewModel,
-                zoom = transform.zoom,
-                ptToPx = ptToPx,
-                paged = paged,
-                onCaretBand = onCaretBand,
-                // Read at placement, so a pan moves the field without measuring a line of text again.
-                offset = { frame().let { IntOffset(it.left.roundToInt(), it.top.roundToInt()) } },
-            )
+            // The box's text is note content: it gets the note's theme, while the frame and grips
+            // drawn around it below stay chrome.
+            NoteContentTheme {
+                EditableTextBox(
+                    box = box,
+                    sheet = sheet,
+                    viewModel = viewModel,
+                    zoom = transform.zoom,
+                    ptToPx = ptToPx,
+                    paged = paged,
+                    onCaretBand = onCaretBand,
+                    // Read at placement, so a pan moves the field without measuring a line of text again.
+                    offset = { frame().let { IntOffset(it.left.roundToInt(), it.top.roundToInt()) } },
+                )
+            }
         }
 
         Layout(

@@ -11,9 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -32,6 +29,8 @@ import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.model.PatternType
 import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorSettingRow
+import pl.dakil.notes.ui.designsystem.ConnectedToggleRow
+import pl.dakil.notes.ui.designsystem.ToggleOption
 
 /** Which page colour a picker launched from [PageSetupSheet] is editing. */
 enum class PageColorTarget { PAPER, LINES, MARGIN }
@@ -95,18 +94,15 @@ fun PageSetupSheet(
             ) {
                 Text(stringResource(R.string.editor_page), style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.weight(1f))
-                SingleChoiceSegmentedButtonRow {
-                    SegmentedButton(
-                        selected = view == ViewMode.PAGED,
-                        onClick = { onViewChange(ViewMode.PAGED) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    ) { Text(stringResource(R.string.editor_pages_paged)) }
-                    SegmentedButton(
-                        selected = view == ViewMode.CONTINUOUS,
-                        onClick = { onViewChange(ViewMode.CONTINUOUS) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                    ) { Text(stringResource(R.string.editor_pages_scroll)) }
-                }
+                ConnectedToggleRow(
+                    options = listOf(
+                        ToggleOption(ViewMode.PAGED, stringResource(R.string.editor_pages_paged)),
+                        ToggleOption(ViewMode.CONTINUOUS, stringResource(R.string.editor_pages_scroll)),
+                    ),
+                    selected = view,
+                    onSelect = onViewChange,
+                    fillWidth = false,
+                )
             }
             Text(
                 text = pluralStringResource(R.plurals.editor_page_count_x, pageCount, pageCount),
@@ -246,7 +242,8 @@ fun PageSetupSheet(
 private fun SectionLabel(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelLarge,
+        style = MaterialTheme.typography.labelLargeEmphasized,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
     )
 }

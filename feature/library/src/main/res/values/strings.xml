@@ -30,6 +30,20 @@
         <item quantity="other">Selected %1$d</item>
     </plurals>
     <string name="library_clear_selection">Clear selection</string>
+    <!--  COUNTS UNDER THE TITLE  -->
+    <plurals name="library_count_notes">
+        <item quantity="one">%1$d note</item>
+        <item quantity="other">%1$d notes</item>
+    </plurals>
+    <plurals name="library_count_folders">
+        <item quantity="one">%1$d folder</item>
+        <item quantity="other">%1$d folders</item>
+    </plurals>
+    <plurals name="library_count_results">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
+    <string name="library_count_empty">Empty for now</string>
 
     <!--  MOVE  -->
     <plurals name="library_moving_x">
@@ -60,13 +74,18 @@
     <string name="library_no_matches_in_x">Nothing in %1$s matches \"%2$s\".</string>
     <string name="library_search_in_x">Search in %1$s</string>
     <string name="library_clear_search">Clear search</string>
+    <string name="library_search">Search</string>
+    <string name="library_close_search">Close search</string>
+    <string name="library_search_hint_title">Find a note</string>
+    <string name="library_search_hint">Type a few words from its title or its text.</string>
     <string name="library_search_scope_x">Searching %1$s and the folders inside it.</string>
 
     <!--  FILTERS  -->
     <string name="library_filter_all">All</string>
-    <string name="library_filter_folders">Folders only</string>
-    <string name="library_filter_text">Text notes only</string>
-    <string name="library_filter_ink">Ink notes only</string>
+    <!-- Short forms for the filter buttons above the notes, where four sit side by side. -->
+    <string name="library_filter_folders_short">Folders</string>
+    <string name="library_filter_text_short">Text</string>
+    <string name="library_filter_ink_short">Ink</string>
     <!--
       Full sentences rather than a filter name dropped into one: the label is a noun phrase in some
       languages and a clause in others, and lowercasing one to fit mid-sentence only works in English.
@@ -112,6 +131,10 @@
         <item quantity="one">%1$d day left</item>
         <item quantity="other">%1$d days left</item>
     </plurals>
+    <plurals name="trash_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
     <string name="trash_restore">Restore</string>
     <string name="trash_restored_x">Restored %1$s</string>
     <string name="trash_delete_forever">Delete for good</string>
@@ -120,5 +143,4 @@
     <string name="trash_empty_confirm_title">Empty the trash?</string>
     <string name="trash_empty_confirm_text">Everything in the trash is deleted for good. This cannot be undone.</string>
     <string name="trash_error_empty">Could not empty the trash</string>
-    <string name="trash_back">Back</string>
 </resources>

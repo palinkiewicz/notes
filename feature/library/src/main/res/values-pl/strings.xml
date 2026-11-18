@@ -31,6 +31,25 @@
         <item quantity="other">Zaznaczono %1$d</item>
     </plurals>
     <string name="library_clear_selection">Wyczyść zaznaczenie</string>
+    <plurals name="library_count_notes">
+        <item quantity="one">%1$d notatka</item>
+        <item quantity="few">%1$d notatki</item>
+        <item quantity="many">%1$d notatek</item>
+        <item quantity="other">%1$d notatki</item>
+    </plurals>
+    <plurals name="library_count_folders">
+        <item quantity="one">%1$d folder</item>
+        <item quantity="few">%1$d foldery</item>
+        <item quantity="many">%1$d folderów</item>
+        <item quantity="other">%1$d folderu</item>
+    </plurals>
+    <plurals name="library_count_results">
+        <item quantity="one">%1$d wynik</item>
+        <item quantity="few">%1$d wyniki</item>
+        <item quantity="many">%1$d wyników</item>
+        <item quantity="other">%1$d wyniku</item>
+    </plurals>
+    <string name="library_count_empty">Na razie pusto</string>
 
     <!--  MOVE  -->
     <plurals name="library_moving_x">
@@ -65,13 +84,17 @@
     <string name="library_no_matches_in_x">Nic w folderze %1$s nie pasuje do „%2$s”.</string>
     <string name="library_search_in_x">Szukaj w: %1$s</string>
     <string name="library_clear_search">Wyczyść wyszukiwanie</string>
+    <string name="library_search">Szukaj</string>
+    <string name="library_close_search">Zamknij wyszukiwanie</string>
+    <string name="library_search_hint_title">Znajdź notatkę</string>
+    <string name="library_search_hint">Wpisz kilka słów z jej tytułu lub treści.</string>
     <string name="library_search_scope_x">Przeszukiwanie folderu %1$s i folderów w nim zawartych.</string>
 
     <!--  FILTERS  -->
     <string name="library_filter_all">Wszystko</string>
-    <string name="library_filter_folders">Tylko foldery</string>
-    <string name="library_filter_text">Tylko notatki tekstowe</string>
-    <string name="library_filter_ink">Tylko notatki odręczne</string>
+    <string name="library_filter_folders_short">Foldery</string>
+    <string name="library_filter_text_short">Tekst</string>
+    <string name="library_filter_ink_short">Odręczne</string>
     <string name="library_filter_empty_folders">W tym folderze nie ma folderów.</string>
     <string name="library_filter_empty_text">W tym folderze nie ma notatek tekstowych.</string>
     <string name="library_filter_empty_ink">W tym folderze nie ma notatek odręcznych.</string>
@@ -117,6 +140,12 @@
         <item quantity="many">Zostało %1$d dni</item>
         <item quantity="other">Zostało %1$d dnia</item>
     </plurals>
+    <plurals name="trash_count">
+        <item quantity="one">%1$d element</item>
+        <item quantity="few">%1$d elementy</item>
+        <item quantity="many">%1$d elementów</item>
+        <item quantity="other">%1$d elementu</item>
+    </plurals>
     <string name="trash_restore">Przywróć</string>
     <string name="trash_restored_x">Przywrócono: %1$s</string>
     <string name="trash_delete_forever">Usuń na zawsze</string>
@@ -125,5 +154,4 @@
     <string name="trash_empty_confirm_title">Opróżnić kosz?</string>
     <string name="trash_empty_confirm_text">Wszystko w koszu zostanie usunięte na zawsze. Tej operacji nie można cofnąć.</string>
     <string name="trash_error_empty">Nie udało się opróżnić kosza</string>
-    <string name="trash_back">Wstecz</string>
 </resources>

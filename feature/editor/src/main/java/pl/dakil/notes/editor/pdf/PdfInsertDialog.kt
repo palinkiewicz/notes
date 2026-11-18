@@ -14,17 +14,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,6 +46,8 @@ import androidx.compose.ui.window.DialogProperties
 import pl.dakil.notes.data.ImportedPdf
 import pl.dakil.notes.editor.R
 import pl.dakil.notes.model.PageSelection
+import pl.dakil.notes.ui.designsystem.ConnectedToggleRow
+import pl.dakil.notes.ui.designsystem.ToggleOption
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.sheet.PdfPages
 
@@ -90,7 +91,7 @@ fun PdfInsertDialog(
                 TopAppBar(
                     title = { Text(stringResource(R.string.editor_pdf_insert_title)) },
                     navigationIcon = {
-                        IconButton(onClick = onDismiss) {
+                        IconButton(onClick = onDismiss, shapes = IconButtonDefaults.shapes()) {
                             Icon(NotesIcons.Close, contentDescription = stringResource(R.string.editor_cancel))
                         }
                     },
@@ -105,31 +106,28 @@ fun PdfInsertDialog(
                                 }
                                 onInsert(chosen.sorted(), at)
                             },
+                            shapes = ButtonDefaults.shapes(),
                         ) { Text(stringResource(R.string.editor_pdf_insert_confirm, chosen.size)) }
                     },
                 )
             },
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    val options = PdfInsertPosition.entries
-                    options.forEachIndexed { i, option ->
-                        SegmentedButton(
-                            selected = position == option,
-                            onClick = { position = option },
-                            shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                        ) {
-                            Text(
-                                when (option) {
-                                    PdfInsertPosition.AFTER_CURRENT -> stringResource(R.string.editor_pdf_after_page, currentPage + 1)
-                                    PdfInsertPosition.START -> stringResource(R.string.editor_pdf_at_start)
-                                    PdfInsertPosition.END -> stringResource(R.string.editor_pdf_at_end)
-                                },
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
+                ConnectedToggleRow(
+                    options = PdfInsertPosition.entries.map { option ->
+                        ToggleOption(
+                            option,
+                            when (option) {
+                                PdfInsertPosition.AFTER_CURRENT -> stringResource(R.string.editor_pdf_after_page, currentPage + 1)
+                                PdfInsertPosition.START -> stringResource(R.string.editor_pdf_at_start)
+                                PdfInsertPosition.END -> stringResource(R.string.editor_pdf_at_end)
+                            },
+                        )
+                    },
+                    selected = position,
+                    onSelect = { position = it },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -147,10 +145,10 @@ fun PdfInsertDialog(
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { choose((0 until total).toSet()) }) {
+                    TextButton(onClick = { choose((0 until total).toSet()) }, shapes = ButtonDefaults.shapes()) {
                         Text(stringResource(R.string.editor_pdf_select_all))
                     }
-                    TextButton(onClick = { chosen = emptySet(); typed = "" }) {
+                    TextButton(onClick = { chosen = emptySet(); typed = "" }, shapes = ButtonDefaults.shapes()) {
                         Text(stringResource(R.string.editor_pdf_select_none))
                     }
                 }

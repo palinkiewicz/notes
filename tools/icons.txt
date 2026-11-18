@@ -1,0 +1,119 @@
+# Material Symbols Rounded used by DakNote, one name per line.
+# A trailing " fill" also fetches the filled form (sym_<name>_fill.xml), for an icon that fills in
+# when it is selected. The only way an icon enters the app: add it here and rerun
+#   python3 -I tools/fetch-icons.py
+# which regenerates core/ui/src/main/res/drawable/sym_*.xml. Name it in NotesIcons to use it.
+# Hand-made composites (notes_*.xml) live beside them and are not touched by the script.
+
+# Navigation and chrome
+add
+arrow_back
+arrow_downward
+arrow_drop_down
+arrow_forward
+arrow_upward
+check
+chevron_right
+close
+content_copy
+edit
+expand_more
+filter_alt
+info
+ios_share
+keyboard
+link
+more_vert
+open_in_new
+redo
+restart_alt
+search
+settings fill
+share
+sort
+star fill
+undo
+
+# The library
+apps fill
+create_new_folder
+delete fill
+delete_forever
+delete_sweep
+description fill
+draw fill
+drive_file_move
+error
+folder fill
+label fill
+note_stack fill
+picture_as_pdf
+restore_from_trash
+search_off
+sticky_note_2
+grid_view fill
+view_agenda fill
+
+# Drawing tools and the sheet
+arrow_range
+bookmark fill
+file_copy
+fit_page_height
+fit_page_width
+flip
+format_color_fill
+format_color_reset
+image
+crop
+ink_eraser
+ink_highlighter
+ink_marker
+input
+lasso_select
+layers
+lock
+lock_open_right
+note_add
+open_with
+palette
+rotate_right
+straighten
+stylus
+stylus_fountain_pen
+stylus_pencil
+swap_horiz
+text_fields
+texture
+touch_app
+
+# Markdown formatting
+checklist
+code
+code_blocks
+format_indent_decrease
+format_indent_increase
+format_list_bulleted
+format_list_numbered
+format_quote
+horizontal_rule
+markdown
+table
+title
+visibility
+
+# Settings
+animation
+backup
+brightness_auto fill
+contrast
+dark_mode fill
+edit_note
+light_mode fill
+sync
+vibration
+waves
+123
+
+# About
+favorite fill
+person

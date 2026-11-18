@@ -45,3 +45,19 @@ enum class DarkThemeOption(val key: String) {
             entries.firstOrNull { it.key == key } ?: SYSTEM
     }
 }
+
+/**
+ * How progress bars are drawn: the expressive wave, or a plain straight line.
+ *
+ * One of the Feel settings, beside haptics, rolling numbers and decorative motion. Keyed by a stable
+ * string like the other theme choices.
+ */
+enum class ProgressStyle(val key: String) {
+    WAVY("wavy"),
+    STRAIGHT("straight");
+
+    companion object {
+        fun fromKey(key: String): ProgressStyle =
+            entries.firstOrNull { it.key == key } ?: WAVY
+    }
+}

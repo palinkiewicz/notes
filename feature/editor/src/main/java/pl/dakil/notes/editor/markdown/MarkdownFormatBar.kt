@@ -1,7 +1,9 @@
 package pl.dakil.notes.editor.markdown
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.combinedClickable
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomAppBar
@@ -55,6 +56,8 @@ import pl.dakil.notes.editor.R
 import pl.dakil.notes.editor.markdown.MarkdownActions.BlockStyle
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.ui.color.ColorSwatch
+import pl.dakil.notes.editor.toolFace
+import pl.dakil.notes.ui.designsystem.rememberHaptics
 import pl.dakil.notes.ui.icons.NotesIcons
 
 /** Which of the format bar's popups is open. */
@@ -470,15 +473,16 @@ private fun BlockStyle.label(): String = when (this) {
 
 @Composable
 private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Unit) {
+    val haptics = rememberHaptics()
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(CircleShape)
-            .then(
-                if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
-                else Modifier
-            )
-            .clickable(onClick = onClick),
+            .toolFace(selected, interaction)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current) {
+                if (!selected) haptics.tick()
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         // The choices are typographic, so they are shown as type rather than as icons: an "H2" set
@@ -505,15 +509,14 @@ private fun BlockChoice(style: BlockStyle, selected: Boolean, onClick: () -> Uni
 @Composable
 private fun TextColorChoices(selected: Int?, choices: List<Int>, onSelect: (Int?) -> Unit) {
     // "Default" first: it is the way out, and the way out belongs where the thumb lands.
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(CircleShape)
-            .clickable(onClick = { onSelect(null) })
-            .then(
-                if (selected == null) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
-                else Modifier
-            ),
+            .toolFace(selected == null, interaction)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current) {
+                onSelect(null)
+            },
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -599,22 +602,39 @@ private fun FormatButton(
     onLongClick: (() -> Unit)? = null,
     popup: @Composable () -> Unit = {},
 ) {
+    val haptics = rememberHaptics()
+    val interaction = remember { MutableInteractionSource() }
+    val press = {
+        haptics.tick()
+        onClick()
+    }
     val button = @Composable {
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(CircleShape)
-                .then(
-                    if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
-                    else Modifier
-                )
+                .toolFace(selected, interaction)
                 .then(
                     if (onLongClick == null) {
-                        Modifier.clickable(enabled = enabled, onClick = onClick, onClickLabel = description)
+                        Modifier.clickable(
+                            interactionSource = interaction,
+                            indication = LocalIndication.current,
+                            enabled = enabled,
+                            onClickLabel = description,
+                            onClick = press,
+                        )
                     } else {
                         Modifier
                             .semantics { contentDescription = description }
-                            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick)
+                            .combinedClickable(
+                                interactionSource = interaction,
+                                indication = LocalIndication.current,
+                                enabled = enabled,
+                                onClick = press,
+                                onLongClick = {
+                                    haptics.longPress()
+                                    onLongClick()
+                                },
+                            )
                     }
                 ),
             contentAlignment = Alignment.Center,

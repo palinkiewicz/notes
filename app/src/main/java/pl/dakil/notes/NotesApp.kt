@@ -6,14 +6,16 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,6 +38,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import pl.dakil.notes.library.LibraryScreen
 import pl.dakil.notes.library.LibraryViewModel
 import pl.dakil.notes.library.R as LibraryR
+import pl.dakil.notes.ui.designsystem.AnimatedIcon
+import pl.dakil.notes.ui.designsystem.rememberHaptics
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.motion.blockInputWhileExiting
 import pl.dakil.notes.ui.motion.fadeThrough
@@ -65,9 +69,9 @@ private fun Destination.label(): String = stringResource(
 /**
  * The app shell.
  *
- * `NavigationSuiteScaffold` picks its own container from the window size class — a bottom bar on a
- * phone, a navigation rail on an unfolded foldable, a permanent drawer on a large tablet. That is
- * one composable covering three form factors with no manual branching, which is exactly what the
+ * `NavigationSuiteScaffold` picks its own container from the window size class — the expressive
+ * short navigation bar on a phone, a wide navigation rail on an unfolded foldable or a tablet. That
+ * is one composable covering every form factor with no manual branching, which is exactly what the
  * "use the platform's components" constraint is asking for.
  *
  * `navigation-compose` is deliberately absent: with two top-level destinations and an editor pushed
@@ -82,6 +86,9 @@ private fun Destination.label(): String = stringResource(
 fun NotesApp(container: AppContainer, darkTheme: Boolean) {
     var destination by rememberSaveable { mutableStateOf(Destination.LIBRARY) }
     var openNote by rememberSaveable { mutableStateOf<String?>(null) }
+    // Bumped when the Notes tab is tapped while already open; the library scrolls to its top.
+    var libraryReselected by remember { mutableIntStateOf(0) }
+    val haptics = rememberHaptics()
 
     // `WindowWidthSizeClass` is deprecated in window 1.5; breakpoints are the current API.
     // 840dp is the expanded threshold — the point at which a docked tool rail and a wider list
@@ -231,20 +238,33 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
             } else {
                 savedScreens.SaveableStateProvider("shell") {
                 NavigationSuiteScaffold(
-                    navigationSuiteItems = {
-                        // `navigationSuiteItems` is a plain builder, not a composable scope, so
-                        // the label is resolved inside the slots rather than hoisted above them.
+                    navigationItems = {
                         for (entry in Destination.entries) {
-                            item(
-                                selected = destination == entry,
-                                onClick = { destination = entry },
+                            val selected = destination == entry
+                            NavigationSuiteItem(
+                                selected = selected,
+                                onClick = {
+                                    if (selected) {
+                                        // Tapping the tab you are on takes you to its top, the
+                                        // way every other Android app's tabs behave.
+                                        if (entry == Destination.LIBRARY) libraryReselected++
+                                    } else {
+                                        haptics.tick()
+                                        destination = entry
+                                    }
+                                },
                                 icon = {
-                                    Icon(
-                                        imageVector = when (entry) {
+                                    AnimatedIcon(
+                                        outlined = when (entry) {
                                             Destination.LIBRARY -> NotesIcons.Note
                                             Destination.SETTINGS -> NotesIcons.Settings
                                         },
-                                        contentDescription = entry.label(),
+                                        filled = when (entry) {
+                                            Destination.LIBRARY -> NotesIcons.NoteFill
+                                            Destination.SETTINGS -> NotesIcons.SettingsFill
+                                        },
+                                        selected = selected,
+                                        contentDescription = null,
                                     )
                                 },
                                 label = { Text(entry.label()) },
@@ -282,6 +302,7 @@ fun NotesApp(container: AppContainer, darkTheme: Boolean) {
                                 LibraryScreen(
                                     viewModel = libraryViewModel,
                                     onOpenNote = { openNote = it.value },
+                                    reselected = libraryReselected,
                                 )
                             }
 

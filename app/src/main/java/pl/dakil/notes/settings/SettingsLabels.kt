@@ -11,6 +11,7 @@ import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.DarkThemeOption
 import pl.dakil.notes.model.MeasurementUnit
 import pl.dakil.notes.model.PressureCurve
+import pl.dakil.notes.model.ProgressStyle
 import pl.dakil.notes.model.RenderLayer
 import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutGroup
@@ -53,6 +54,14 @@ fun LibraryLayout.label(): String = stringResource(
     when (this) {
         LibraryLayout.CARDS -> R.string.library_layout_cards
         LibraryLayout.LIST -> R.string.library_layout_list
+    },
+)
+
+@Composable
+fun ProgressStyle.label(): String = stringResource(
+    when (this) {
+        ProgressStyle.WAVY -> R.string.progress_style_wavy
+        ProgressStyle.STRAIGHT -> R.string.progress_style_straight
     },
 )
 

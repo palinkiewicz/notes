@@ -1,33 +1,27 @@
 package pl.dakil.notes.settings
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.border
-import androidx.compose.ui.draw.clip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -45,8 +40,6 @@ import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.SettingsRepository
 import pl.dakil.notes.editor.PaperPreview
-// The theme menu's strings, shared with the editor rather than translated twice.
-import pl.dakil.notes.editor.R as EditorR
 import pl.dakil.notes.editor.ThemeNameDialog
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ColorPalette
@@ -54,8 +47,14 @@ import pl.dakil.notes.model.PageSize
 import pl.dakil.notes.model.PaperTheme
 import pl.dakil.notes.ui.color.ColorPickerSheet
 import pl.dakil.notes.ui.color.ColorSwatch
-import pl.dakil.notes.ui.components.flatTopAppBarColors
+import pl.dakil.notes.ui.designsystem.AppMenu
+import pl.dakil.notes.ui.designsystem.AppMenuGroup
+import pl.dakil.notes.ui.designsystem.AppMenuItem
+import pl.dakil.notes.ui.designsystem.CardShape
+import pl.dakil.notes.ui.designsystem.RollingText
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.theme.Spacing
+import pl.dakil.notes.editor.R as EditorR
 
 /**
  * The saved palette, laid out where there is room to manage it.
@@ -63,7 +62,6 @@ import pl.dakil.notes.ui.icons.NotesIcons
  * Everything here can also be done from the long-press menus in a picker; this screen is for the
  * people who never long-press, and for tidying a palette without a note open.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SavedColorsScreen(
     current: AppSettings,
@@ -91,73 +89,66 @@ fun SavedColorsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_saved_colours)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.common_back))
-                    }
-                },
-                colors = flatTopAppBarColors(),
-            )
-        },
+    SettingsSubscreen(
+        title = stringResource(R.string.settings_saved_colours),
+        onNavigateBack = onNavigateBack,
         snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Text(
-                text = stringResource(R.string.settings_saved_colours_description),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+    ) {
+        Text(
+            text = stringResource(R.string.settings_saved_colours_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+        )
 
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                saved.forEachIndexed { index, color ->
-                    SavedColorTile(
-                        color = color,
-                        index = index,
-                        count = saved.size,
-                        onEdit = { editing = ColorEdit(color) },
-                        onMove = { by -> settings.moveSavedColor(color, by) },
-                        onRemove = { remove(color) },
+        Surface(shape = CardShape, color = MaterialTheme.colorScheme.surfaceContainer) {
+            Column(Modifier.padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.l)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.m),
+                ) {
+                    saved.forEachIndexed { index, color ->
+                        SavedColorTile(
+                            color = color,
+                            index = index,
+                            count = saved.size,
+                            onEdit = { editing = ColorEdit(color) },
+                            onMove = { by -> settings.moveSavedColor(color, by) },
+                            onRemove = { remove(color) },
+                        )
+                    }
+                }
+
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalButton(
+                        onClick = { editing = ColorEdit(null) },
+                        enabled = saved.size < ColorPalette.MAX_SAVED,
+                        shapes = ButtonDefaults.shapes(),
+                    ) {
+                        Icon(
+                            NotesIcons.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Text(
+                            stringResource(R.string.settings_add_colour),
+                            Modifier.padding(start = ButtonDefaults.IconSpacing),
+                        )
+                    }
+                    RollingText(
+                        text = pluralStringResource(
+                            R.plurals.settings_saved_count, saved.size, saved.size, ColorPalette.MAX_SAVED,
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = Spacing.l),
                     )
                 }
             }
+        }
 
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedButton(
-                    onClick = { editing = ColorEdit(null) },
-                    enabled = saved.size < ColorPalette.MAX_SAVED,
-                ) {
-                    Icon(NotesIcons.Add, contentDescription = null)
-                    Text(stringResource(R.string.settings_add_colour), Modifier.padding(start = 8.dp))
-                }
-                Text(
-                    text = pluralStringResource(
-                        R.plurals.settings_saved_count, saved.size, saved.size, ColorPalette.MAX_SAVED,
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp),
-                )
-            }
-
-            SectionHeader(stringResource(R.string.settings_recent_colours))
+        SettingsGroup(stringResource(R.string.settings_recent_colours)) {
             SettingRow(
                 title = stringResource(R.string.settings_clear_recent),
                 summary = stringResource(R.string.settings_clear_recent_description),
@@ -203,29 +194,32 @@ private fun SavedColorTile(
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(72.dp)) {
         Box {
             ColorSwatch(color = color, selected = false, onClick = { menuOpen = true }, size = 56.dp)
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.settings_edit_colour)) },
-                    leadingIcon = { Icon(NotesIcons.Rename, contentDescription = null) },
-                    onClick = { menuOpen = false; onEdit() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.settings_move_earlier)) },
-                    leadingIcon = { Icon(NotesIcons.MoveEarlier, contentDescription = null) },
-                    enabled = index > 0,
-                    onClick = { menuOpen = false; onMove(-1) },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.settings_move_later)) },
-                    leadingIcon = { Icon(NotesIcons.MoveLater, contentDescription = null) },
-                    enabled = index < count - 1,
-                    onClick = { menuOpen = false; onMove(1) },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(pl.dakil.notes.ui.R.string.ui_color_remove)) },
-                    leadingIcon = { Icon(NotesIcons.Delete, contentDescription = null) },
-                    onClick = { menuOpen = false; onRemove() },
-                )
+            AppMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                AppMenuGroup {
+                    AppMenuItem(
+                        text = stringResource(R.string.settings_edit_colour),
+                        icon = NotesIcons.Rename,
+                        onClick = { menuOpen = false; onEdit() },
+                    )
+                    AppMenuItem(
+                        text = stringResource(R.string.settings_move_earlier),
+                        icon = NotesIcons.MoveEarlier,
+                        enabled = index > 0,
+                        onClick = { menuOpen = false; onMove(-1) },
+                    )
+                    AppMenuItem(
+                        text = stringResource(R.string.settings_move_later),
+                        icon = NotesIcons.MoveLater,
+                        enabled = index < count - 1,
+                        onClick = { menuOpen = false; onMove(1) },
+                    )
+                    AppMenuItem(
+                        text = stringResource(pl.dakil.notes.ui.R.string.ui_color_remove),
+                        icon = NotesIcons.Delete,
+                        destructive = true,
+                        onClick = { menuOpen = false; onRemove() },
+                    )
+                }
             }
         }
         Text(
@@ -246,7 +240,6 @@ private fun SavedColorTile(
  * Themes are made from a page, in Page setup, because that is where a paper can be seen while it
  * is set up — so this screen manages them but does not create them.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaperThemesScreen(
     current: AppSettings,
@@ -274,27 +267,12 @@ fun PaperThemesScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_paper_themes)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.common_back))
-                    }
-                },
-                colors = flatTopAppBarColors(),
-            )
-        },
+    SettingsSubscreen(
+        title = stringResource(R.string.settings_paper_themes),
+        onNavigateBack = onNavigateBack,
         snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
+    ) {
+        SettingsGroup {
             SelectRow(
                 title = stringResource(R.string.settings_new_note_paper),
                 summary = stringResource(R.string.settings_new_note_paper_description),
@@ -302,31 +280,32 @@ fun PaperThemesScreen(
                 options = listOf<Pair<String?, String>>(null to plain) + themes.map { it.id to it.name },
                 onSelect = settings::setDefaultPaperTheme,
             )
+        }
 
+        if (themes.isEmpty()) {
             SectionHeader(stringResource(R.string.settings_paper_themes))
-
-            if (themes.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.settings_paper_themes_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-
-            themes.forEachIndexed { index, theme ->
-                ThemeRow(
-                    theme = theme,
-                    isDefault = theme.id == current.defaultPaperThemeId,
-                    canMoveUp = index > 0,
-                    canMoveDown = index < themes.lastIndex,
-                    onMove = { by -> settings.movePaperTheme(theme.id, by) },
-                    onRename = { renaming = theme },
-                    onToggleDefault = {
-                        settings.setDefaultPaperTheme(if (theme.id == current.defaultPaperThemeId) null else theme.id)
-                    },
-                    onDelete = { delete(theme) },
-                )
+            Text(
+                text = stringResource(R.string.settings_paper_themes_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+            )
+        } else {
+            SettingsGroup(stringResource(R.string.settings_paper_themes)) {
+                themes.forEachIndexed { index, theme ->
+                    ThemeRow(
+                        theme = theme,
+                        isDefault = theme.id == current.defaultPaperThemeId,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < themes.lastIndex,
+                        onMove = { by -> settings.movePaperTheme(theme.id, by) },
+                        onRename = { renaming = theme },
+                        onToggleDefault = {
+                            settings.setDefaultPaperTheme(if (theme.id == current.defaultPaperThemeId) null else theme.id)
+                        },
+                        onDelete = { delete(theme) },
+                    )
+                }
             }
         }
     }
@@ -356,7 +335,7 @@ private fun ThemeRow(
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape(8.dp)
     SettingRow(
         title = theme.name,
         summary = if (isDefault) stringResource(EditorR.string.editor_theme_is_default) else null,
@@ -374,39 +353,38 @@ private fun ThemeRow(
         },
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onMove(-1) }, enabled = canMoveUp) {
+                IconButton(onClick = { onMove(-1) }, enabled = canMoveUp, shapes = IconButtonDefaults.shapes()) {
                     Icon(NotesIcons.MoveUp, contentDescription = stringResource(R.string.settings_move_earlier))
                 }
-                IconButton(onClick = { onMove(1) }, enabled = canMoveDown) {
+                IconButton(onClick = { onMove(1) }, enabled = canMoveDown, shapes = IconButtonDefaults.shapes()) {
                     Icon(NotesIcons.MoveDown, contentDescription = stringResource(R.string.settings_move_later))
                 }
                 Box {
-                    IconButton(onClick = { menuOpen = true }) {
+                    IconButton(onClick = { menuOpen = true }, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.More, contentDescription = stringResource(EditorR.string.editor_theme_options))
                     }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(
-                                        if (isDefault) EditorR.string.editor_theme_unset_default
-                                        else EditorR.string.editor_theme_set_default
-                                    )
-                                )
-                            },
-                            leadingIcon = { Icon(NotesIcons.Default, contentDescription = null) },
-                            onClick = { menuOpen = false; onToggleDefault() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(EditorR.string.editor_theme_rename)) },
-                            leadingIcon = { Icon(NotesIcons.Rename, contentDescription = null) },
-                            onClick = { menuOpen = false; onRename() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(EditorR.string.editor_theme_delete)) },
-                            leadingIcon = { Icon(NotesIcons.Delete, contentDescription = null) },
-                            onClick = { menuOpen = false; onDelete() },
-                        )
+                    AppMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        AppMenuGroup {
+                            AppMenuItem(
+                                text = stringResource(
+                                    if (isDefault) EditorR.string.editor_theme_unset_default
+                                    else EditorR.string.editor_theme_set_default
+                                ),
+                                icon = NotesIcons.Default,
+                                onClick = { menuOpen = false; onToggleDefault() },
+                            )
+                            AppMenuItem(
+                                text = stringResource(EditorR.string.editor_theme_rename),
+                                icon = NotesIcons.Rename,
+                                onClick = { menuOpen = false; onRename() },
+                            )
+                            AppMenuItem(
+                                text = stringResource(EditorR.string.editor_theme_delete),
+                                icon = NotesIcons.Delete,
+                                destructive = true,
+                                onClick = { menuOpen = false; onDelete() },
+                            )
+                        }
                     }
                 }
             }

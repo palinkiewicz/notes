@@ -18,6 +18,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.theme.NoteContentTheme
 import pl.dakil.notes.ui.sheet.InkNotePreview
 
 /**
@@ -60,7 +61,10 @@ fun NotePreviewBox(
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), Alignment.Center) {
         val current = sheet
         if (current != null) {
-            InkNotePreview(current.sheet, Modifier.fillMaxSize(), images = current.images, order = order)
+            // A picture of the page, so it is drawn the way the page is: in the note's own theme.
+            NoteContentTheme {
+                InkNotePreview(current.sheet, Modifier.fillMaxSize(), images = current.images, order = order)
+            }
         } else {
             Icon(
                 imageVector = if (note.summary.kind == NoteKind.INK) NotesIcons.InkNote else NotesIcons.TextNote,

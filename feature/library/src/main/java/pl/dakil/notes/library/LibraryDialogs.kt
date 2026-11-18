@@ -1,5 +1,6 @@
 package pl.dakil.notes.library
 
+import androidx.compose.material3.ButtonDefaults
 import pl.dakil.notes.sync.TrashNaming
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -59,10 +60,11 @@ fun NewFolderDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.isNotBlank(),
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.library_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.library_cancel)) }
         },
     )
 }
@@ -112,10 +114,10 @@ fun ConfirmDeleteDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text(stringResource(R.string.library_delete)) }
+            TextButton(onClick = onConfirm, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.library_delete)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.library_cancel)) }
         },
     )
 }

@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,6 +54,7 @@ import pl.dakil.notes.model.Sheet
 import pl.dakil.notes.ui.color.ColorPickerSheet
 import pl.dakil.notes.ui.icons.NotesIcons
 import pl.dakil.notes.ui.sheet.SheetPainter
+import pl.dakil.notes.ui.theme.tabular
 import kotlin.math.roundToInt
 
 /**
@@ -292,8 +295,8 @@ fun SelectionChrome(
                 Surface(
                     modifier = Modifier.layoutId(ActionBar),
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContainerColor,
+                    contentColor = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContentColor,
                     shadowElevation = 3.dp,
                 ) {
                     Row {
@@ -310,8 +313,8 @@ fun SelectionChrome(
                 Surface(
                     modifier = Modifier.layoutId(ActionBar),
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContainerColor,
+                    contentColor = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContentColor,
                     shadowElevation = 3.dp,
                 ) {
                     Row {
@@ -487,7 +490,7 @@ fun SelectionChrome(
 @Composable
 private fun InsideColorButton(color: Int, onClick: () -> Unit) {
     val description = stringResource(R.string.editor_selection_inside_colour)
-    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
+    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }, shapes = IconButtonDefaults.shapes()) {
         Surface(
             modifier = Modifier.size(22.dp),
             shape = CircleShape,
@@ -569,8 +572,8 @@ private fun BarButton(icon: ImageVector, @StringRes description: Int, onClick: (
     HandleButton(
         icon = icon,
         description = stringResource(description),
-        container = MaterialTheme.colorScheme.secondaryContainer,
-        content = MaterialTheme.colorScheme.onSecondaryContainer,
+        container = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContainerColor,
+        content = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContentColor,
         elevation = 0.dp,
         onClick = onClick,
     )
@@ -601,13 +604,13 @@ private fun TransformReadout(controller: SelectionController, modifier: Modifier
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        color = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContainerColor,
+        contentColor = FloatingToolbarDefaults.vibrantFloatingToolbarColors().toolbarContentColor,
         shadowElevation = 3.dp,
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelMedium.tabular(),
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }

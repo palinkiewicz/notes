@@ -4,7 +4,6 @@
     <string name="app_name">Notatki</string>
 
     <!--  COMMON  -->
-    <string name="common_back">Wstecz</string>
     <string name="common_close">Zamknij</string>
 
     <!--  NAVIGATION  -->
@@ -21,7 +20,7 @@
     <!--  SETTINGS  -->
     <string name="settings_title">Ustawienia</string>
     <string name="settings_appearance">Wygląd</string>
-    <string name="settings_appearance_summary">Motyw, tryb ciemny i układ biblioteki</string>
+    <string name="settings_appearance_summary">Kolory, tryb ciemny i wrażenia</string>
     <string name="settings_input">Pióro i wprowadzanie</string>
     <string name="settings_input_summary">Rysik, odrzucanie dłoni, nacisk i klawiatura</string>
     <string name="settings_about">O aplikacji</string>
@@ -29,6 +28,10 @@
     <string name="settings_section_general">Ogólne</string>
     <string name="settings_section_notes">Notatki</string>
     <string name="settings_section_data">Twoje dane</string>
+    <string name="settings_section_app">Aplikacja</string>
+    <string name="settings_section_schedule">Harmonogram</string>
+    <string name="settings_section_manual">Ręcznie</string>
+    <string name="settings_section_shapes">Kształty</string>
     <string name="settings_editor">Edytor</string>
     <string name="settings_editor_summary">Ponowne otwieranie, przewijanie, notatki tekstowe i obrazy</string>
     <string name="settings_paper_colours">Papier i kolory</string>
@@ -46,6 +49,15 @@
     <string name="settings_library">Biblioteka</string>
     <string name="settings_notes_layout">Układ notatek</string>
     <string name="settings_notes_layout_description">Karty pokazują podgląd każdej notatki; lista mieści ich więcej na ekranie.</string>
+    <string name="settings_section_feel">Wrażenia</string>
+    <string name="settings_haptics">Reakcje haptyczne</string>
+    <string name="settings_haptics_description">Delikatne wibracje przy przełączaniu, przeciąganiu i potwierdzaniu</string>
+    <string name="settings_animated_numbers">Animowane liczby</string>
+    <string name="settings_animated_numbers_description">Zmieniające się cyfry przewijają się jak w liczniku</string>
+    <string name="settings_decorative_animations">Animacje ozdobne</string>
+    <string name="settings_decorative_animations_description">Obroty, przemiany kształtów i wsuwające się karty. Przejścia między ekranami zostają</string>
+    <string name="settings_progress_style">Paski postępu</string>
+    <string name="settings_progress_style_description">Jak rysowane są paski postępu</string>
     <string name="settings_images">Obrazy</string>
     <string name="settings_image_insert">Wstawianie obrazu</string>
     <string name="settings_image_insert_description">Co robi przycisk obrazu. Przy wyborze zdjęć jako pierwszym przytrzymaj przycisk, aby zamiast tego wstawić obraz z linku.</string>
@@ -115,6 +127,8 @@
 
     <string name="library_layout_cards">Pływające karty</string>
     <string name="library_layout_list">Lista</string>
+    <string name="progress_style_wavy">Faliste</string>
+    <string name="progress_style_straight">Proste</string>
 
     <string name="unit_centimetres">Centymetry</string>
     <string name="unit_millimetres">Milimetry</string>
@@ -229,6 +243,8 @@
     <string name="about_repository">Repozytorium</string>
     <string name="about_author">Autor</string>
     <string name="about_credit">Pomysł i kochająca dziewczyna</string>
+    <string name="about_section_project">Projekt</string>
+    <string name="about_section_made_with">Zbudowane z użyciem</string>
 
     <!--  USTAWIENIA PRZECHOWYWANIA  -->
     <string name="settings_storage">Przechowywanie</string>

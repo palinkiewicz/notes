@@ -1,5 +1,7 @@
 package pl.dakil.notes.editor
 
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
 import pl.dakil.notes.editor.pdf.PdfInsertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,9 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,9 +22,6 @@ import pl.dakil.notes.data.SaveState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -74,9 +70,12 @@ import pl.dakil.notes.model.ShortcutAction
 import pl.dakil.notes.model.ShortcutContext
 import pl.dakil.notes.model.ToolId
 import pl.dakil.notes.model.ToolSpec
-import pl.dakil.notes.model.ViewMode
 import pl.dakil.notes.ui.color.ColorPickerSheet
 import pl.dakil.notes.ui.color.SavedPalette
+import pl.dakil.notes.ui.designsystem.AppMenu
+import pl.dakil.notes.ui.designsystem.AppMenuGroup
+import pl.dakil.notes.ui.designsystem.AppMenuItem
+import pl.dakil.notes.ui.designsystem.appTopBarColors
 import pl.dakil.notes.ui.dialog.RenameNoteDialog
 import pl.dakil.notes.ui.dialog.TagEditorDialog
 import pl.dakil.notes.ui.icons.NotesIcons
@@ -491,64 +490,67 @@ fun EditorScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.Back, contentDescription = stringResource(R.string.editor_back))
                     }
                 },
+                colors = appTopBarColors(),
                 actions = {
-                    IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
+                    IconButton(onClick = viewModel::undo, enabled = state.canUndo, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.Undo, contentDescription = stringResource(R.string.editor_undo))
                     }
-                    IconButton(onClick = viewModel::redo, enabled = state.canRedo) {
+                    IconButton(onClick = viewModel::redo, enabled = state.canRedo, shapes = IconButtonDefaults.shapes()) {
                         Icon(NotesIcons.Redo, contentDescription = stringResource(R.string.editor_redo))
                     }
                     Box {
-                        IconButton(onClick = { moreMenuOpen = true }) {
+                        IconButton(onClick = { moreMenuOpen = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(NotesIcons.More, contentDescription = stringResource(R.string.editor_more))
                         }
-                        DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_go_to_page)) },
-                                leadingIcon = { Icon(NotesIcons.GoToPage, contentDescription = null) },
-                                enabled = sheet != null,
-                                onClick = {
-                                    moreMenuOpen = false
-                                    goingToPage = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_insert_pdf)) },
-                                leadingIcon = { Icon(NotesIcons.Pdf, contentDescription = null) },
-                                enabled = sheet != null && !state.isReadOnly && !state.pdfReading,
-                                onClick = {
-                                    moreMenuOpen = false
-                                    pickPdf.launch(arrayOf("application/pdf"))
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_page_setup)) },
-                                leadingIcon = { Icon(NotesIcons.PageSetup, contentDescription = null) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    pageSetupOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_tags)) },
-                                leadingIcon = { Icon(NotesIcons.Tag, contentDescription = null) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    tagging = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.editor_export)) },
-                                leadingIcon = { Icon(NotesIcons.Export, contentDescription = null) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    exportOpen = true
-                                },
-                            )
+                        AppMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                            AppMenuGroup {
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_go_to_page),
+                                    icon = NotesIcons.GoToPage,
+                                    enabled = sheet != null,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        goingToPage = true
+                                    },
+                                )
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_insert_pdf),
+                                    icon = NotesIcons.Pdf,
+                                    enabled = sheet != null && !state.isReadOnly && !state.pdfReading,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        pickPdf.launch(arrayOf("application/pdf"))
+                                    },
+                                )
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_page_setup),
+                                    icon = NotesIcons.PageSetup,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        pageSetupOpen = true
+                                    },
+                                )
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_tags),
+                                    icon = NotesIcons.Tag,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        tagging = true
+                                    },
+                                )
+                                AppMenuItem(
+                                    text = stringResource(R.string.editor_export),
+                                    icon = NotesIcons.Export,
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        exportOpen = true
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -606,7 +608,7 @@ fun EditorScreen(
         ) {
             when {
                 state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
+                    LoadingIndicator()
                 }
 
                 errorMessage != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {

@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -43,7 +43,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import pl.dakil.notes.editor.R
+import pl.dakil.notes.ui.designsystem.AppMenu
+import pl.dakil.notes.ui.designsystem.AppMenuGroup
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.theme.tabular
 import kotlin.math.roundToInt
 
 /**
@@ -119,6 +122,7 @@ fun ZoomChip(
                 IconButton(
                     onClick = { transform.zoomLocked = !locked },
                     modifier = Modifier.size(32.dp),
+                    shapes = IconButtonDefaults.shapes(),
                 ) {
                     Icon(
                         imageVector = if (locked) NotesIcons.Lock else NotesIcons.LockOpen,
@@ -140,7 +144,7 @@ fun ZoomChip(
                 )
 
                 Box {
-                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp), shapes = IconButtonDefaults.shapes()) {
                         Icon(
                             imageVector = NotesIcons.ExpandMore,
                             contentDescription = stringResource(R.string.editor_zoom_set),
@@ -187,7 +191,7 @@ fun ZoomChip(
 private fun ZoomPercentLabel(percent: () -> Int, onClick: () -> Unit) {
     Text(
         text = stringResource(R.string.editor_zoom_percent_x, percent()),
-        style = MaterialTheme.typography.labelMedium,
+        style = MaterialTheme.typography.labelMedium.tabular(),
         color = MaterialTheme.colorScheme.onSurface,
         textAlign = TextAlign.Center,
         modifier = Modifier
@@ -246,10 +250,11 @@ private fun ZoomCustomDialog(
             TextButton(
                 enabled = parsed != null,
                 onClick = { parsed?.let { onConfirm(it, saveAsPreset) } },
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.editor_ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.editor_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.editor_cancel)) }
         },
     )
 }
@@ -274,76 +279,82 @@ private fun ZoomMenu(
     onAddPreset: (Int) -> Unit,
     onRemovePreset: (Int) -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    AppMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Reading the zoom inside the menu's content is safe: it is composed only while the menu is
         // open, which is not a moment anyone is pinching.
         val current = transform.percent()
         // 100% is offered unconditionally, so it counts as taken for the purposes of pinning.
         val fixed = (listOf(100) + presets).distinct().sorted()
+        // Offered only where it would do something. At a scale that is already on the list the
+        // entry would be a no-op that silently changes nothing when tapped.
+        val canPin = current !in fixed
+        val groups = if (canPin) 3 else 2
 
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.editor_zoom_fill_width)) },
-            leadingIcon = { Icon(NotesIcons.FillWidth, contentDescription = null) },
-            onClick = {
-                transform.zoomTo(transform.fitWidthZoom())
-                onDismiss()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.editor_zoom_fill_height)) },
-            leadingIcon = { Icon(NotesIcons.FillHeight, contentDescription = null) },
-            onClick = {
-                transform.zoomTo(transform.fitHeightZoom(pageHeightPx))
-                onDismiss()
-            },
-        )
-        HorizontalDivider()
-
-        for (percent in fixed) {
+        AppMenuGroup(index = 0, count = groups) {
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.editor_zoom_percent_x, percent)) },
-                leadingIcon = {
-                    // An empty slot on the others, rather than no slot: the labels have to line up
-                    // or the ticked entry looks like it belongs to a different list.
-                    if (percent == current) {
-                        Icon(
-                            imageVector = NotesIcons.Check,
-                            contentDescription = stringResource(R.string.editor_zoom_current),
-                        )
-                    } else {
-                        Box(Modifier.size(24.dp))
-                    }
-                },
-                trailingIcon = if (percent == 100) null else {
-                    {
-                        IconButton(onClick = { onRemovePreset(percent) }) {
-                            Icon(
-                                imageVector = NotesIcons.Close,
-                                contentDescription = stringResource(R.string.editor_zoom_forget_x, percent),
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                },
+                text = { Text(stringResource(R.string.editor_zoom_fill_width)) },
+                leadingIcon = { Icon(NotesIcons.FillWidth, contentDescription = null) },
                 onClick = {
-                    transform.zoomTo(percent / 100f)
+                    transform.zoomTo(transform.fitWidthZoom())
+                    onDismiss()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.editor_zoom_fill_height)) },
+                leadingIcon = { Icon(NotesIcons.FillHeight, contentDescription = null) },
+                onClick = {
+                    transform.zoomTo(transform.fitHeightZoom(pageHeightPx))
                     onDismiss()
                 },
             )
         }
 
-        // Offered only where it would do something. At a scale that is already on the list the
-        // entry would be a no-op that silently changes nothing when tapped.
-        if (current !in fixed) {
-            HorizontalDivider()
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.editor_zoom_make_preset)) },
-                leadingIcon = { Icon(NotesIcons.Add, contentDescription = null) },
-                onClick = {
-                    onAddPreset(current)
-                    onDismiss()
-                },
-            )
+        AppMenuGroup(index = 1, count = groups) {
+            for (percent in fixed) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.editor_zoom_percent_x, percent)) },
+                    leadingIcon = {
+                        // An empty slot on the others, rather than no slot: the labels have to line
+                        // up or the ticked entry looks like it belongs to a different list.
+                        if (percent == current) {
+                            Icon(
+                                imageVector = NotesIcons.Check,
+                                contentDescription = stringResource(R.string.editor_zoom_current),
+                            )
+                        } else {
+                            Box(Modifier.size(24.dp))
+                        }
+                    },
+                    trailingIcon = if (percent == 100) null else {
+                        {
+                            IconButton(onClick = { onRemovePreset(percent) }, shapes = IconButtonDefaults.shapes()) {
+                                Icon(
+                                    imageVector = NotesIcons.Close,
+                                    contentDescription = stringResource(R.string.editor_zoom_forget_x, percent),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        transform.zoomTo(percent / 100f)
+                        onDismiss()
+                    },
+                )
+            }
+        }
+
+        if (canPin) {
+            AppMenuGroup(index = 2, count = groups) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.editor_zoom_make_preset)) },
+                    leadingIcon = { Icon(NotesIcons.Add, contentDescription = null) },
+                    onClick = {
+                        onAddPreset(current)
+                        onDismiss()
+                    },
+                )
+            }
         }
     }
 }

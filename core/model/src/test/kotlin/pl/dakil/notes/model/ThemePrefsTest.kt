@@ -40,6 +40,13 @@ class ThemePrefsTest {
         }
     }
 
+    @Test
+    fun `every progress style survives a round trip through its key`() {
+        for (style in ProgressStyle.entries) {
+            assertEquals(style, ProgressStyle.fromKey(style.key))
+        }
+    }
+
     /**
      * A saved choice this build does not recognise has to open something rather than crash — that is
      * what lets a key be renamed, or a theme dropped, without stranding the people who picked it.
@@ -48,6 +55,8 @@ class ThemePrefsTest {
     fun `an unknown key falls back to the default rather than failing`() {
         assertEquals(AppColorTheme.DAKILS_NOTES, AppColorTheme.fromKey("mauve"))
         assertEquals(DarkThemeOption.SYSTEM, DarkThemeOption.fromKey(""))
+        // Wavy is the default the app ships with, so a lost choice lands back on it.
+        assertEquals(ProgressStyle.WAVY, ProgressStyle.fromKey("zigzag"))
     }
 
     /**
@@ -56,8 +65,9 @@ class ThemePrefsTest {
      */
     @Test
     fun `keys are unique and lower case`() {
-        val keys = AppColorTheme.entries.map { it.key } + DarkThemeOption.entries.map { it.key }
-        assertEquals(keys.size, keys.toSet().size)
+        val themeKeys = AppColorTheme.entries.map { it.key } + DarkThemeOption.entries.map { it.key }
+        assertEquals(themeKeys.size, themeKeys.toSet().size)
+        val keys = themeKeys + ProgressStyle.entries.map { it.key }
         for (key in keys) {
             assertEquals(key, key.lowercase(Locale.ROOT))
         }

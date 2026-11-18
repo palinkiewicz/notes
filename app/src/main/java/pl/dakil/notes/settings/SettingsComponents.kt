@@ -1,20 +1,20 @@
 package pl.dakil.notes.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,40 +23,104 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.graphics.shapes.RoundedPolygon
+import pl.dakil.notes.ui.designsystem.AppMenu
+import pl.dakil.notes.ui.designsystem.AppMenuChoiceItem
+import pl.dakil.notes.ui.designsystem.AppMenuGroup
+import pl.dakil.notes.ui.designsystem.AppSlider
+import pl.dakil.notes.ui.designsystem.BackButton
+import pl.dakil.notes.ui.designsystem.CollapsingScaffold
+import pl.dakil.notes.ui.designsystem.ConnectedToggleRow
+import pl.dakil.notes.ui.designsystem.PageColumn
+import pl.dakil.notes.ui.designsystem.RollingText
+import pl.dakil.notes.ui.designsystem.SegmentedGroup
+import pl.dakil.notes.ui.designsystem.ShapedIcon
+import pl.dakil.notes.ui.designsystem.ToggleOption
+import pl.dakil.notes.ui.designsystem.checkableItemColors
+import pl.dakil.notes.ui.designsystem.rememberHaptics
+import pl.dakil.notes.ui.designsystem.segmentedInnerShapes
+import pl.dakil.notes.ui.designsystem.segmentedItemColors
 import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.ui.theme.Spacing
+import pl.dakil.notes.ui.theme.tabular
 
 /**
  * The settings screens' whole visual vocabulary.
  *
- * Every row is built on one [SettingRow], so a switch, a slider and a submenu line up down the
- * screen without any of them naming a padding. That is the entire reason this file exists: the
- * previous settings screen hand-rolled a `Column` per control and they drifted apart.
- *
- * No cards and no dividers — grouping is a [SectionHeader] and whitespace, which is what the
- * platform's own settings look like and what a list of unrelated toggles actually needs.
+ * Every row is a segmented tile built on one [SettingRow], so a switch, a slider and a submenu line
+ * up down the screen without any of them naming a padding. Rows go in a [SettingsGroup], which joins
+ * them into one rounded card under a heading.
  */
 
 private const val DISABLED_ALPHA = 0.38f
+
+/** The shell of every settings subscreen: a collapsing title over a scrolling page. */
+@Composable
+fun SettingsSubscreen(
+    title: String,
+    onNavigateBack: () -> Unit,
+    spacing: Dp = Spacing.xs,
+    actions: @Composable RowScope.() -> Unit = {},
+    snackbarHost: @Composable () -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    CollapsingScaffold(
+        title = title,
+        navigationIcon = { BackButton(onNavigateBack) },
+        actions = actions,
+        snackbarHost = snackbarHost,
+    ) { padding ->
+        PageColumn(padding, spacing = spacing, content = content)
+    }
+}
 
 @Composable
 fun SectionHeader(title: String) {
     Text(
         text = title,
-        style = MaterialTheme.typography.titleSmall,
+        style = MaterialTheme.typography.labelLargeEmphasized,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 4.dp),
+        modifier = Modifier
+            .padding(start = Spacing.l, top = Spacing.l, end = Spacing.l, bottom = Spacing.xs)
+            .semantics { heading() },
     )
+}
+
+/** Rows that belong together: one rounded card, under a [title] if the group needs naming. */
+@Composable
+fun SettingsGroup(
+    title: String? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    title?.let { SectionHeader(it) }
+    SegmentedGroup(modifier, content)
+}
+
+/** The glyph a row leads with, in a polygon of its own so a list of them is easy to tell apart. */
+@Composable
+private fun RowIcon(
+    icon: ImageVector,
+    polygon: RoundedPolygon,
+    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+) {
+    ShapedIcon(icon = icon, polygon = polygon, containerColor = containerColor, contentColor = contentColor)
 }
 
 /**
  * The base every other row is made of.
  *
  * [trailing] is sized to its own content rather than a fixed column, so a switch, a chevron and a
- * value readout can all sit at the same edge without agreeing on a width beforehand.
+ * readout can all sit at the same edge without agreeing on a width beforehand. [value] sits at the
+ * end of the title's line instead, which leaves the whole width below it to [supporting].
  */
 @Composable
 fun SettingRow(
@@ -67,29 +131,55 @@ fun SettingRow(
     leading: (@Composable () -> Unit)? = null,
     supporting: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    value: (@Composable () -> Unit)? = null,
 ) {
-    ListItem(
-        modifier = Modifier
-            .then(
-                if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick)
-                else Modifier,
-            )
-            .alpha(if (enabled) 1f else DISABLED_ALPHA),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        headlineContent = { Text(title) },
-        supportingContent = if (summary != null || supporting != null) {
-            {
-                Column {
-                    summary?.let { Text(it) }
-                    supporting?.invoke()
-                }
+    val supportingContent: (@Composable () -> Unit)? = if (summary != null || supporting != null) {
+        {
+            Column {
+                summary?.let { Text(it) }
+                supporting?.invoke()
             }
+        }
+    } else {
+        null
+    }
+    val headline: @Composable () -> Unit = {
+        if (value == null) {
+            Text(title)
         } else {
-            null
-        },
-        leadingContent = leading,
-        trailingContent = trailing,
-    )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f).padding(end = Spacing.s))
+                value()
+            }
+        }
+    }
+    // Centred against the words however many lines they wrap to; a control below them is what makes
+    // a row tall enough that its icon belongs back up beside the title.
+    val alignment = if (supporting == null) Alignment.CenterVertically else ListItemDefaults.verticalAlignment()
+    if (onClick != null) {
+        SegmentedListItem(
+            onClick = onClick,
+            shapes = segmentedInnerShapes(),
+            enabled = enabled,
+            colors = segmentedItemColors(),
+            leadingContent = leading,
+            supportingContent = supportingContent,
+            trailingContent = trailing,
+            verticalAlignment = alignment,
+            content = headline,
+        )
+    } else {
+        SegmentedListItem(
+            shapes = segmentedInnerShapes(),
+            enabled = enabled,
+            colors = segmentedItemColors(),
+            leadingContent = leading,
+            supportingContent = supportingContent,
+            trailingContent = trailing,
+            verticalAlignment = alignment,
+            content = headline,
+        )
+    }
 }
 
 @Composable
@@ -99,18 +189,37 @@ fun SwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
+    icon: ImageVector? = null,
+    polygon: RoundedPolygon = MaterialShapes.Cookie9Sided,
 ) {
-    SettingRow(
-        title = title,
-        summary = summary,
-        enabled = enabled,
-        // The whole row is the target, not just the switch: a toggle you have to hit at the far edge
-        // of a tablet is a toggle people miss.
-        onClick = { onCheckedChange(!checked) },
-        trailing = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+    val haptics = rememberHaptics()
+    // The whole row is the target, not just the switch: a toggle you have to hit at the far edge of
+    // a tablet is a toggle people miss.
+    SegmentedListItem(
+        checked = checked,
+        onCheckedChange = {
+            haptics.toggle(it)
+            onCheckedChange(it)
         },
-    )
+        shapes = segmentedInnerShapes(),
+        enabled = enabled,
+        colors = checkableItemColors(),
+        verticalAlignment = Alignment.CenterVertically,
+        leadingContent = icon?.let { { RowIcon(it, polygon) } },
+        supportingContent = summary?.let { { Text(it) } },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = null,
+                enabled = enabled,
+                thumbContent = if (checked) {
+                    { Icon(NotesIcons.Check, contentDescription = null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
+                } else {
+                    null
+                },
+            )
+        },
+    ) { Text(title) }
 }
 
 /**
@@ -120,6 +229,9 @@ fun SwitchRow(
  * ink maths — a smoothing multiplier and a minimum pressure are genuinely fractional. [format] owns
  * the readout so the row never has to know whether it is showing milliseconds or a multiplier, and
  * it is composable because every one of those readouts is a string resource.
+ *
+ * The readout shares the title's line, so a value growing a digit cannot resize the track under the
+ * finger. It rolls only on a stepped slider: a continuous one changes it on every drag frame.
  */
 @Composable
 fun SliderRow(
@@ -133,12 +245,13 @@ fun SliderRow(
     /** Stops between the ends, as `Slider` counts them; 0 is a continuous slider. */
     steps: Int = 0,
 ) {
+    val readout = format(value)
     SettingRow(
         title = title,
         summary = summary,
         enabled = enabled,
         supporting = {
-            Slider(
+            AppSlider(
                 value = value,
                 onValueChange = onChange,
                 valueRange = range,
@@ -146,7 +259,15 @@ fun SliderRow(
                 enabled = enabled,
             )
         },
-        trailing = { Text(format(value)) },
+        value = {
+            val style = MaterialTheme.typography.titleMediumEmphasized.tabular()
+            val color = accentColor(enabled)
+            if (steps > 0) {
+                RollingText(readout, style = style, color = color)
+            } else {
+                Text(readout, style = style, color = color, maxLines = 1)
+            }
+        },
     )
 }
 
@@ -170,25 +291,30 @@ fun <T> SelectRow(
             // Anchored inside the trailing slot so the menu opens against the right edge, under the
             // value it is replacing, rather than over the title.
             Box {
+                val color = accentColor(enabled)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = options.firstOrNull { it.first == selected }?.second.orEmpty(),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = color,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 128.dp),
                     )
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    Icon(NotesIcons.ArrowDropDown, contentDescription = null, tint = color)
                 }
-                DropdownMenu(
-                    expanded = expanded && enabled,
-                    onDismissRequest = { expanded = false },
-                ) {
-                    options.forEach { (value, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = {
-                                onSelect(value)
-                                expanded = false
-                            },
-                        )
+                AppMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+                    AppMenuGroup {
+                        options.forEach { (option, label) ->
+                            AppMenuChoiceItem(
+                                text = label,
+                                selected = option == selected,
+                                onClick = {
+                                    onSelect(option)
+                                    expanded = false
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -196,19 +322,52 @@ fun <T> SelectRow(
     )
 }
 
-/** A row that opens another screen, marked with a trailing chevron. */
+/**
+ * Two or three choices worth seeing all at once, as a connected button row under the title.
+ * [preview] sits between the words and the buttons, for a choice that is easier shown than named.
+ */
+@Composable
+fun <T> ToggleRow(
+    title: String,
+    summary: String? = null,
+    options: List<ToggleOption<T>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+    polygon: RoundedPolygon = MaterialShapes.Cookie9Sided,
+    preview: (@Composable () -> Unit)? = null,
+) {
+    SettingRow(
+        title = title,
+        summary = summary,
+        enabled = enabled,
+        leading = icon?.let { { RowIcon(it, polygon) } },
+        supporting = {
+            Column(Modifier.padding(top = Spacing.s)) {
+                preview?.invoke()
+                ConnectedToggleRow(options = options, selected = selected, onSelect = onSelect, enabled = enabled)
+            }
+        },
+    )
+}
+
+/** A row that opens another screen: a shaped icon if it has one, and a trailing chevron. */
 @Composable
 fun NavigationRow(
     title: String,
     summary: String? = null,
     icon: ImageVector? = null,
+    polygon: RoundedPolygon = MaterialShapes.Cookie9Sided,
+    iconContainerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    iconContentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
     onClick: () -> Unit,
 ) {
     SettingRow(
         title = title,
         summary = summary,
         onClick = onClick,
-        leading = icon?.let { { Icon(it, contentDescription = null) } },
+        leading = icon?.let { { RowIcon(it, polygon, iconContainerColor, iconContentColor) } },
         trailing = {
             Icon(
                 imageVector = NotesIcons.ChevronRight,
@@ -218,3 +377,12 @@ fun NavigationRow(
         },
     )
 }
+
+/** A row's current value: the accent colour, greyed with the row when it is disabled. */
+@Composable
+private fun accentColor(enabled: Boolean): Color =
+    if (enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = DISABLED_ALPHA)
+    }

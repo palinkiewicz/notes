@@ -6,44 +6,38 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.semantics.Role
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import pl.dakil.notes.R
 import pl.dakil.notes.data.AppSettings
 import pl.dakil.notes.data.SyncFrequency
 import pl.dakil.notes.data.sync.BackupContents
 import pl.dakil.notes.data.sync.BackupResult
-import pl.dakil.notes.sync.BackupGroup
 import pl.dakil.notes.data.sync.RestoreResult
-import pl.dakil.notes.ui.components.flatTopAppBarColors
-import pl.dakil.notes.ui.icons.NotesIcons
+import pl.dakil.notes.sync.BackupGroup
+import pl.dakil.notes.ui.designsystem.AppCircularProgress
+import kotlin.math.roundToInt
 
 /**
  * Scheduled archives, written wherever the user points.
@@ -52,7 +46,6 @@ import pl.dakil.notes.ui.icons.NotesIcons
  * "to Proton Drive", "to an SD card" are all the same picker, because each of those ships a
  * `DocumentsProvider`. No account, no credential, no network permission.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackupSettingsScreen(
     current: AppSettings,
@@ -87,25 +80,8 @@ fun BackupSettingsScreen(
         onDismiss = viewModel::acknowledge,
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_backup)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(NotesIcons.Back, contentDescription = stringResource(R.string.common_back))
-                    }
-                },
-                colors = flatTopAppBarColors(),
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
-        ) {
-            SectionHeader(stringResource(R.string.settings_backup_destination))
-
+    SettingsSubscreen(stringResource(R.string.settings_backup), onNavigateBack) {
+        SettingsGroup {
             SettingRow(
                 title = stringResource(R.string.settings_backup_destination),
                 summary = current.backupDestination?.let(::readableTreeUri)
@@ -113,14 +89,14 @@ fun BackupSettingsScreen(
                 enabled = !state.busy,
                 onClick = { folderPicker.launch(null) },
                 trailing = if (state.busy) {
-                    { CircularProgressIndicator(Modifier.size(24.dp)) }
+                    { AppCircularProgress(Modifier.size(24.dp)) }
                 } else {
                     null
                 },
             )
+        }
 
-            SectionHeader(stringResource(R.string.settings_backup_auto))
-
+        SettingsGroup(stringResource(R.string.settings_section_schedule)) {
             SwitchRow(
                 title = stringResource(R.string.settings_backup_auto),
                 summary = stringResource(R.string.settings_backup_auto_description),
@@ -142,11 +118,13 @@ fun BackupSettingsScreen(
                 title = stringResource(R.string.settings_backup_keep),
                 value = current.backupKeep.toFloat(),
                 range = 0f..20f,
+                // Whole archives, so one stop each; rounded because a stop is a float near the count.
+                steps = 19,
                 format = { count ->
-                    if (count.toInt() == 0) stringResource(R.string.settings_backup_keep_all)
-                    else stringResource(R.string.settings_backup_keep_value, count.toInt())
+                    if (count.roundToInt() == 0) stringResource(R.string.settings_backup_keep_all)
+                    else stringResource(R.string.settings_backup_keep_value, count.roundToInt())
                 },
-                onChange = { viewModel.setBackupKeep(it.toInt()) },
+                onChange = { viewModel.setBackupKeep(it.roundToInt()) },
                 enabled = current.backupEnabled,
             )
 
@@ -163,9 +141,9 @@ fun BackupSettingsScreen(
                 onCheckedChange = viewModel::setBackupWifiOnly,
                 enabled = current.backupEnabled,
             )
+        }
 
-            SectionHeader(stringResource(R.string.settings_backup_now))
-
+        SettingsGroup(stringResource(R.string.settings_section_manual)) {
             SettingRow(
                 title = stringResource(R.string.settings_backup_now),
                 summary = stringResource(R.string.settings_backup_last, lastRunLabel(current.lastBackupAt)),
@@ -274,10 +252,11 @@ private fun RestoreChoiceDialog(
             TextButton(
                 onClick = { onConfirm(notes, chosen) },
                 enabled = notes || chosen.isNotEmpty(),
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.settings_restore_choose_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }

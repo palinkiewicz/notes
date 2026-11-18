@@ -43,8 +43,28 @@ android {
     }
     buildFeatures {
         compose = true
-        // The about dialog reports the app's own version name.
+        // The about screen reports the app's own version name.
         buildConfig = true
+    }
+    androidResources {
+        // The app speaks English and Polish. Without this every AndroidX library ships its handful
+        // of strings in ~90 more languages, a few hundred KB of resources.arsc nobody can reach.
+        localeFilters += listOf("en", "pl")
+    }
+}
+
+
+// Experimental M3 Expressive and foundation APIs are used throughout; opting in once here keeps
+// every screen free of @OptIn noise. They are pinned by version, so a change to one is a build
+// break to fix rather than a silent shift.
+kotlin {
+    compilerOptions {
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+            "androidx.compose.foundation.ExperimentalFoundationApi",
+            "androidx.compose.foundation.layout.ExperimentalLayoutApi",
+        )
     }
 }
 

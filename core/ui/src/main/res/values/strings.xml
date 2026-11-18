@@ -2,6 +2,7 @@
 <resources>
 
     <!--  SHARED ACTIONS  -->
+    <string name="ui_back">Back</string>
     <string name="ui_cancel">Cancel</string>
     <string name="ui_save">Save</string>
     <string name="ui_done">Done</string>

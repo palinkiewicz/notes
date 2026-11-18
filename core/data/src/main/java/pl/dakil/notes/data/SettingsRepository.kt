@@ -12,6 +12,7 @@ import pl.dakil.notes.model.AppColorTheme
 import pl.dakil.notes.model.ColorCodec
 import pl.dakil.notes.model.ColorPalette
 import pl.dakil.notes.model.DarkThemeOption
+import pl.dakil.notes.model.ProgressStyle
 import pl.dakil.notes.model.ExportOptions
 import pl.dakil.notes.model.InputConfig
 import pl.dakil.notes.model.PageBackground
@@ -115,6 +116,16 @@ data class AppSettings(
     val darkTheme: DarkThemeOption = DarkThemeOption.SYSTEM,
     /** True black backgrounds in dark mode, for OLED screens. Ignored in light mode. */
     val pureBlack: Boolean = false,
+
+    // ---- Feel: how the chrome responds. None of these reach inside a note.
+    /** Subtle vibrations when toggling, dragging and confirming. */
+    val hapticsEnabled: Boolean = true,
+    /** Changing counts roll their digits into place instead of jumping. */
+    val animatedNumbers: Boolean = true,
+    /** Spins, shape morphs and content cascading in. Screen transitions play regardless. */
+    val decorativeAnimations: Boolean = true,
+    /** Whether progress bars are wavy or straight. */
+    val progressStyle: ProgressStyle = ProgressStyle.WAVY,
     val toolbarPosition: ToolbarPosition = ToolbarPosition.BOTTOM,
     val defaultPageSize: PageSize = PageSize.A4,
     /** Paper themes the user saved, in the order they arranged them. */
@@ -263,6 +274,11 @@ class SettingsRepository(context: Context) {
         darkTheme = prefs.getString(KEY_DARK_THEME, null)
             ?.let(DarkThemeOption::fromKey) ?: DarkThemeOption.SYSTEM,
         pureBlack = prefs.getBoolean(KEY_PURE_BLACK, false),
+        hapticsEnabled = prefs.getBoolean(KEY_HAPTICS, true),
+        animatedNumbers = prefs.getBoolean(KEY_ANIMATED_NUMBERS, true),
+        decorativeAnimations = prefs.getBoolean(KEY_DECORATIVE_ANIMATIONS, true),
+        progressStyle = prefs.getString(KEY_PROGRESS_STYLE, null)
+            ?.let(ProgressStyle::fromKey) ?: ProgressStyle.WAVY,
         toolbarPosition = ToolbarPosition.entries
             .getOrElse(prefs.getInt(KEY_TOOLBAR_POSITION, 0)) { ToolbarPosition.BOTTOM },
         defaultPageSize = readPageSize(),
@@ -338,6 +354,17 @@ class SettingsRepository(context: Context) {
         prefs.edit().putString(KEY_DARK_THEME, option.key).apply()
 
     fun setPureBlack(enabled: Boolean) = prefs.edit().putBoolean(KEY_PURE_BLACK, enabled).apply()
+
+    fun setHapticsEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_HAPTICS, enabled).apply()
+
+    fun setAnimatedNumbers(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_ANIMATED_NUMBERS, enabled).apply()
+
+    fun setDecorativeAnimations(enabled: Boolean) =
+        prefs.edit().putBoolean(KEY_DECORATIVE_ANIMATIONS, enabled).apply()
+
+    fun setProgressStyle(style: ProgressStyle) =
+        prefs.edit().putString(KEY_PROGRESS_STYLE, style.key).apply()
 
     fun setToolbarPosition(position: ToolbarPosition) =
         prefs.edit().putInt(KEY_TOOLBAR_POSITION, position.ordinal).apply()
@@ -688,6 +715,10 @@ class SettingsRepository(context: Context) {
         const val KEY_COLOR_THEME = "ui.colorTheme"
         const val KEY_DARK_THEME = "ui.darkTheme"
         const val KEY_PURE_BLACK = "ui.pureBlack"
+        const val KEY_HAPTICS = "ui.haptics"
+        const val KEY_ANIMATED_NUMBERS = "ui.animatedNumbers"
+        const val KEY_DECORATIVE_ANIMATIONS = "ui.decorativeAnimations"
+        const val KEY_PROGRESS_STYLE = "ui.progressStyle"
         const val KEY_TOOLBAR_POSITION = "ui.toolbarPosition"
         const val KEY_LIBRARY_ROOT = "library.root"
         const val KEY_DEVICE_ID = "library.deviceId"

@@ -2,6 +2,7 @@
 <resources>
 
     <!--  SHARED ACTIONS  -->
+    <string name="ui_back">Wstecz</string>
     <string name="ui_cancel">Anuluj</string>
     <string name="ui_save">Zapisz</string>
     <string name="ui_done">Gotowe</string>
